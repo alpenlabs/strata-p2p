@@ -1,7 +1,7 @@
 [workspace]
-members = []
+members = ["crates/p2p"]
 
-default-members = []
+default-members = ["crates/p2p"]
 
 resolver = "2"
 
