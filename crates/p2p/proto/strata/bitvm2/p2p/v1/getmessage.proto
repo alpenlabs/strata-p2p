@@ -1,0 +1,31 @@
+syntax = "proto3";
+
+package strata.bitvm2.p2p.v1;
+
+import "strata/bitvm2/p2p/v1/gossipsub.proto";
+
+message DepositRequestKey {
+  bytes scope = 1;
+  bytes operator = 2;
+}
+
+message GenesisRequestKey {
+  bytes operator = 1;
+}
+
+message GetMessageRequest {
+  oneof body {
+    DepositRequestKey deposit_setup = 1;
+    DepositRequestKey deposit_nonce = 2;
+    DepositRequestKey deposit_sigs = 3;
+    GenesisRequestKey genesis_info = 4;
+  }
+}
+
+message GetMessageRequestBatch {
+  repeated GetMessageRequest requests = 1;
+}
+
+message GetMessageResponse {
+    repeated GossipsubMsg msg = 1;
+}
