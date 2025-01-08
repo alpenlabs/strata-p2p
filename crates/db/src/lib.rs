@@ -1,13 +1,15 @@
-mod sled;
-
 use async_trait::async_trait;
-use bitcoin::{hashes::sha256, OutPoint, XOnlyPublicKey};
-use libp2p::PeerId;
+use bitcoin::{OutPoint, XOnlyPublicKey, hashes::sha256};
+use libp2p_identity::PeerId;
 use musig2::{PartialSignature, PubNonce};
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{Serialize, de::DeserializeOwned};
 use snafu::{ResultExt, Snafu};
 
 use crate::states::PeerDepositState;
+
+mod prost_serde;
+mod sled;
+pub mod states;
 
 pub type DBResult<T> = Result<T, RepositoryError>;
 
@@ -175,30 +177,4 @@ pub struct DepositSetupEntry<DSP: prost::Message + Default> {
     #[serde(with = "prost_serde")]
     pub payload: DSP,
     pub signature: Vec<u8>,
-}
-
-mod prost_serde {
-    use std::io::Cursor;
-
-    use serde::{de::Error, Deserialize, Deserializer, Serializer};
-
-    pub fn serialize<T, S>(value: &T, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        T: prost::Message,
-        S: Serializer,
-    {
-        serializer.serialize_bytes(&value.encode_to_vec())
-    }
-
-    pub fn deserialize<'de, T, D>(deserializer: D) -> Result<T, D::Error>
-    where
-        D: Deserializer<'de>,
-        T: prost::Message + Default,
-    {
-        let bytes = Vec::<u8>::deserialize(deserializer)?;
-        let mut curr = Cursor::new(bytes);
-        let msg = T::decode(&mut curr).map_err(Error::custom)?;
-
-        Ok(msg)
-    }
 }

@@ -1,8 +1,7 @@
 use bitcoin::hashes::sha256;
 use libp2p::PeerId;
 use prost::Message;
-
-use crate::wire::p2p::v1::typed::{GossipsubMsg, GossipsubMsgKind};
+use strata_p2p_wire::p2p::v1::{GossipsubMsg, GossipsubMsgKind};
 
 /// Events emitted from P2P to handle from operator side.
 ///

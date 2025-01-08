@@ -15,9 +15,9 @@ use libp2p::{
     swarm::NetworkBehaviour,
     PeerId, StreamProtocol,
 };
+use strata_p2p_wire::p2p::v1::proto::{GetMessageRequest, GetMessageResponse};
 
 use super::{codec, hasher::Sha256Hasher, TOPIC};
-use crate::wire::p2p::v1::{GetMessageRequest, GetMessageResponse};
 
 pub type RequestResponseProtoBehaviour<Req, Resp> = RequestResponse<codec::Codec<Req, Resp>>;
 

@@ -11,7 +11,7 @@ use futures::{FutureExt, Stream, StreamExt};
 use libp2p::PeerId;
 use tokio::time::{sleep, Sleep};
 
-/// Kind of timeout which can be ommited by [`TimeoutsManager`].
+/// Kind of timeout which can be omitted by [`TimeoutsManager`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(crate) enum TimeoutEvent {
     /// Timeout related to genesis stage for some peer.

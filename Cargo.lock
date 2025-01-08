@@ -3192,7 +3192,28 @@ dependencies = [
  "libp2p",
  "musig2",
  "prost",
- "prost-build",
+ "rand",
+ "secp256k1",
+ "serde",
+ "sled",
+ "snafu",
+ "strata-p2p-db",
+ "strata-p2p-wire",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "strata-p2p-db"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "bitcoin",
+ "libp2p-identity",
+ "musig2",
+ "prost",
  "rand",
  "secp256k1",
  "serde",
@@ -3200,9 +3221,17 @@ dependencies = [
  "sled",
  "snafu",
  "tokio",
- "tokio-util",
- "tracing",
- "tracing-subscriber",
+]
+
+[[package]]
+name = "strata-p2p-wire"
+version = "0.1.0"
+dependencies = [
+ "bitcoin",
+ "libp2p-identity",
+ "musig2",
+ "prost",
+ "prost-build",
 ]
 
 [[package]]

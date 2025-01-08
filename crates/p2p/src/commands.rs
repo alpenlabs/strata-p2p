@@ -1,10 +1,9 @@
-//! Commands for P2P implementation from operator implemenation.
+//! Commands for P2P implementation from operator implementation.
 
 use bitcoin::{hashes::sha256, OutPoint, XOnlyPublicKey};
 use musig2::{PartialSignature, PubNonce};
 use prost::Message;
-
-use crate::wire::p2p::v1::typed::{
+use strata_p2p_wire::p2p::v1::{
     DepositNonces, DepositSetup, DepositSigs, GenesisInfo, GossipsubMsgDepositKind,
     GossipsubMsgKind,
 };

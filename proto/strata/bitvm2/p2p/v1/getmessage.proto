@@ -27,5 +27,5 @@ message GetMessageRequestBatch {
 }
 
 message GetMessageResponse {
-    repeated GossipsubMsg msg = 1;
+  repeated GossipsubMsg msg = 1;
 }

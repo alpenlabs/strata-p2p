@@ -27,15 +27,15 @@ impl From<sled::Error> for RepositoryError {
 #[cfg(test)]
 mod tests {
     use bitcoin::{
-        hashes::{sha256, Hash},
         OutPoint, XOnlyPublicKey,
+        hashes::{Hash, sha256},
     };
-    use libp2p::PeerId;
-    use musig2::{sign_partial, AggNonce, KeyAggContext, SecNonce};
+    use libp2p_identity::PeerId;
+    use musig2::{AggNonce, KeyAggContext, SecNonce, sign_partial};
     use rand::thread_rng;
     use secp256k1::{All, Keypair, Secp256k1};
 
-    use crate::db::{GenesisInfoEntry, NoncesEntry, PartialSignaturesEntry, RepositoryExt};
+    use crate::{GenesisInfoEntry, NoncesEntry, PartialSignaturesEntry, RepositoryExt};
 
     #[tokio::test]
     async fn test_repository() {
