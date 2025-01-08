@@ -21,6 +21,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@nightly
         with:
           toolchain: nightly-2024-07-27
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v3
       - uses: Swatinem/rust-cache@v2
         with:
           cache-on-failure: true
