@@ -18,6 +18,14 @@ use libp2p::{
 };
 use prost::Message as ProtoMsg;
 use snafu::prelude::*;
+use strata_p2p_db::{
+    states::PeerDepositState, DBResult, DepositSetupEntry, GenesisInfoEntry, NoncesEntry,
+    PartialSignaturesEntry, RepositoryError, RepositoryExt,
+};
+use strata_p2p_wire::p2p::v1::{
+    proto::{get_message_request, DepositRequestKey, GetMessageRequest, GetMessageResponse},
+    GossipsubMsg, GossipsubMsgDepositKind, GossipsubMsgKind,
+};
 use tokio::{
     select,
     sync::{broadcast, mpsc},
@@ -27,18 +35,8 @@ use tracing::{debug, error, info, instrument};
 
 use crate::{
     commands::Command,
-    db::{
-        DBResult, DepositSetupEntry, GenesisInfoEntry, NoncesEntry, PartialSignaturesEntry,
-        RepositoryError, RepositoryExt,
-    },
     events::{Event, EventKind},
-    states::PeerDepositState,
     timeouts::{TimeoutEvent, TimeoutsManager},
-    wire::p2p::v1::{
-        get_message_request,
-        typed::{GossipsubMsg, GossipsubMsgDepositKind, GossipsubMsgKind},
-        DepositRequestKey, GetMessageRequest, GetMessageResponse,
-    },
 };
 
 mod behavior;

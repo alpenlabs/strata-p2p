@@ -11,11 +11,8 @@ use libp2p::{
     PeerId,
 };
 use snafu::whatever;
-use strata_p2p::{
-    events::EventKind,
-    swarm::handle::P2PHandle,
-    wire::{GossipsubMsg, GossipsubMsgDepositKind, GossipsubMsgKind},
-};
+use strata_p2p::{events::EventKind, swarm::handle::P2PHandle};
+use strata_p2p_wire::p2p::v1::{GossipsubMsg, GossipsubMsgDepositKind, GossipsubMsgKind};
 use tokio::time::sleep;
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use tracing::info;

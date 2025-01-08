@@ -1,0 +1,48 @@
+syntax = "proto3";
+
+package strata.bitvm2.p2p.v1;
+
+message GenesisInfo {
+  // output number of pre stake tx
+  uint32 pre_stake_vout = 1;
+  // transaction hash of pre stake tx
+  bytes pre_stake_txid = 2;
+  // keys Y_{i, j}
+  repeated bytes checkpoint_pubkeys = 3;
+}
+
+message DepositSetupExchange {
+  // 32-byte hash of some unique to deposit data
+  bytes scope = 1;
+  // Some arbitrary payload which depends on the implementation.
+  bytes payload = 2;
+}
+
+message DepositNoncesExchange {
+  // 32-byte hash of some unique to deposit data
+  bytes scope = 1;
+  // Public nonces for each transaction
+  repeated bytes pub_nonces = 2;
+}
+
+message DepositSignaturesExchange {
+  // 32-byte hash of some unique to deposit data
+  bytes scope = 1;
+  // Partial signatures for each transaction
+  repeated bytes partial_sigs = 2;
+}
+
+message GossipsubMsg {
+  oneof body {
+    GenesisInfo genesis_info = 1;
+    DepositSetupExchange setup = 2;
+    DepositNoncesExchange nonce = 3;
+    DepositSignaturesExchange sigs = 4;
+  }
+  // Public key of the peer. The hash of this key must be the same as
+  // source PeerId of this message.
+  bytes key = 10;
+  // Signature of concatenated content of body (without protobuf
+  // serialization).
+  bytes signature = 11;
+}
