@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use libp2p::{identity::secp256k1::Keypair as SecpKeypair, Multiaddr, PeerId};
 use snafu::ResultExt;
-use strata_p2p::swarm::{handle::P2PHandle, P2PConfig, P2P};
+use strata_p2p::swarm::{self, handle::P2PHandle, P2PConfig, P2P};
 use tokio_util::sync::CancellationToken;
 
 pub struct Operator {
@@ -18,6 +18,11 @@ impl Operator {
         local_addr: Multiaddr,
         cancel: CancellationToken,
     ) -> Result<Self, snafu::Whatever> {
+        let db = sled::Config::new()
+            .temporary(true)
+            .open()
+            .whatever_context("Failed to init DB")?;
+
         let config = P2PConfig {
             next_stage_timeout: Duration::from_secs(10),
             keypair,
@@ -25,10 +30,11 @@ impl Operator {
             listening_addr: local_addr,
             allowlist,
             connect_to,
-            database_path: "in-memory".into(),
         };
 
-        let (p2p, handle) = P2P::<(), sled::Db>::from_config(config, cancel, true)
+        let swarm = swarm::with_inmemory_transport(&config)
+            .whatever_context("failed to initialize swarm")?;
+        let (p2p, handle) = P2P::<(), sled::Db>::from_config(config, cancel, db, swarm)
             .whatever_context("invalid p2p config")?;
 
         Ok(Self { handle, p2p })

@@ -1,4 +1,4 @@
-use std::{collections::HashSet, path::PathBuf, time::Duration};
+use std::{collections::HashSet, time::Duration};
 
 use behavior::{Behaviour, BehaviourEvent};
 use bitcoin::hashes::Hash;
@@ -48,6 +48,8 @@ mod hasher;
 
 const TOPIC: &str = "bitvm2";
 
+const PROTOCOL_NAME: &str = "/strata-bitvm2";
+
 #[derive(Snafu, Debug)]
 pub enum Error {
     #[snafu(display("Database error: {source}"))]
@@ -81,8 +83,6 @@ pub struct P2PConfig {
 
     /// Initial list of nodes to connect to at startup.
     pub connect_to: Vec<Multiaddr>,
-
-    pub database_path: PathBuf,
 }
 
 pub struct P2P<DepositSetupPayload: ProtoMsg + Clone, Repository> {
@@ -101,45 +101,16 @@ pub struct P2P<DepositSetupPayload: ProtoMsg + Clone, Repository> {
 /// Alias for returning without dropping channel to P2P and P2P itself.
 type P2PWithHandle<DSP, Repository> = (P2P<DSP, Repository>, P2PHandle<DSP>);
 
-impl<DSP> P2P<DSP, sled::Db>
+impl<DSP, DB: RepositoryExt<DSP>> P2P<DSP, DB>
 where
     DSP: ProtoMsg + Clone + Default + 'static,
 {
     pub fn from_config(
         cfg: P2PConfig,
         cancel: CancellationToken,
-        temporary_db: bool,
-    ) -> P2PResult<P2PWithHandle<DSP, sled::Db>> {
-        let builder = SwarmBuilder::with_existing_identity(cfg.keypair.clone().into()).with_tokio();
-
-        let mut swarm = if !temporary_db {
-            builder
-                .with_tcp(
-                    Default::default(),
-                    noise::Config::new,
-                    yamux::Config::default,
-                )
-                .whatever_context("falied to initialize transport")?
-                .with_behaviour(|_| Behaviour::new("/strata-bitvm2", &cfg.keypair, &cfg.allowlist))
-                .whatever_context("failed to initialize behaviour")?
-                .with_swarm_config(|c| c.with_idle_connection_timeout(cfg.idle_connection_timeout))
-                .build()
-        } else {
-            builder
-                .with_other_transport(|keys| {
-                    MemoryTransport::new()
-                        .upgrade(libp2p::core::upgrade::Version::V1)
-                        .authenticate(noise::Config::new(keys).unwrap())
-                        .multiplex(yamux::Config::default())
-                        .map(|(p, c), _| (p, StreamMuxerBox::new(c)))
-                })
-                .whatever_context("falied to initialize transport")?
-                .with_behaviour(|_| Behaviour::new("/strata-bitvm2", &cfg.keypair, &cfg.allowlist))
-                .whatever_context("failed to initialize behaviour")?
-                .with_swarm_config(|c| c.with_idle_connection_timeout(cfg.idle_connection_timeout))
-                .build()
-        };
-
+        db: DB,
+        mut swarm: Swarm<Behaviour>,
+    ) -> P2PResult<P2PWithHandle<DSP, DB>> {
         swarm
             .listen_on(cfg.listening_addr.clone())
             .whatever_context("failed to listen")?;
@@ -147,16 +118,6 @@ where
         let (events_tx, events_rx) = broadcast::channel(50_000);
         let (cmds_tx, cmds_rx) = mpsc::channel(50_000);
         let timeouts = TimeoutsManager::new();
-
-        let mut db_config = sled::Config::new();
-        if temporary_db {
-            db_config = db_config.temporary(true);
-        } else {
-            db_config = db_config.path(cfg.database_path.clone())
-        }
-        let db = db_config
-            .open()
-            .whatever_context("failed to initialize db")?;
 
         Ok((
             Self {
@@ -171,13 +132,7 @@ where
             P2PHandle::new(events_rx, cmds_tx),
         ))
     }
-}
 
-impl<DSP, DB> P2P<DSP, DB>
-where
-    DSP: ProtoMsg + Clone + Default + 'static,
-    DB: RepositoryExt<DSP>,
-{
     async fn init(&mut self) {
         let mut is_not_connected = HashSet::new();
         for addr in &self.config.connect_to {
@@ -229,7 +184,7 @@ where
     #[instrument(skip_all, fields(%peer_id = self.swarm.local_peer_id(), %addr = self.config.listening_addr))]
     pub async fn listen(mut self) {
         self.init().await;
-        info!("Established all connections and subscribtions");
+        info!("Established all connections and subscriptions");
 
         loop {
             let result = select! {
@@ -535,7 +490,7 @@ where
             PeerDepositState::Setup => get_message_request::Body::DepositNonce(request_key),
             PeerDepositState::Nonces => get_message_request::Body::DepositSigs(request_key),
             // NOTE(Velnbur): This should never happen, as after we got signatures from peer
-            // it's the final stage, so we shoudn't establish timeout at this point at all.
+            // it's the final stage, so we shouldn't establish timeout at this point at all.
             PeerDepositState::Sigs => {
                 debug!("Tried to request next stage after timeout, but we already got everything");
                 return Ok(());
@@ -628,4 +583,65 @@ fn validate_gossipsub_msg<DSP: prost::Message + Clone + Default>(
     }
 
     Ok(())
+}
+
+/// Constructs swarm builder with existing identity.
+///
+/// Macro is used here, as `libp2p` doesn't expose internal generic types
+/// of [`SwarmBuilder`] to actually specify return type of function. So we
+/// use macro for now.
+macro_rules! init_swarm {
+    ($cfg:expr) => {
+        SwarmBuilder::with_existing_identity($cfg.keypair.clone().into()).with_tokio()
+    };
+}
+
+/// Finish builder of swarm with paramets from config.
+///
+/// Again, macro is used as there is no way to specify this behaviour in
+/// function, because `with_tcp` and `with_other_transport` return
+/// completely different types that can't be generalized.
+macro_rules! finish_swarm {
+    ($builder:expr, $cfg:expr) => {
+        $builder
+            .whatever_context("failed to initialize transport")?
+            .with_behaviour(|_| Behaviour::new(PROTOCOL_NAME, &$cfg.keypair, &$cfg.allowlist))
+            .whatever_context("failed to initialize behaviour")?
+            .with_swarm_config(|c| c.with_idle_connection_timeout($cfg.idle_connection_timeout))
+            .build()
+    };
+}
+
+/// Construct swarm from P2P config with inmemory transport. Uses
+/// `/memory/{n}` addresses.
+pub fn with_inmemory_transport(config: &P2PConfig) -> P2PResult<Swarm<Behaviour>> {
+    let builder = init_swarm!(config);
+    let swarm = finish_swarm!(
+        builder.with_other_transport(|keys| {
+            MemoryTransport::new()
+                .upgrade(libp2p::core::upgrade::Version::V1)
+                .authenticate(noise::Config::new(keys).unwrap())
+                .multiplex(yamux::Config::default())
+                .map(|(p, c), _| (p, StreamMuxerBox::new(c)))
+        }),
+        config
+    );
+
+    Ok(swarm)
+}
+
+/// Construct swarm from P2P config with TCP transport. Uses
+/// `/ip4/{addr}/tcp/{port}` addresses.
+pub fn with_tcp_transport(config: &P2PConfig) -> P2PResult<Swarm<Behaviour>> {
+    let builder = init_swarm!(config);
+    let swarm = finish_swarm!(
+        builder.with_tcp(
+            Default::default(),
+            noise::Config::new,
+            yamux::Config::default,
+        ),
+        config
+    );
+
+    Ok(swarm)
 }
