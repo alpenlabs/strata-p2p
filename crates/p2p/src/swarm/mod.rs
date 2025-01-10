@@ -89,6 +89,9 @@ pub struct P2P<DepositSetupPayload: ProtoMsg + Clone, Repository> {
     events: broadcast::Sender<Event<DepositSetupPayload>>,
     commands: mpsc::Receiver<Command<DepositSetupPayload>>,
 
+    // We need this one to create new handles, as only sender is clonable.
+    commands_sender: mpsc::Sender<Command<DepositSetupPayload>>,
+
     db: Repository,
     timeouts_mng: TimeoutsManager,
 
@@ -113,6 +116,7 @@ where
             .listen_on(cfg.listening_addr.clone())
             .whatever_context("failed to listen")?;
 
+        // TODO(Velnbur): make this configurable
         let (events_tx, events_rx) = broadcast::channel(50_000);
         let (cmds_tx, cmds_rx) = mpsc::channel(50_000);
         let timeouts = TimeoutsManager::new();
@@ -122,6 +126,7 @@ where
                 swarm,
                 events: events_tx,
                 commands: cmds_rx,
+                commands_sender: cmds_tx.clone(),
                 db,
                 timeouts_mng: timeouts,
                 cancellation_token: cancel,
@@ -131,7 +136,18 @@ where
         ))
     }
 
-    async fn init(&mut self) {
+    pub fn local_peer_id(&self) -> PeerId {
+        *self.swarm.local_peer_id()
+    }
+
+    /// Create and return a new subscribed handler.
+    pub fn new_handle(&self) -> P2PHandle<DSP> {
+        P2PHandle::new(self.events.subscribe(), self.commands_sender.clone())
+    }
+
+    /// Wait until all connections are established and all peers are subscribed to
+    /// current one.
+    pub async fn establish_connections(&mut self) {
         let mut is_not_connected = HashSet::new();
         for addr in &self.config.connect_to {
             // TODO(Velnbur): add retry mechanism later...
@@ -177,13 +193,11 @@ where
                 break;
             }
         }
+
+        info!("Established all connections and subscriptions");
     }
 
-    #[instrument(skip_all, fields(%peer_id = self.swarm.local_peer_id(), %addr = self.config.listening_addr))]
     pub async fn listen(mut self) {
-        self.init().await;
-        info!("Established all connections and subscriptions");
-
         loop {
             let result = select! {
                 _ = self.cancellation_token.cancelled() => {
@@ -220,6 +234,11 @@ where
             BehaviourEvent::Gossipsub(event) => self.handle_gossip_event(event).await,
             BehaviourEvent::RequestResponse(event) => {
                 self.handle_response_request_event(event).await
+            }
+            BehaviourEvent::Identify(_event) => {
+                // let identify::Event::Received()
+                // self.swarm.behaviour_mut().gossipsub.add_explicit_peer(event.);
+                Ok(())
             }
             _ => Ok(()),
         }
