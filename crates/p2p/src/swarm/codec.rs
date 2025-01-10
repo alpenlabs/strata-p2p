@@ -1,5 +1,8 @@
 //! This module implement protobuf serialization/deserizliation codec for request-response
 //! behaviour.
+//!
+//! Copied from `rust-libp2p/protocols/request-response/src/json.rs` and
+//! rewritten using [`prost`] crate.
 
 use std::{io, marker::PhantomData};
 
@@ -7,6 +10,8 @@ use async_trait::async_trait;
 use futures::prelude::*;
 use libp2p::swarm::StreamProtocol;
 
+// NOTE(Velnbur): commit f096394 in rust-libp2p repo made this one
+// configurable recently, so we way want too.
 /// Max request size in bytes
 const REQUEST_SIZE_MAXIMUM: u64 = 1024 * 1024;
 /// Max response size in bytes
