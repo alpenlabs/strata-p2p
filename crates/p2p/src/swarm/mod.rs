@@ -1,14 +1,14 @@
 use std::{collections::HashSet, sync::LazyLock, time::Duration};
 
 use behavior::{Behaviour, BehaviourEvent};
-use bitcoin::hashes::Hash;
+use bitcoin::hashes::{sha256, Hash};
 use futures::StreamExt as _;
 use handle::P2PHandle;
 use libp2p::{
     core::{muxing::StreamMuxerBox, transport::MemoryTransport, ConnectedPoint},
     gossipsub::{Event as GossipsubEvent, Message, MessageAcceptance, MessageId, Sha256Topic},
     identity::secp256k1::Keypair,
-    noise,
+    noise, request_response,
     request_response::Event as RequestResponseEvent,
     swarm::SwarmEvent,
     yamux, Multiaddr, PeerId, Swarm, SwarmBuilder, Transport,
@@ -19,9 +19,17 @@ use strata_p2p_db::{
     states::PeerDepositState, DBResult, DepositSetupEntry, GenesisInfoEntry, NoncesEntry,
     PartialSignaturesEntry, RepositoryError, RepositoryExt,
 };
-use strata_p2p_wire::p2p::v1::{
-    proto::{get_message_request, DepositRequestKey, GetMessageRequest, GetMessageResponse},
-    GossipsubMsg, GossipsubMsgDepositKind, GossipsubMsgKind,
+use strata_p2p_wire::p2p::{
+    v1,
+    v1::{
+        proto,
+        proto::{
+            get_message_request, gossipsub_msg::Body, DepositRequestKey, GetMessageRequest,
+            GetMessageResponse,
+        },
+        DepositNonces, DepositSetup, DepositSigs, GetMessageRequestExchangeKind, GossipsubMsg,
+        GossipsubMsgDepositKind, GossipsubMsgKind,
+    },
 };
 use tokio::{
     select,
@@ -240,7 +248,7 @@ where
         match event {
             BehaviourEvent::Gossipsub(event) => self.handle_gossip_event(event).await,
             BehaviourEvent::RequestResponse(event) => {
-                self.handle_response_request_event(event).await
+                self.handle_request_response_event(event).await
             }
             BehaviourEvent::Identify(_event) => {
                 // let identify::Event::Received()
@@ -536,58 +544,231 @@ where
         Ok(())
     }
 
-    #[instrument(skip(self, _event))]
-    async fn handle_response_request_event(
+    #[instrument(skip(self, event))]
+    async fn handle_request_response_event(
         &mut self,
-        _event: RequestResponseEvent<GetMessageRequest, GetMessageResponse>,
+        event: RequestResponseEvent<GetMessageRequest, GetMessageResponse>,
     ) -> P2PResult<()> {
-        // let RequestResponseEvent::Message { peer, message } = event else {
-        //     return Ok(());
-        // };
+        let RequestResponseEvent::Message { peer, message } = event else {
+            return Ok(());
+        };
 
-        // match message {
-        //     request_response::Message::Request {
-        //         request_id,
-        //         request,
-        //         channel,
-        //     } => {
-        //         let Some(request) = typed::GetMessageRequest::from_msg(request) else {
-        //             debug!(%peer, "Peer sent invalid get message request, disconnecting it");
-        //             let _ = self.swarm.disconnect_peer_id(peer);
-        //             return Ok(());
-        //         };
-        //         match request {
-        //             typed::GetMessageRequest::Genesis { operator_id } => todo!(),
-        //             typed::GetMessageRequest::ExchangeSession {
-        //                 scope,
-        //                 operator_id,
-        //                 kind,
-        //             } => {
-        //                 match kind {
-        //                     typed::GetMessageRequestExchangeKind::Setup => self
-        //                         .db
-        //                         .get_deposit_setup(operator_id, scope)
-        //                         .map(|| GetMessageResponse {
-        //                             body: Some(get_message_response::Body::Setup(
-        //                                 DepositSetupExchange {
-        //                                     scope: todo!(),
-        //                                     payload: todo!(),
-        //                                 },
-        //                             )),
-        //                         }),
-        //                     typed::GetMessageRequestExchangeKind::Nonces => self.db.get,
-        //                     typed::GetMessageRequestExchangeKind::Signatures => todo!(),
-        //                 };
-        //             }
-        //         };
-        //     }
-        //     request_response::Message::Response {
-        //         request_id,
-        //         response,
-        //     } => todo!(),
-        // };
+        match message {
+            request_response::Message::Request {
+                request_id,
+                request,
+                channel,
+            } => {
+                let Some(req) = v1::GetMessageRequest::from_msg(request) else {
+                    debug!(%peer, "Peer sent invalid get message request, disconnecting it");
+                    let _ = self.swarm.disconnect_peer_id(peer);
+                    return Ok(());
+                };
 
-        todo!()
+                let body = self.handle_get_message_request(req).await?;
+
+                if body.is_none() {
+                    debug!(%request_id, "Have no needed data, requesting from neighbours");
+                    return Ok(()); // TODO(NikitaMasych): launch recursive request.
+                }
+
+                let msg = proto::GossipsubMsg {
+                    key: vec![],       // TODO(NikitaMasych): add sign msg
+                    signature: vec![], // TODO(NikitaMasych): add sign msg
+                    body,
+                };
+                let response = GetMessageResponse { msg: vec![msg] };
+
+                let _ = self
+                    .swarm
+                    .behaviour_mut()
+                    .request_response
+                    .send_response(channel, response)
+                    .inspect_err(|_| debug!("Failed to send response"));
+            }
+
+            request_response::Message::Response {
+                request_id,
+                response,
+            } => {
+                if response.msg.is_empty() {
+                    debug!(%request_id, "Have no needed data, requesting from neighbours");
+                    return Ok(()); // TODO(NikitaMasych): launch recursive request.
+                }
+                let mut all_messages_empty = true;
+                for msg in response.msg.into_iter() {
+                    // if let Err(err) = validate_gossipsub_msg(peer, &msg) {
+                    //     debug!(reason=%err, "Got invalid signature from peer, rejecting
+                    // message.");     let _ =
+                    // self.swarm.disconnect_peer_id(peer); // TODO(NikitaMasych): report validation
+                    // error?     return Ok(());
+                    // }
+
+                    if msg.body.is_none() {
+                        continue;
+                    }
+
+                    all_messages_empty = false;
+
+                    self.handle_get_message_response(peer, msg)
+                        .await
+                        .or_else(|err| {
+                            if !matches!(err, Error::Repository { .. }) {
+                                debug!(%peer, "Peer sent invalid message"); // TODO: punish?
+                            }
+                            Err(err)
+                        })?;
+                }
+                if all_messages_empty {
+                    debug!(%request_id, "Have no needed data, requesting from neighbours");
+                    return Ok(()); // TODO(NikitaMasych): launch recursive request.
+                }
+            }
+        };
+
+        Ok(())
+    }
+
+    async fn handle_get_message_request(
+        &mut self,
+        request: v1::GetMessageRequest,
+    ) -> P2PResult<Option<Body>> {
+        let body = match request {
+            v1::GetMessageRequest::Genesis { operator_id } => {
+                let info = self
+                    .db
+                    .get_genesis_info(operator_id)
+                    .await
+                    .context(RepositorySnafu)?;
+
+                info.map(|v| {
+                    Body::GenesisInfo(proto::GenesisInfo {
+                        pre_stake_vout: v.entry.0.vout,
+                        pre_stake_txid: v.entry.0.txid.to_byte_array().to_vec(),
+                        checkpoint_pubkeys: v
+                            .entry
+                            .1
+                            .iter()
+                            .map(|k| k.serialize().to_vec())
+                            .collect(),
+                    })
+                })
+            }
+            v1::GetMessageRequest::ExchangeSession {
+                scope,
+                operator_id,
+                kind,
+            } => match kind {
+                GetMessageRequestExchangeKind::Setup => {
+                    let setup = self
+                        .db
+                        .get_deposit_setup(operator_id, scope)
+                        .await
+                        .context(RepositorySnafu)?;
+
+                    setup.map(|v| {
+                        Body::Setup(proto::DepositSetupExchange {
+                            scope: scope.to_byte_array().to_vec(),
+                            payload: v.payload.encode_to_vec(),
+                        })
+                    })
+                }
+                GetMessageRequestExchangeKind::Nonces => {
+                    let nonces = self
+                        .db
+                        .get_pub_nonces(operator_id, scope)
+                        .await
+                        .context(RepositorySnafu)?;
+
+                    nonces.map(|v| {
+                        Body::Nonce(proto::DepositNoncesExchange {
+                            scope: scope.to_byte_array().to_vec(),
+                            pub_nonces: v.entry.iter().map(|n| n.serialize().to_vec()).collect(),
+                        })
+                    })
+                }
+                GetMessageRequestExchangeKind::Signatures => {
+                    let sigs = self
+                        .db
+                        .get_partial_signatures(operator_id, scope)
+                        .await
+                        .context(RepositorySnafu)?;
+
+                    sigs.map(|v| {
+                        Body::Sigs(proto::DepositSignaturesExchange {
+                            scope: scope.to_byte_array().to_vec(),
+                            partial_sigs: v.entry.iter().map(|n| n.serialize().to_vec()).collect(),
+                        })
+                    })
+                }
+            },
+        };
+
+        Ok(body)
+    }
+    async fn handle_get_message_response(
+        &mut self,
+        peer: PeerId,
+        msg: proto::GossipsubMsg,
+    ) -> P2PResult<()> {
+        match msg.body.unwrap() {
+            Body::Setup(v) => {
+                let scope = sha256::Hash::from_slice(&v.scope)
+                    .whatever_context("failed to convert scope")?;
+                let setup =
+                    DepositSetup::from_proto_msg(&v).whatever_context("failed to convert setup")?;
+                let entry = DepositSetupEntry {
+                    payload: setup.payload,
+                    signature: msg.signature,
+                };
+                self.db
+                    .set_deposit_setup(peer, scope, entry)
+                    .await
+                    .context(RepositorySnafu)?
+            }
+            Body::Nonce(v) => {
+                let scope = sha256::Hash::from_slice(&v.scope)
+                    .whatever_context("failed to convert scope")?;
+                let nonces = DepositNonces::from_proto_msg(&v)
+                    .whatever_context("failed to convert nonces")?;
+                let entry = NoncesEntry {
+                    entry: nonces.nonces,
+                    signature: msg.signature,
+                };
+                self.db
+                    .set_pub_nonces(peer, scope, entry)
+                    .await
+                    .context(RepositorySnafu)?
+            }
+            Body::Sigs(v) => {
+                let scope = sha256::Hash::from_slice(&v.scope)
+                    .whatever_context("failed to convert scope")?;
+                let sigs = DepositSigs::from_proto_msg(&v)
+                    .whatever_context("failed to convert signatures")?;
+                let entry = PartialSignaturesEntry {
+                    entry: sigs.partial_sigs,
+                    signature: msg.signature,
+                };
+                self.db
+                    .set_partial_signatures(peer, scope, entry)
+                    .await
+                    .context(RepositorySnafu)?
+            }
+            Body::GenesisInfo(v) => {
+                let info = v1::GenesisInfo::from_proto_msg(&v)
+                    .whatever_context("failed to convert genesis info")?;
+                let entry = GenesisInfoEntry {
+                    entry: (info.pre_stake_outpoint, info.checkpoint_pubkeys),
+                    signature: msg.signature,
+                };
+                self.db
+                    .set_genesis_info(peer, entry)
+                    .await
+                    .context(RepositorySnafu)?
+            }
+        }
+
+        Ok(())
     }
 }
 
