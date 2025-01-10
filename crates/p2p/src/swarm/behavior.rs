@@ -3,12 +3,11 @@ use std::collections::HashSet;
 use libp2p::{
     allow_block_list::{AllowedPeers, Behaviour as AllowListBehaviour},
     gossipsub::{
-        self, Behaviour as Gossipsub, Hasher, IdentityTransform, MessageAuthenticity,
+        self, Behaviour as Gossipsub, IdentityTransform, MessageAuthenticity,
         WhitelistSubscriptionFilter,
     },
     identify::{Behaviour as Identify, Config},
     identity::{secp256k1::Keypair, PublicKey},
-    ping::Behaviour as Ping,
     request_response::{
         Behaviour as RequestResponse, Config as RequestResponseConfig, ProtocolSupport,
     },
@@ -17,16 +16,23 @@ use libp2p::{
 };
 use strata_p2p_wire::p2p::v1::proto::{GetMessageRequest, GetMessageResponse};
 
-use super::{codec, hasher::Sha256Hasher, TOPIC};
+use super::{codec, TOPIC};
 
+/// Alias for request-response behaviour with messages serialized by using
+/// our codec implementation.
 pub type RequestResponseProtoBehaviour<Req, Resp> = RequestResponse<codec::Codec<Req, Resp>>;
 
+/// Composite behaviour which consists of other ones used by swarm in P2P
+/// implementation.
 #[derive(NetworkBehaviour)]
 pub struct Behaviour {
+    /// Gossipsub - pub/sub model for messages distribution.
     pub gossipsub: Gossipsub<IdentityTransform, WhitelistSubscriptionFilter>,
-    pub ping: Ping,
+    /// Identification of peers, address to connect to, public keys, etc.
     pub identify: Identify,
+    /// Request-response model for recursive discovery of lost or skipped info.
     pub request_response: RequestResponseProtoBehaviour<GetMessageRequest, GetMessageResponse>,
+    /// Connect only allowed peers by peer id.
     pub allow_list: AllowListBehaviour<AllowedPeers>,
 }
 
@@ -38,7 +44,7 @@ impl Behaviour {
         }
 
         let mut filter = HashSet::new();
-        filter.insert(Sha256Hasher::hash(TOPIC.to_owned()));
+        filter.insert(TOPIC.hash());
 
         Self {
             identify: Identify::new(Config::new(
@@ -51,9 +57,6 @@ impl Behaviour {
                 )),
                 gossipsub::ConfigBuilder::default()
                     .validation_mode(gossipsub::ValidationMode::Permissive)
-                    .flood_publish(true)
-                    .mesh_n_low(1)
-                    .mesh_outbound_min(1)
                     .validate_messages()
                     .build()
                     .expect("gossipsub config at this stage must be valid"),
@@ -61,7 +64,6 @@ impl Behaviour {
                 WhitelistSubscriptionFilter(filter),
             )
             .unwrap(),
-            ping: Ping::default(),
             request_response: RequestResponseProtoBehaviour::new(
                 [(StreamProtocol::new(protocol_name), ProtocolSupport::Full)],
                 RequestResponseConfig::default(),

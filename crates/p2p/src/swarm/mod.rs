@@ -1,15 +1,12 @@
-use std::{collections::HashSet, time::Duration};
+use std::{collections::HashSet, sync::LazyLock, time::Duration};
 
 use behavior::{Behaviour, BehaviourEvent};
 use bitcoin::hashes::Hash;
 use futures::StreamExt as _;
 use handle::P2PHandle;
-use hasher::Sha256Hasher;
 use libp2p::{
     core::{muxing::StreamMuxerBox, transport::MemoryTransport, ConnectedPoint},
-    gossipsub::{
-        Event as GossipsubEvent, Hasher as _, Message, MessageAcceptance, MessageId, Topic,
-    },
+    gossipsub::{Event as GossipsubEvent, Message, MessageAcceptance, MessageId, Sha256Topic},
     identity::secp256k1::Keypair,
     noise,
     request_response::Event as RequestResponseEvent,
@@ -42,10 +39,13 @@ use crate::{
 mod behavior;
 mod codec;
 pub mod handle;
-mod hasher;
 
-const TOPIC: &str = "bitvm2";
+// TODO(Velnbur): make this configurable later
+/// Global topic name for gossipsub messages.
+static TOPIC: LazyLock<Sha256Topic> = LazyLock::new(|| Sha256Topic::new("bitvm2"));
 
+// TODO(Velnbur): make this configurable later
+/// Global name of the protocol
 const PROTOCOL_NAME: &str = "/strata-bitvm2";
 
 #[derive(Snafu, Debug)]
@@ -63,6 +63,7 @@ pub enum Error {
 
 pub type P2PResult<T> = Result<T, Error>;
 
+/// Configuration options for [`P2P`].
 pub struct P2PConfig {
     /// Duration which will be considered stale after last moment current operator received message
     /// that advanced it's state.
@@ -83,6 +84,7 @@ pub struct P2PConfig {
     pub connect_to: Vec<Multiaddr>,
 }
 
+/// Implementation of p2p protocol for BitVM2 data exchange.
 pub struct P2P<DepositSetupPayload: ProtoMsg + Clone, Repository> {
     swarm: Swarm<Behaviour>,
 
@@ -99,8 +101,8 @@ pub struct P2P<DepositSetupPayload: ProtoMsg + Clone, Repository> {
     config: P2PConfig,
 }
 
-/// Alias for returning without dropping channel to P2P and P2P itself.
-type P2PWithHandle<DSP, Repository> = (P2P<DSP, Repository>, P2PHandle<DSP>);
+/// Alias for P2P and P2PHandle tuple returned by `from_config`.
+pub type P2PWithHandle<DSP, Repository> = (P2P<DSP, Repository>, P2PHandle<DSP>);
 
 impl<DSP, DB: RepositoryExt<DSP>> P2P<DSP, DB>
 where
@@ -163,7 +165,7 @@ where
             .swarm
             .behaviour_mut()
             .gossipsub
-            .subscribe(&Topic::<Sha256Hasher>::new(TOPIC))
+            .subscribe(&TOPIC)
             .inspect_err(|err| error!(%err, "Failed to subscribe for events"));
 
         let mut subscriptions = 0;
@@ -197,6 +199,11 @@ where
         info!("Established all connections and subscriptions");
     }
 
+    /// Start listening and handling events from the network and commands from
+    /// handles.
+    ///
+    /// This method should be spawned in separate async task or polled periodicly
+    /// to advance handling of new messages, event or commands.
     pub async fn listen(mut self) {
         loop {
             let result = select! {
@@ -258,6 +265,11 @@ where
         }
     }
 
+    /// Handle new message from gossipsub network.
+    ///
+    /// If message is not [`GossipsubMsg`] or is not signed, the message will
+    /// be rejected without propagation, otherwise if we didn't handled it
+    /// before, send an [`Event`] to handles, store it and reset timeout.
     #[instrument(skip(self, message), fields(sender = %message.source.unwrap()))]
     async fn handle_gossip_msg(
         &mut self,
@@ -288,7 +300,7 @@ where
             .source
             .expect("Message must have author as ValidationMode set to Permissive");
         if let Err(err) = validate_gossipsub_msg(source, &msg) {
-            debug!(reason=%err, "Got invalid message from peer, rejecting it.");
+            debug!(reason=%err, "Got invalid signature from peer, rejecting message.");
             // no error should appear in case of message rejection
             let _ = self
                 .swarm
@@ -334,8 +346,8 @@ where
         Ok(())
     }
 
-    /// Insert data received from event and reset timeout for this peer and deposit if it wasn't
-    /// set before.
+    /// Insert data received from event and reset timeout for this peer and
+    /// deposit if it wasn't set before.
     ///
     /// Returns if the data was already presented or not.
     async fn insert_msg_if_not_exists_with_timeout(
@@ -469,10 +481,7 @@ where
             .swarm
             .behaviour_mut()
             .gossipsub
-            .publish(
-                /* TODO(Velnbur): make this constant */ Sha256Hasher::hash(TOPIC.to_owned()),
-                msg.into_raw().encode_to_vec(),
-            )
+            .publish(TOPIC.hash(), msg.into_raw().encode_to_vec())
             .inspect_err(|err| debug!(%err, "Failed to publish msg through gossipsub"));
 
         Ok(())

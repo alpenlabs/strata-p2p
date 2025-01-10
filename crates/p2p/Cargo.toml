@@ -12,7 +12,6 @@ libp2p = { version = "0.54.1", features = [
   "tokio",
   "secp256k1",
   "macros",
-  "ping",
   "yamux",
   "identify",
 ] }
