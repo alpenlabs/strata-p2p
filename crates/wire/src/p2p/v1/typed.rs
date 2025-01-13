@@ -335,6 +335,15 @@ where
         })
     }
 
+    pub fn from_proto(msg: ProtoGossipMsg) -> Result<Self, DecodeError> {
+        Ok(Self {
+            signature: msg.signature,
+            key: PublicKey::try_from_bytes(&msg.key)
+                .map_err(|_| DecodeError::new("couldn't parse pub key"))?,
+            kind: GossipsubMsgKind::from_msg_proto(&msg.body.unwrap())?,
+        })
+    }
+
     pub fn into_raw(self) -> ProtoGossipMsg {
         ProtoGossipMsg {
             key: self.key.to_bytes().to_vec(),

@@ -1,8 +1,8 @@
 use async_trait::async_trait;
 use bitcoin::{OutPoint, XOnlyPublicKey, hashes::sha256};
-use libp2p_identity::PeerId;
+use libp2p_identity::{PeerId, secp256k1::PublicKey};
 use musig2::{PartialSignature, PubNonce};
-use serde::{Serialize, de::DeserializeOwned};
+use serde::{Deserialize, Deserializer, Serialize, Serializer, de::DeserializeOwned};
 use snafu::{ResultExt, Snafu};
 
 use crate::states::PeerDepositState;
@@ -23,15 +23,37 @@ pub enum RepositoryError {
     InvalidData { source: Box<dyn std::error::Error> },
 }
 
-#[derive(serde::Serialize, serde::Deserialize, Debug)]
-pub struct EntryWithSig<T> {
-    pub entry: T,
-    pub signature: Vec<u8>,
+pub mod public_key_serde {
+    use super::*;
+
+    pub fn serialize<S>(key: &PublicKey, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let key_bytes = key.to_bytes();
+        serializer.serialize_bytes(&key_bytes)
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<PublicKey, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let key_bytes: Vec<u8> = Deserialize::deserialize(deserializer)?;
+        PublicKey::try_from_bytes(&key_bytes).map_err(serde::de::Error::custom)
+    }
 }
 
-pub type PartialSignaturesEntry = EntryWithSig<Vec<PartialSignature>>;
-pub type NoncesEntry = EntryWithSig<Vec<PubNonce>>;
-pub type GenesisInfoEntry = EntryWithSig<(OutPoint, Vec<XOnlyPublicKey>)>;
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
+pub struct EntryWithSigAndKey<T> {
+    pub entry: T,
+    pub signature: Vec<u8>,
+    #[serde(with = "public_key_serde")]
+    pub key: PublicKey,
+}
+
+pub type PartialSignaturesEntry = EntryWithSigAndKey<Vec<PartialSignature>>;
+pub type NoncesEntry = EntryWithSigAndKey<Vec<PubNonce>>;
+pub type GenesisInfoEntry = EntryWithSigAndKey<(OutPoint, Vec<XOnlyPublicKey>)>;
 
 #[async_trait]
 pub trait Repository: Send + Sync + 'static {
@@ -177,4 +199,6 @@ pub struct DepositSetupEntry<DSP: prost::Message + Default> {
     #[serde(with = "prost_serde")]
     pub payload: DSP,
     pub signature: Vec<u8>,
+    #[serde(with = "public_key_serde")]
+    pub key: PublicKey,
 }
