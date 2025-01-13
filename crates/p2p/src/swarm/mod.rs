@@ -375,6 +375,7 @@ where
                             GenesisInfoEntry {
                                 entry: (info.pre_stake_outpoint, info.checkpoint_pubkeys.clone()),
                                 signature: msg.signature.clone(),
+                                key: msg.key.to_bytes().to_vec(),
                             },
                         )
                         .await?;
@@ -399,6 +400,7 @@ where
                                 DepositSetupEntry {
                                     payload: dep.payload.clone(),
                                     signature: msg.signature.clone(),
+                                    key: msg.key.to_bytes().to_vec(),
                                 },
                             )
                             .await?;
@@ -425,6 +427,7 @@ where
                                 NoncesEntry {
                                     entry: dep.nonces.clone(),
                                     signature: msg.signature.clone(),
+                                    key: msg.key.to_bytes().to_vec(),
                                 },
                             )
                             .await?;
@@ -450,6 +453,7 @@ where
                                 PartialSignaturesEntry {
                                     entry: dep.partial_sigs.clone(),
                                     signature: msg.signature.clone(),
+                                    key: msg.key.to_bytes().to_vec(),
                                 },
                             )
                             .await?;
@@ -565,19 +569,16 @@ where
                     return Ok(());
                 };
 
-                let body = self.handle_get_message_request(req).await?;
+                let msg = self.handle_get_message_request(req).await?;
 
-                if body.is_none() {
+                if msg.is_none() {
                     debug!(%request_id, "Have no needed data, requesting from neighbours");
                     return Ok(()); // TODO(NikitaMasych): launch recursive request.
                 }
 
-                let msg = proto::GossipsubMsg {
-                    key: vec![],       // TODO(NikitaMasych): add sign msg
-                    signature: vec![], // TODO(NikitaMasych): add sign msg
-                    body,
+                let response = GetMessageResponse {
+                    msg: vec![msg.unwrap()],
                 };
-                let response = GetMessageResponse { msg: vec![msg] };
 
                 let _ = self
                     .swarm
@@ -597,27 +598,35 @@ where
                 }
                 let mut all_messages_empty = true;
                 for msg in response.msg.into_iter() {
-                    // if let Err(err) = validate_gossipsub_msg(peer, &msg) {
-                    //     debug!(reason=%err, "Got invalid signature from peer, rejecting
-                    // message.");     let _ =
-                    // self.swarm.disconnect_peer_id(peer); // TODO(NikitaMasych): report validation
-                    // error?     return Ok(());
-                    // }
-
                     if msg.body.is_none() {
                         continue;
                     }
 
+                    // TODO: report/punish peer for invalid message?
+                    match GossipsubMsg::from_proto(msg.clone()) {
+                        Ok(msg) => {
+                            if let Err(err) = validate_gossipsub_msg::<DSP>(peer, &msg) {
+                                debug!(%peer, reason=%err, "Got invalid signature from peer, rejecting message.");
+                                continue;
+                            }
+                        }
+                        Err(err) => {
+                            debug!(%peer, reason=%err, "Peer sent invalid message");
+                            continue;
+                        }
+                    }
+
                     all_messages_empty = false;
 
-                    self.handle_get_message_response(peer, msg)
-                        .await
-                        .or_else(|err| {
-                            if !matches!(err, Error::Repository { .. }) {
-                                debug!(%peer, "Peer sent invalid message"); // TODO: punish?
-                            }
-                            Err(err)
-                        })?;
+                    let result = self.handle_get_message_response(peer, msg).await;
+
+                    if let Err(err) = result {
+                        if matches!(err, Error::Repository { .. }) {
+                            return Err(err);
+                        } else {
+                            debug!(%peer, reason=%err, "Peer sent invalid message");
+                        }
+                    }
                 }
                 if all_messages_empty {
                     debug!(%request_id, "Have no needed data, requesting from neighbours");
@@ -632,8 +641,8 @@ where
     async fn handle_get_message_request(
         &mut self,
         request: v1::GetMessageRequest,
-    ) -> P2PResult<Option<Body>> {
-        let body = match request {
+    ) -> P2PResult<Option<proto::GossipsubMsg>> {
+        let msg = match request {
             v1::GetMessageRequest::Genesis { operator_id } => {
                 let info = self
                     .db
@@ -641,8 +650,8 @@ where
                     .await
                     .context(RepositorySnafu)?;
 
-                info.map(|v| {
-                    Body::GenesisInfo(proto::GenesisInfo {
+                info.map(|v| proto::GossipsubMsg {
+                    body: Some(Body::GenesisInfo(proto::GenesisInfo {
                         pre_stake_vout: v.entry.0.vout,
                         pre_stake_txid: v.entry.0.txid.to_byte_array().to_vec(),
                         checkpoint_pubkeys: v
@@ -651,7 +660,9 @@ where
                             .iter()
                             .map(|k| k.serialize().to_vec())
                             .collect(),
-                    })
+                    })),
+                    signature: v.signature,
+                    key: v.key,
                 })
             }
             v1::GetMessageRequest::ExchangeSession {
@@ -666,11 +677,13 @@ where
                         .await
                         .context(RepositorySnafu)?;
 
-                    setup.map(|v| {
-                        Body::Setup(proto::DepositSetupExchange {
+                    setup.map(|v| proto::GossipsubMsg {
+                        body: Some(Body::Setup(proto::DepositSetupExchange {
                             scope: scope.to_byte_array().to_vec(),
                             payload: v.payload.encode_to_vec(),
-                        })
+                        })),
+                        signature: v.signature,
+                        key: v.key,
                     })
                 }
                 GetMessageRequestExchangeKind::Nonces => {
@@ -680,11 +693,13 @@ where
                         .await
                         .context(RepositorySnafu)?;
 
-                    nonces.map(|v| {
-                        Body::Nonce(proto::DepositNoncesExchange {
+                    nonces.map(|v| proto::GossipsubMsg {
+                        body: Some(Body::Nonce(proto::DepositNoncesExchange {
                             scope: scope.to_byte_array().to_vec(),
                             pub_nonces: v.entry.iter().map(|n| n.serialize().to_vec()).collect(),
-                        })
+                        })),
+                        signature: v.signature,
+                        key: v.key,
                     })
                 }
                 GetMessageRequestExchangeKind::Signatures => {
@@ -694,18 +709,21 @@ where
                         .await
                         .context(RepositorySnafu)?;
 
-                    sigs.map(|v| {
-                        Body::Sigs(proto::DepositSignaturesExchange {
+                    sigs.map(|v| proto::GossipsubMsg {
+                        body: Some(Body::Sigs(proto::DepositSignaturesExchange {
                             scope: scope.to_byte_array().to_vec(),
                             partial_sigs: v.entry.iter().map(|n| n.serialize().to_vec()).collect(),
-                        })
+                        })),
+                        signature: v.signature,
+                        key: v.key,
                     })
                 }
             },
         };
 
-        Ok(body)
+        Ok(msg)
     }
+
     async fn handle_get_message_response(
         &mut self,
         peer: PeerId,
@@ -720,6 +738,7 @@ where
                 let entry = DepositSetupEntry {
                     payload: setup.payload,
                     signature: msg.signature,
+                    key: msg.key,
                 };
                 self.db
                     .set_deposit_setup(peer, scope, entry)
@@ -734,6 +753,7 @@ where
                 let entry = NoncesEntry {
                     entry: nonces.nonces,
                     signature: msg.signature,
+                    key: msg.key,
                 };
                 self.db
                     .set_pub_nonces(peer, scope, entry)
@@ -748,6 +768,7 @@ where
                 let entry = PartialSignaturesEntry {
                     entry: sigs.partial_sigs,
                     signature: msg.signature,
+                    key: msg.key,
                 };
                 self.db
                     .set_partial_signatures(peer, scope, entry)
@@ -760,6 +781,7 @@ where
                 let entry = GenesisInfoEntry {
                     entry: (info.pre_stake_outpoint, info.checkpoint_pubkeys),
                     signature: msg.signature,
+                    key: msg.key,
                 };
                 self.db
                     .set_genesis_info(peer, entry)

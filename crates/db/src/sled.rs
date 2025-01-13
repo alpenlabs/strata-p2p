@@ -62,6 +62,7 @@ mod tests {
             let nonces_entry = NoncesEntry {
                 entry: vec![pub_nonce.clone()],
                 signature: vec![0x8; 32],
+                key: vec![0x8; 32],
             };
 
             db.set_pub_nonces(operator_id, tx_id, nonces_entry)
@@ -77,6 +78,7 @@ mod tests {
             let sigs_entry = PartialSignaturesEntry {
                 entry: vec![signature],
                 signature: vec![],
+                key: vec![0x8; 32],
             };
 
             db.set_partial_signatures(operator_id, tx_id, sigs_entry)
@@ -96,6 +98,7 @@ mod tests {
             let entry = GenesisInfoEntry {
                 entry: (outpoint, checkpoint_pubkeys.clone()),
                 signature: vec![],
+                key: vec![0x8; 32],
             };
 
             db.set_genesis_info(operator_id, entry).await.unwrap();

@@ -24,14 +24,15 @@ pub enum RepositoryError {
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
-pub struct EntryWithSig<T> {
+pub struct EntryWithSigAndKey<T> {
     pub entry: T,
     pub signature: Vec<u8>,
+    pub key: Vec<u8>, // public key used to create a signature
 }
 
-pub type PartialSignaturesEntry = EntryWithSig<Vec<PartialSignature>>;
-pub type NoncesEntry = EntryWithSig<Vec<PubNonce>>;
-pub type GenesisInfoEntry = EntryWithSig<(OutPoint, Vec<XOnlyPublicKey>)>;
+pub type PartialSignaturesEntry = EntryWithSigAndKey<Vec<PartialSignature>>;
+pub type NoncesEntry = EntryWithSigAndKey<Vec<PubNonce>>;
+pub type GenesisInfoEntry = EntryWithSigAndKey<(OutPoint, Vec<XOnlyPublicKey>)>;
 
 #[async_trait]
 pub trait Repository: Send + Sync + 'static {
@@ -177,4 +178,5 @@ pub struct DepositSetupEntry<DSP: prost::Message + Default> {
     #[serde(with = "prost_serde")]
     pub payload: DSP,
     pub signature: Vec<u8>,
+    pub key: Vec<u8>, // public key used to create a signature
 }
