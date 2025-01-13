@@ -1,0 +1,13 @@
+[package]
+name = "strata-p2p-wire"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+bitcoin.workspace = true
+libp2p-identity.workspace = true
+musig2.workspace = true
+prost.workspace = true
+
+[build-dependencies]
+prost-build = "0.13.4"
