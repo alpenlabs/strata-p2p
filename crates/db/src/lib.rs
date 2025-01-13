@@ -23,34 +23,23 @@ pub enum RepositoryError {
     InvalidData { source: Box<dyn std::error::Error> },
 }
 
-#[derive(Debug, Clone)]
-pub struct SerializablePublicKey(pub PublicKey);
+pub mod public_key_serde {
+    use super::*;
 
-impl Serialize for SerializablePublicKey {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    pub fn serialize<S>(key: &PublicKey, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
-        let key_bytes = self.0.to_bytes();
+        let key_bytes = key.to_bytes();
         serializer.serialize_bytes(&key_bytes)
     }
-}
 
-impl<'de> Deserialize<'de> for SerializablePublicKey {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<PublicKey, D::Error>
     where
         D: Deserializer<'de>,
     {
         let key_bytes: Vec<u8> = Deserialize::deserialize(deserializer)?;
-        PublicKey::try_from_bytes(&key_bytes)
-            .map(SerializablePublicKey)
-            .map_err(serde::de::Error::custom)
-    }
-}
-
-impl From<PublicKey> for SerializablePublicKey {
-    fn from(key: PublicKey) -> Self {
-        SerializablePublicKey(key)
+        PublicKey::try_from_bytes(&key_bytes).map_err(serde::de::Error::custom)
     }
 }
 
@@ -58,7 +47,8 @@ impl From<PublicKey> for SerializablePublicKey {
 pub struct EntryWithSigAndKey<T> {
     pub entry: T,
     pub signature: Vec<u8>,
-    pub key: SerializablePublicKey,
+    #[serde(with = "public_key_serde")]
+    pub key: PublicKey,
 }
 
 pub type PartialSignaturesEntry = EntryWithSigAndKey<Vec<PartialSignature>>;
@@ -209,5 +199,6 @@ pub struct DepositSetupEntry<DSP: prost::Message + Default> {
     #[serde(with = "prost_serde")]
     pub payload: DSP,
     pub signature: Vec<u8>,
-    pub key: SerializablePublicKey,
+    #[serde(with = "public_key_serde")]
+    pub key: PublicKey,
 }

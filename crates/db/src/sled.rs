@@ -30,14 +30,12 @@ mod tests {
         OutPoint, XOnlyPublicKey,
         hashes::{Hash, sha256},
     };
-    use libp2p_identity::PeerId;
+    use libp2p_identity::{PeerId, secp256k1::PublicKey};
     use musig2::{AggNonce, KeyAggContext, SecNonce, sign_partial};
     use rand::thread_rng;
     use secp256k1::{All, Keypair, Secp256k1};
 
-    use crate::{
-        GenesisInfoEntry, NoncesEntry, PartialSignaturesEntry, RepositoryExt, SerializablePublicKey,
-    };
+    use crate::{GenesisInfoEntry, NoncesEntry, PartialSignaturesEntry, RepositoryExt};
 
     #[tokio::test]
     async fn test_repository() {
@@ -130,10 +128,8 @@ mod tests {
         xonly
     }
 
-    fn generate_random_pubkey() -> SerializablePublicKey {
-        let keypair = libp2p_identity::secp256k1::Keypair::generate();
-        let pk = keypair.public().clone();
-
-        SerializablePublicKey::from(pk)
+    fn generate_random_pubkey() -> PublicKey {
+        let kp = libp2p_identity::secp256k1::Keypair::generate();
+        kp.public().clone()
     }
 }

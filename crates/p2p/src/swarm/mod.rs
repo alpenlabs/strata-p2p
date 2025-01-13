@@ -374,7 +374,7 @@ where
                             GenesisInfoEntry {
                                 entry: (info.pre_stake_outpoint, info.checkpoint_pubkeys.clone()),
                                 signature: msg.signature.clone(),
-                                key: msg.key.clone().into(),
+                                key: msg.key.clone(),
                             },
                         )
                         .await?;
@@ -399,7 +399,7 @@ where
                                 DepositSetupEntry {
                                     payload: dep.payload.clone(),
                                     signature: msg.signature.clone(),
-                                    key: msg.key.clone().into(),
+                                    key: msg.key.clone(),
                                 },
                             )
                             .await?;
@@ -426,7 +426,7 @@ where
                                 NoncesEntry {
                                     entry: dep.nonces.clone(),
                                     signature: msg.signature.clone(),
-                                    key: msg.key.clone().into(),
+                                    key: msg.key.clone(),
                                 },
                             )
                             .await?;
@@ -452,7 +452,7 @@ where
                                 PartialSignaturesEntry {
                                     entry: dep.partial_sigs.clone(),
                                     signature: msg.signature.clone(),
-                                    key: msg.key.clone().into(),
+                                    key: msg.key.clone(),
                                 },
                             )
                             .await?;
@@ -558,7 +558,7 @@ where
             error,
         } = event
         {
-            debug!(peer=?peer, error=?error, request_id=?request_id, "Failed to send response");
+            debug!(%peer, %error, %request_id, "Failed to send response");
             return Ok(());
         }
         let RequestResponseEvent::Message { peer, message } = event else {
@@ -600,7 +600,7 @@ where
                     debug!(%request_id, "Have no needed data, requesting from neighbours");
                     return Ok(()); // TODO(NikitaMasych): launch recursive request.
                 }
-                let mut all_messages_empty = true;
+
                 for msg in response.msg.into_iter() {
                     if msg.body.is_none() {
                         continue;
@@ -619,13 +619,7 @@ where
                         continue;
                     }
 
-                    all_messages_empty = false;
-
                     self.handle_get_message_response(peer, msg).await?
-                }
-                if all_messages_empty {
-                    debug!(%request_id, "Have no needed data, requesting from neighbours");
-                    return Ok(()); // TODO(NikitaMasych): launch recursive request.
                 }
             }
         };
@@ -657,7 +651,7 @@ where
                             .collect(),
                     })),
                     signature: v.signature,
-                    key: v.key.0.to_bytes().to_vec(),
+                    key: v.key.to_bytes().to_vec(),
                 })
             }
             v1::GetMessageRequest::ExchangeSession {
@@ -678,7 +672,7 @@ where
                             payload: v.payload.encode_to_vec(),
                         })),
                         signature: v.signature,
-                        key: v.key.0.to_bytes().to_vec(),
+                        key: v.key.to_bytes().to_vec(),
                     })
                 }
                 GetMessageRequestExchangeKind::Nonces => {
@@ -694,7 +688,7 @@ where
                             pub_nonces: v.entry.iter().map(|n| n.serialize().to_vec()).collect(),
                         })),
                         signature: v.signature,
-                        key: v.key.0.to_bytes().to_vec(),
+                        key: v.key.to_bytes().to_vec(),
                     })
                 }
                 GetMessageRequestExchangeKind::Signatures => {
@@ -710,7 +704,7 @@ where
                             partial_sigs: v.entry.iter().map(|n| n.serialize().to_vec()).collect(),
                         })),
                         signature: v.signature,
-                        key: v.key.0.to_bytes().to_vec(),
+                        key: v.key.to_bytes().to_vec(),
                     })
                 }
             },
@@ -729,7 +723,7 @@ where
                 let entry = GenesisInfoEntry {
                     entry: (v.pre_stake_outpoint, v.checkpoint_pubkeys),
                     signature: msg.signature,
-                    key: msg.key.clone().into(),
+                    key: msg.key.clone(),
                 };
                 self.db
                     .set_genesis_info(peer, entry)
@@ -741,7 +735,7 @@ where
                     let entry = PartialSignaturesEntry {
                         entry: v.partial_sigs,
                         signature: msg.signature,
-                        key: msg.key.clone().into(),
+                        key: msg.key.clone(),
                     };
                     self.db
                         .set_partial_signatures(peer, scope, entry)
@@ -752,7 +746,7 @@ where
                     let entry = DepositSetupEntry {
                         payload: v.payload,
                         signature: msg.signature,
-                        key: msg.key.clone().into(),
+                        key: msg.key.clone(),
                     };
                     self.db
                         .set_deposit_setup(peer, scope, entry)
@@ -763,7 +757,7 @@ where
                     let entry = NoncesEntry {
                         entry: v.nonces,
                         signature: msg.signature,
-                        key: msg.key.clone().into(),
+                        key: msg.key.clone(),
                     };
                     self.db
                         .set_pub_nonces(peer, scope, entry)
