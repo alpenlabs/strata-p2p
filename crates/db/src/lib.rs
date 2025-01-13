@@ -1,8 +1,8 @@
 use async_trait::async_trait;
 use bitcoin::{OutPoint, XOnlyPublicKey, hashes::sha256};
-use libp2p_identity::PeerId;
+use libp2p_identity::{PeerId, secp256k1::PublicKey};
 use musig2::{PartialSignature, PubNonce};
-use serde::{Serialize, de::DeserializeOwned};
+use serde::{Deserialize, Deserializer, Serialize, Serializer, de::DeserializeOwned};
 use snafu::{ResultExt, Snafu};
 
 use crate::states::PeerDepositState;
@@ -23,11 +23,42 @@ pub enum RepositoryError {
     InvalidData { source: Box<dyn std::error::Error> },
 }
 
+#[derive(Debug, Clone)]
+pub struct SerializablePublicKey(pub PublicKey);
+
+impl Serialize for SerializablePublicKey {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let key_bytes = self.0.to_bytes();
+        serializer.serialize_bytes(&key_bytes)
+    }
+}
+
+impl<'de> Deserialize<'de> for SerializablePublicKey {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let key_bytes: Vec<u8> = Deserialize::deserialize(deserializer)?;
+        PublicKey::try_from_bytes(&key_bytes)
+            .map(SerializablePublicKey)
+            .map_err(serde::de::Error::custom)
+    }
+}
+
+impl From<PublicKey> for SerializablePublicKey {
+    fn from(key: PublicKey) -> Self {
+        SerializablePublicKey(key)
+    }
+}
+
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
 pub struct EntryWithSigAndKey<T> {
     pub entry: T,
     pub signature: Vec<u8>,
-    pub key: Vec<u8>, // public key used to create a signature
+    pub key: SerializablePublicKey,
 }
 
 pub type PartialSignaturesEntry = EntryWithSigAndKey<Vec<PartialSignature>>;
@@ -178,5 +209,5 @@ pub struct DepositSetupEntry<DSP: prost::Message + Default> {
     #[serde(with = "prost_serde")]
     pub payload: DSP,
     pub signature: Vec<u8>,
-    pub key: Vec<u8>, // public key used to create a signature
+    pub key: SerializablePublicKey,
 }

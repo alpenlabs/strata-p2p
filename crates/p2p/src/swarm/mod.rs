@@ -1,7 +1,7 @@
 use std::{collections::HashSet, sync::LazyLock, time::Duration};
 
 use behavior::{Behaviour, BehaviourEvent};
-use bitcoin::hashes::{sha256, Hash};
+use bitcoin::hashes::Hash;
 use futures::StreamExt as _;
 use handle::P2PHandle;
 use libp2p::{
@@ -27,8 +27,7 @@ use strata_p2p_wire::p2p::{
             get_message_request, gossipsub_msg::Body, DepositRequestKey, GetMessageRequest,
             GetMessageResponse,
         },
-        DepositNonces, DepositSetup, DepositSigs, GetMessageRequestExchangeKind, GossipsubMsg,
-        GossipsubMsgDepositKind, GossipsubMsgKind,
+        GetMessageRequestExchangeKind, GossipsubMsg, GossipsubMsgDepositKind, GossipsubMsgKind,
     },
 };
 use tokio::{
@@ -375,7 +374,7 @@ where
                             GenesisInfoEntry {
                                 entry: (info.pre_stake_outpoint, info.checkpoint_pubkeys.clone()),
                                 signature: msg.signature.clone(),
-                                key: msg.key.to_bytes().to_vec(),
+                                key: msg.key.clone().into(),
                             },
                         )
                         .await?;
@@ -400,7 +399,7 @@ where
                                 DepositSetupEntry {
                                     payload: dep.payload.clone(),
                                     signature: msg.signature.clone(),
-                                    key: msg.key.to_bytes().to_vec(),
+                                    key: msg.key.clone().into(),
                                 },
                             )
                             .await?;
@@ -427,7 +426,7 @@ where
                                 NoncesEntry {
                                     entry: dep.nonces.clone(),
                                     signature: msg.signature.clone(),
-                                    key: msg.key.to_bytes().to_vec(),
+                                    key: msg.key.clone().into(),
                                 },
                             )
                             .await?;
@@ -453,7 +452,7 @@ where
                                 PartialSignaturesEntry {
                                     entry: dep.partial_sigs.clone(),
                                     signature: msg.signature.clone(),
-                                    key: msg.key.to_bytes().to_vec(),
+                                    key: msg.key.clone().into(),
                                 },
                             )
                             .await?;
@@ -553,6 +552,15 @@ where
         &mut self,
         event: RequestResponseEvent<GetMessageRequest, GetMessageResponse>,
     ) -> P2PResult<()> {
+        if let RequestResponseEvent::InboundFailure {
+            peer,
+            request_id,
+            error,
+        } = event
+        {
+            debug!(peer=?peer, error=?error, request_id=?request_id, "Failed to send response");
+            return Ok(());
+        }
         let RequestResponseEvent::Message { peer, message } = event else {
             return Ok(());
         };
@@ -569,16 +577,12 @@ where
                     return Ok(());
                 };
 
-                let msg = self.handle_get_message_request(req).await?;
-
-                if msg.is_none() {
+                let Some(msg) = self.handle_get_message_request(req).await? else {
                     debug!(%request_id, "Have no needed data, requesting from neighbours");
                     return Ok(()); // TODO(NikitaMasych): launch recursive request.
-                }
-
-                let response = GetMessageResponse {
-                    msg: vec![msg.unwrap()],
                 };
+
+                let response = GetMessageResponse { msg: vec![msg] };
 
                 let _ = self
                     .swarm
@@ -603,30 +607,21 @@ where
                     }
 
                     // TODO: report/punish peer for invalid message?
-                    match GossipsubMsg::from_proto(msg.clone()) {
-                        Ok(msg) => {
-                            if let Err(err) = validate_gossipsub_msg::<DSP>(peer, &msg) {
-                                debug!(%peer, reason=%err, "Got invalid signature from peer, rejecting message.");
-                                continue;
-                            }
-                        }
+                    let msg = match GossipsubMsg::from_proto(msg.clone()) {
+                        Ok(msg) => msg,
                         Err(err) => {
                             debug!(%peer, reason=%err, "Peer sent invalid message");
                             continue;
                         }
+                    };
+                    if let Err(err) = validate_gossipsub_msg::<DSP>(peer, &msg) {
+                        debug!(%peer, reason=%err, "Got invalid signature from peer, rejecting message.");
+                        continue;
                     }
 
                     all_messages_empty = false;
 
-                    let result = self.handle_get_message_response(peer, msg).await;
-
-                    if let Err(err) = result {
-                        if matches!(err, Error::Repository { .. }) {
-                            return Err(err);
-                        } else {
-                            debug!(%peer, reason=%err, "Peer sent invalid message");
-                        }
-                    }
+                    self.handle_get_message_response(peer, msg).await?
                 }
                 if all_messages_empty {
                     debug!(%request_id, "Have no needed data, requesting from neighbours");
@@ -662,7 +657,7 @@ where
                             .collect(),
                     })),
                     signature: v.signature,
-                    key: v.key,
+                    key: v.key.0.to_bytes().to_vec(),
                 })
             }
             v1::GetMessageRequest::ExchangeSession {
@@ -683,7 +678,7 @@ where
                             payload: v.payload.encode_to_vec(),
                         })),
                         signature: v.signature,
-                        key: v.key,
+                        key: v.key.0.to_bytes().to_vec(),
                     })
                 }
                 GetMessageRequestExchangeKind::Nonces => {
@@ -699,7 +694,7 @@ where
                             pub_nonces: v.entry.iter().map(|n| n.serialize().to_vec()).collect(),
                         })),
                         signature: v.signature,
-                        key: v.key,
+                        key: v.key.0.to_bytes().to_vec(),
                     })
                 }
                 GetMessageRequestExchangeKind::Signatures => {
@@ -715,7 +710,7 @@ where
                             partial_sigs: v.entry.iter().map(|n| n.serialize().to_vec()).collect(),
                         })),
                         signature: v.signature,
-                        key: v.key,
+                        key: v.key.0.to_bytes().to_vec(),
                     })
                 }
             },
@@ -727,67 +722,55 @@ where
     async fn handle_get_message_response(
         &mut self,
         peer: PeerId,
-        msg: proto::GossipsubMsg,
+        msg: GossipsubMsg<DSP>,
     ) -> P2PResult<()> {
-        match msg.body.unwrap() {
-            Body::Setup(v) => {
-                let scope = sha256::Hash::from_slice(&v.scope)
-                    .whatever_context("failed to convert scope")?;
-                let setup =
-                    DepositSetup::from_proto_msg(&v).whatever_context("failed to convert setup")?;
-                let entry = DepositSetupEntry {
-                    payload: setup.payload,
-                    signature: msg.signature,
-                    key: msg.key,
-                };
-                self.db
-                    .set_deposit_setup(peer, scope, entry)
-                    .await
-                    .context(RepositorySnafu)?
-            }
-            Body::Nonce(v) => {
-                let scope = sha256::Hash::from_slice(&v.scope)
-                    .whatever_context("failed to convert scope")?;
-                let nonces = DepositNonces::from_proto_msg(&v)
-                    .whatever_context("failed to convert nonces")?;
-                let entry = NoncesEntry {
-                    entry: nonces.nonces,
-                    signature: msg.signature,
-                    key: msg.key,
-                };
-                self.db
-                    .set_pub_nonces(peer, scope, entry)
-                    .await
-                    .context(RepositorySnafu)?
-            }
-            Body::Sigs(v) => {
-                let scope = sha256::Hash::from_slice(&v.scope)
-                    .whatever_context("failed to convert scope")?;
-                let sigs = DepositSigs::from_proto_msg(&v)
-                    .whatever_context("failed to convert signatures")?;
-                let entry = PartialSignaturesEntry {
-                    entry: sigs.partial_sigs,
-                    signature: msg.signature,
-                    key: msg.key,
-                };
-                self.db
-                    .set_partial_signatures(peer, scope, entry)
-                    .await
-                    .context(RepositorySnafu)?
-            }
-            Body::GenesisInfo(v) => {
-                let info = v1::GenesisInfo::from_proto_msg(&v)
-                    .whatever_context("failed to convert genesis info")?;
+        match msg.kind {
+            GossipsubMsgKind::GenesisInfo(v) => {
                 let entry = GenesisInfoEntry {
-                    entry: (info.pre_stake_outpoint, info.checkpoint_pubkeys),
+                    entry: (v.pre_stake_outpoint, v.checkpoint_pubkeys),
                     signature: msg.signature,
-                    key: msg.key,
+                    key: msg.key.clone().into(),
                 };
                 self.db
                     .set_genesis_info(peer, entry)
                     .await
                     .context(RepositorySnafu)?
             }
+            GossipsubMsgKind::Deposit { scope, kind } => match kind {
+                GossipsubMsgDepositKind::Sigs(v) => {
+                    let entry = PartialSignaturesEntry {
+                        entry: v.partial_sigs,
+                        signature: msg.signature,
+                        key: msg.key.clone().into(),
+                    };
+                    self.db
+                        .set_partial_signatures(peer, scope, entry)
+                        .await
+                        .context(RepositorySnafu)?
+                }
+                GossipsubMsgDepositKind::Setup(v) => {
+                    let entry = DepositSetupEntry {
+                        payload: v.payload,
+                        signature: msg.signature,
+                        key: msg.key.clone().into(),
+                    };
+                    self.db
+                        .set_deposit_setup(peer, scope, entry)
+                        .await
+                        .context(RepositorySnafu)?
+                }
+                GossipsubMsgDepositKind::Nonces(v) => {
+                    let entry = NoncesEntry {
+                        entry: v.nonces,
+                        signature: msg.signature,
+                        key: msg.key.clone().into(),
+                    };
+                    self.db
+                        .set_pub_nonces(peer, scope, entry)
+                        .await
+                        .context(RepositorySnafu)?
+                }
+            },
         }
 
         Ok(())
