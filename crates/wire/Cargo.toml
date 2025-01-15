@@ -8,6 +8,7 @@ bitcoin.workspace = true
 libp2p-identity.workspace = true
 musig2.workspace = true
 prost.workspace = true
+strata-p2p-db.path = "../db"
 
 [build-dependencies]
 prost-build = "0.13.4"

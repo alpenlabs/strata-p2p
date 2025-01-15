@@ -39,8 +39,7 @@ message GossipsubMsg {
     DepositNoncesExchange nonce = 3;
     DepositSignaturesExchange sigs = 4;
   }
-  // Public key of the peer. The hash of this key must be the same as
-  // source PeerId of this message.
+  // Public key of the operator.
   bytes key = 10;
   // Signature of concatenated content of body (without protobuf
   // serialization).

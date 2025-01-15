@@ -6,11 +6,18 @@ use common::Operator;
 use futures::future::join_all;
 use libp2p::{
     build_multiaddr,
-    identity::{secp256k1::Keypair as SecpKeypair, Keypair},
+    identity::{
+        secp256k1::{Keypair as SecpKeypair, PublicKey},
+        Keypair,
+    },
     PeerId,
 };
 use snafu::whatever;
-use strata_p2p::{events::EventKind, swarm::handle::P2PHandle};
+use strata_p2p::{
+    commands::{Command, CommandKind},
+    events::EventKind,
+    swarm::handle::P2PHandle,
+};
 use strata_p2p_wire::p2p::v1::{GossipsubMsg, GossipsubMsgDepositKind, GossipsubMsgKind};
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use tracing::info;
@@ -178,7 +185,16 @@ async fn exchange_genesis_info(
     operators_num: usize,
 ) -> Result<(), snafu::Whatever> {
     for (operator, _) in operators.iter() {
-        operator.send_genesis_info(OutPoint::null(), vec![]).await;
+        operator
+            .send_command(Command {
+                key: generate_pk(),
+                signature: vec![],
+                kind: CommandKind::SendGenesisInfo {
+                    pre_stake_outpoint: OutPoint::null(),
+                    checkpoint_pubkeys: vec![],
+                },
+            })
+            .await;
     }
     for (operator, peer_id) in operators.iter_mut() {
         // received genesis info from other n-1 operators
@@ -208,7 +224,16 @@ async fn exchange_deposit_setup(
     scope_hash: sha256::Hash,
 ) -> Result<(), snafu::Whatever> {
     for (operator, _) in operators.iter() {
-        operator.send_deposit_setup(scope_hash, ()).await;
+        operator
+            .send_command(Command {
+                key: generate_pk(),
+                signature: vec![],
+                kind: CommandKind::SendDepositSetup {
+                    scope: scope_hash,
+                    payload: (),
+                },
+            })
+            .await;
     }
     for (operator, peer_id) in operators.iter_mut() {
         for _ in 0..operators_num - 1 {
@@ -242,7 +267,16 @@ async fn exchange_deposit_nonces(
     scope_hash: sha256::Hash,
 ) -> Result<(), snafu::Whatever> {
     for (operator, _) in operators.iter() {
-        operator.send_deposit_nonces(scope_hash, vec![]).await;
+        operator
+            .send_command(Command {
+                key: generate_pk(),
+                signature: vec![],
+                kind: CommandKind::SendDepositNonces {
+                    scope: scope_hash,
+                    pub_nonces: vec![],
+                },
+            })
+            .await;
     }
     for (operator, peer_id) in operators.iter_mut() {
         for _ in 0..operators_num - 1 {
@@ -276,7 +310,16 @@ async fn exchange_deposit_sigs(
     scope_hash: sha256::Hash,
 ) -> Result<(), snafu::Whatever> {
     for (operator, _) in operators.iter() {
-        operator.send_deposit_sigs(scope_hash, vec![]).await;
+        operator
+            .send_command(Command {
+                key: generate_pk(),
+                signature: vec![],
+                kind: CommandKind::SendPartialSignatures {
+                    scope: scope_hash,
+                    partial_sigs: vec![],
+                },
+            })
+            .await;
     }
 
     for (operator, peer_id) in operators.iter_mut() {
@@ -304,4 +347,9 @@ async fn exchange_deposit_sigs(
     }
 
     Ok(())
+}
+
+fn generate_pk() -> PublicKey {
+    let kp = SecpKeypair::generate();
+    kp.public().clone()
 }

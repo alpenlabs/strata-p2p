@@ -3215,6 +3215,7 @@ dependencies = [
  "musig2",
  "prost",
  "prost-build",
+ "strata-p2p-db",
 ]
 
 [[package]]

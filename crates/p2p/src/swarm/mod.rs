@@ -17,7 +17,7 @@ use prost::Message as ProtoMsg;
 use snafu::prelude::*;
 use strata_p2p_db::{
     states::PeerDepositState, DBResult, DepositSetupEntry, GenesisInfoEntry, NoncesEntry,
-    PartialSignaturesEntry, RepositoryError, RepositoryExt,
+    OperatorPubkey, PartialSignaturesEntry, RepositoryError, RepositoryExt,
 };
 use strata_p2p_wire::p2p::{
     v1,
@@ -306,8 +306,8 @@ where
         let source = message
             .source
             .expect("Message must have author as ValidationMode set to Permissive");
-        if let Err(err) = validate_gossipsub_msg(source, &msg) {
-            debug!(reason=%err, "Got invalid signature from peer, rejecting message.");
+        if let Err(err) = validate_gossipsub_msg(&msg) {
+            debug!(reason=%err, "Message failed validation.");
             // no error should appear in case of message rejection
             let _ = self
                 .swarm
@@ -322,7 +322,7 @@ where
         }
 
         let new_event = self
-            .insert_msg_if_not_exists_with_timeout(source, &msg, true)
+            .insert_msg_if_not_exists_with_timeout(&msg, true)
             .await
             .context(RepositorySnafu)?;
 
@@ -359,18 +359,19 @@ where
     /// Returns if the data was already presented or not.
     async fn insert_msg_if_not_exists_with_timeout(
         &mut self,
-        source: PeerId,
         msg: &GossipsubMsg<DSP>,
         set_timeout: bool,
     ) -> DBResult<bool> {
+        let operator_pk = OperatorPubkey::from(msg.key.clone());
+
         match &msg.kind {
             GossipsubMsgKind::GenesisInfo(info) => {
-                let entry = self.db.get_genesis_info(source).await?;
+                let entry = self.db.get_genesis_info(operator_pk.clone()).await?;
 
                 if entry.is_none() {
                     self.db
                         .set_genesis_info(
-                            source,
+                            operator_pk.clone(),
                             GenesisInfoEntry {
                                 entry: (info.pre_stake_outpoint, info.checkpoint_pubkeys.clone()),
                                 signature: msg.signature.clone(),
@@ -381,7 +382,7 @@ where
 
                     if set_timeout {
                         self.timeouts_mng
-                            .set_genesis_timeout(source, self.config.next_stage_timeout);
+                            .set_genesis_timeout(operator_pk, self.config.next_stage_timeout);
                     }
 
                     return Ok(true);
@@ -389,12 +390,15 @@ where
             }
             GossipsubMsgKind::Deposit { scope, kind } => match kind {
                 GossipsubMsgDepositKind::Setup(dep) => {
-                    let entry = self.db.get_deposit_setup(source, *scope).await?;
+                    let entry = self
+                        .db
+                        .get_deposit_setup(operator_pk.clone(), *scope)
+                        .await?;
 
                     if entry.is_none() {
                         self.db
                             .set_deposit_setup(
-                                source,
+                                operator_pk.clone(),
                                 *scope,
                                 DepositSetupEntry {
                                     payload: dep.payload.clone(),
@@ -406,7 +410,7 @@ where
 
                         if set_timeout {
                             self.timeouts_mng.set_deposit_timeout(
-                                source,
+                                operator_pk,
                                 *scope,
                                 self.config.next_stage_timeout,
                             );
@@ -416,12 +420,12 @@ where
                     }
                 }
                 GossipsubMsgDepositKind::Nonces(dep) => {
-                    let entry = self.db.get_pub_nonces(source, *scope).await?;
+                    let entry = self.db.get_pub_nonces(operator_pk.clone(), *scope).await?;
 
                     if entry.is_none() {
                         self.db
                             .set_pub_nonces(
-                                source,
+                                operator_pk.clone(),
                                 *scope,
                                 NoncesEntry {
                                     entry: dep.nonces.clone(),
@@ -432,7 +436,7 @@ where
                             .await?;
                         if set_timeout {
                             self.timeouts_mng.set_deposit_timeout(
-                                source,
+                                operator_pk,
                                 *scope,
                                 self.config.next_stage_timeout,
                             );
@@ -442,12 +446,15 @@ where
                     }
                 }
                 GossipsubMsgDepositKind::Sigs(dep) => {
-                    let entry = self.db.get_partial_signatures(source, *scope).await?;
+                    let entry = self
+                        .db
+                        .get_partial_signatures(operator_pk.clone(), *scope)
+                        .await?;
 
                     if entry.is_none() {
                         self.db
                             .set_partial_signatures(
-                                source,
+                                operator_pk.clone(),
                                 *scope,
                                 PartialSignaturesEntry {
                                     entry: dep.partial_sigs.clone(),
@@ -468,21 +475,10 @@ where
 
     /// Handle command sent through channel by P2P implementation user.
     async fn handle_command(&mut self, cmd: Command<DSP>) -> P2PResult<()> {
-        let local_peer_id = *self.swarm.local_peer_id();
-
-        let kind = cmd.into_gossipsub_msg();
-        let key = self.config.keypair.public();
-        let signature = self.config.keypair.secret().sign(&kind.content());
-        let msg = GossipsubMsg {
-            kind,
-            key: key.clone(),
-            signature,
-        };
+        let msg = cmd.into();
 
         self.insert_msg_if_not_exists_with_timeout(
-            local_peer_id,
-            &msg,
-            /* do net set timeout for local peer */ false,
+            &msg, /* do net set timeout for local peer */ false,
         )
         .await
         .context(RepositorySnafu)?;
@@ -506,20 +502,20 @@ where
     /// This method implementats logic of requesting lost stages directly.
     #[instrument(skip(self))]
     async fn handle_timeout(&mut self, event: TimeoutEvent) -> P2PResult<()> {
-        let TimeoutEvent::Deposit { operator_id, scope } = event else {
+        let TimeoutEvent::Deposit { operator_pk, scope } = event else {
             // FIXME(Velnbur): handle deposit timeout too!
             return Ok(());
         };
 
         let peer_deposit_status = self
             .db
-            .get_peer_deposit_status(operator_id, scope)
+            .get_peer_deposit_status(operator_pk.clone(), scope)
             .await
             .context(RepositorySnafu)?;
 
         let request_key = DepositRequestKey {
             scope: scope.to_byte_array().to_vec(),
-            operator: operator_id.to_bytes(),
+            operator: operator_pk.0.to_vec(),
         };
 
         let body = match peer_deposit_status {
@@ -614,12 +610,12 @@ where
                             continue;
                         }
                     };
-                    if let Err(err) = validate_gossipsub_msg::<DSP>(peer, &msg) {
-                        debug!(%peer, reason=%err, "Got invalid signature from peer, rejecting message.");
+                    if let Err(err) = validate_gossipsub_msg::<DSP>(&msg) {
+                        debug!(%peer, reason=%err, "Message failed validation");
                         continue;
                     }
 
-                    self.handle_get_message_response(peer, msg).await?
+                    self.handle_get_message_response(msg).await?
                 }
             }
         };
@@ -632,10 +628,10 @@ where
         request: v1::GetMessageRequest,
     ) -> P2PResult<Option<proto::GossipsubMsg>> {
         let msg = match request {
-            v1::GetMessageRequest::Genesis { operator_id } => {
+            v1::GetMessageRequest::Genesis { operator_pk } => {
                 let info = self
                     .db
-                    .get_genesis_info(operator_id)
+                    .get_genesis_info(operator_pk)
                     .await
                     .context(RepositorySnafu)?;
 
@@ -656,13 +652,13 @@ where
             }
             v1::GetMessageRequest::ExchangeSession {
                 scope,
-                operator_id,
+                operator_pk,
                 kind,
             } => match kind {
                 GetMessageRequestExchangeKind::Setup => {
                     let setup = self
                         .db
-                        .get_deposit_setup(operator_id, scope)
+                        .get_deposit_setup(operator_pk, scope)
                         .await
                         .context(RepositorySnafu)?;
 
@@ -678,7 +674,7 @@ where
                 GetMessageRequestExchangeKind::Nonces => {
                     let nonces = self
                         .db
-                        .get_pub_nonces(operator_id, scope)
+                        .get_pub_nonces(operator_pk, scope)
                         .await
                         .context(RepositorySnafu)?;
 
@@ -694,7 +690,7 @@ where
                 GetMessageRequestExchangeKind::Signatures => {
                     let sigs = self
                         .db
-                        .get_partial_signatures(operator_id, scope)
+                        .get_partial_signatures(operator_pk, scope)
                         .await
                         .context(RepositorySnafu)?;
 
@@ -713,11 +709,9 @@ where
         Ok(msg)
     }
 
-    async fn handle_get_message_response(
-        &mut self,
-        peer: PeerId,
-        msg: GossipsubMsg<DSP>,
-    ) -> P2PResult<()> {
+    async fn handle_get_message_response(&mut self, msg: GossipsubMsg<DSP>) -> P2PResult<()> {
+        let operator_pk = OperatorPubkey::from(msg.key.clone());
+
         match msg.kind {
             GossipsubMsgKind::GenesisInfo(v) => {
                 let entry = GenesisInfoEntry {
@@ -726,7 +720,7 @@ where
                     key: msg.key.clone(),
                 };
                 self.db
-                    .set_genesis_info(peer, entry)
+                    .set_genesis_info(operator_pk, entry)
                     .await
                     .context(RepositorySnafu)?
             }
@@ -738,7 +732,7 @@ where
                         key: msg.key.clone(),
                     };
                     self.db
-                        .set_partial_signatures(peer, scope, entry)
+                        .set_partial_signatures(operator_pk, scope, entry)
                         .await
                         .context(RepositorySnafu)?
                 }
@@ -749,7 +743,7 @@ where
                         key: msg.key.clone(),
                     };
                     self.db
-                        .set_deposit_setup(peer, scope, entry)
+                        .set_deposit_setup(operator_pk, scope, entry)
                         .await
                         .context(RepositorySnafu)?
                 }
@@ -760,7 +754,7 @@ where
                         key: msg.key.clone(),
                     };
                     self.db
-                        .set_pub_nonces(peer, scope, entry)
+                        .set_pub_nonces(operator_pk, scope, entry)
                         .await
                         .context(RepositorySnafu)?
                 }
@@ -774,18 +768,11 @@ where
 /// Checks gossip sub message for validity by protocol rules.
 // NOTE(Velnbur): may be we should make this a method or move to separate repo, but I'm not sure.
 fn validate_gossipsub_msg<DSP: prost::Message + Clone + Default>(
-    source_peer: PeerId,
     msg: &GossipsubMsg<DSP>,
 ) -> Result<(), snafu::Whatever> {
     let content = msg.content();
     if !msg.key.verify(&content, &msg.signature) {
         whatever!("Invalid signature");
-    }
-
-    let msg_peer = PeerId::from_public_key(&libp2p::identity::PublicKey::from(msg.key.clone()));
-
-    if msg_peer != source_peer {
-        whatever!("Message signed by peer that is not sender");
     }
 
     Ok(())

@@ -76,13 +76,13 @@ mod tests {
         OutPoint, XOnlyPublicKey,
         hashes::{Hash, sha256},
     };
-    use libp2p_identity::{PeerId, secp256k1::PublicKey};
+    use libp2p_identity::secp256k1::PublicKey;
     use musig2::{AggNonce, KeyAggContext, SecNonce, sign_partial};
     use rand::thread_rng;
     use secp256k1::{All, Keypair, Secp256k1};
 
     use crate::{
-        GenesisInfoEntry, NoncesEntry, PartialSignaturesEntry, RepositoryExt, sled::AsyncDB,
+        GenesisInfoEntry, NoncesEntry, PartialSignaturesEntry, RepositoryExt, sled::AsyncDB, OperatorPubkey
     };
 
     #[tokio::test]
@@ -106,7 +106,7 @@ mod tests {
             );
             let pub_nonce = sec_nonce.public_nonce();
 
-            let operator_id = PeerId::random();
+            let operator_pk = OperatorPubkey(vec![0x8; 32]);
             let tx_id = sha256::Hash::all_zeros();
 
             let nonces_entry = NoncesEntry {
@@ -115,7 +115,7 @@ mod tests {
                 key: libp2p_pkey.clone(),
             };
 
-            db.set_pub_nonces(operator_id, tx_id, nonces_entry)
+            db.set_pub_nonces(operator_pk.clone(), tx_id, nonces_entry)
                 .await
                 .unwrap();
 
@@ -131,12 +131,12 @@ mod tests {
                 key: libp2p_pkey.clone(),
             };
 
-            db.set_partial_signatures(operator_id, tx_id, sigs_entry)
+            db.set_partial_signatures(operator_pk.clone(), tx_id, sigs_entry)
                 .await
                 .expect("Failed to set signature");
 
             let retrieved_signature = db
-                .get_partial_signatures(operator_id, tx_id)
+                .get_partial_signatures(operator_pk.clone(), tx_id)
                 .await
                 .unwrap()
                 .expect("Failed to retrieve signature");
@@ -151,17 +151,23 @@ mod tests {
                 key: libp2p_pkey.clone(),
             };
 
-            db.set_genesis_info(operator_id, entry).await.unwrap();
+            db.set_genesis_info(operator_pk.clone(), entry)
+                .await
+                .unwrap();
 
             let GenesisInfoEntry {
                 entry: (got_op, got_keys),
                 ..
-            } = db.get_genesis_info(operator_id).await.unwrap().unwrap();
+            } = db
+                .get_genesis_info(operator_pk.clone())
+                .await
+                .unwrap()
+                .unwrap();
             assert_eq!(got_op, outpoint);
             assert_eq!(got_keys, checkpoint_pubkeys);
 
             let retrieved_pub_nonces = db
-                .get_pub_nonces(operator_id, tx_id)
+                .get_pub_nonces(operator_pk.clone(), tx_id)
                 .await
                 .unwrap()
                 .unwrap();

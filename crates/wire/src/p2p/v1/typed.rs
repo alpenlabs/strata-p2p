@@ -4,9 +4,10 @@ use bitcoin::{
     hashes::{Hash, sha256},
     io::Cursor,
 };
-use libp2p_identity::{PeerId, secp256k1::PublicKey};
+use libp2p_identity::secp256k1::PublicKey;
 use musig2::{PartialSignature, PubNonce};
 use prost::{DecodeError, Message};
+use strata_p2p_db::OperatorPubkey;
 
 use super::proto::{
     DepositNoncesExchange as ProtoDepositNonces, DepositRequestKey,
@@ -27,11 +28,11 @@ pub enum GetMessageRequestExchangeKind {
 #[allow(unused)]
 pub enum GetMessageRequest {
     Genesis {
-        operator_id: PeerId,
+        operator_pk: OperatorPubkey,
     },
     ExchangeSession {
         scope: sha256::Hash,
-        operator_id: PeerId,
+        operator_pk: OperatorPubkey,
         kind: GetMessageRequestExchangeKind,
     },
 }
@@ -40,7 +41,7 @@ impl GetMessageRequest {
     pub fn from_msg(msg: ProtoGetMessageRequest) -> Option<GetMessageRequest> {
         let body = msg.body?;
 
-        let (operator_id, deposit_txid, kind) = match body {
+        let (operator_pk, deposit_txid, kind) = match body {
             ProtoGetMessageRequestBody::DepositSetup(DepositRequestKey { scope, operator }) => {
                 (scope, operator, GetMessageRequestExchangeKind::Setup)
             }
@@ -52,18 +53,18 @@ impl GetMessageRequest {
             }
             ProtoGetMessageRequestBody::GenesisInfo(GenesisRequestKey { operator }) => {
                 return Some(Self::Genesis {
-                    operator_id: PeerId::from_bytes(&operator).ok()?,
+                    operator_pk: OperatorPubkey::from(operator),
                 });
             }
         };
 
-        let operator_id = PeerId::from_bytes(&operator_id).ok()?;
+        let operator_pk = OperatorPubkey::from(operator_pk);
         let mut cur = Cursor::new(deposit_txid);
         let scope = Decodable::consensus_decode(&mut cur).ok()?;
 
         Some(Self::ExchangeSession {
             scope,
-            operator_id,
+            operator_pk,
             kind,
         })
     }
