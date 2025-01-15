@@ -28,8 +28,8 @@ tokio-util.workspace = true
 tracing.workspace = true
 
 strata-p2p-db.path = "../db"
-strata-p2p-wire.path = "../wire"
 strata-p2p-types.path = "../types"
+strata-p2p-wire.path = "../wire"
 
 [dev-dependencies]
 sled = "0.34.7"
