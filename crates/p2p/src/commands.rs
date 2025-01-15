@@ -1,9 +1,9 @@
 //! Commands for P2P implementation from operator implementation.
 
 use bitcoin::{hashes::sha256, OutPoint, XOnlyPublicKey};
-use libp2p::identity::secp256k1::PublicKey;
 use musig2::{PartialSignature, PubNonce};
 use prost::Message;
+use strata_p2p_types::OperatorPubKey;
 use strata_p2p_wire::p2p::v1::{
     DepositNonces, DepositSetup, DepositSigs, GenesisInfo, GossipsubMsg, GossipsubMsgDepositKind,
     GossipsubMsgKind,
@@ -13,7 +13,7 @@ use strata_p2p_wire::p2p::v1::{
 #[derive(Debug, Clone)]
 #[allow(clippy::enum_variant_names)] /* remove this later, when other commands will be added */
 pub struct Command<DepositSetupPayload> {
-    pub key: PublicKey,
+    pub key: OperatorPubKey,
     pub signature: Vec<u8>,
     pub kind: CommandKind<DepositSetupPayload>,
 }

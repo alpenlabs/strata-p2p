@@ -6,10 +6,7 @@ use common::Operator;
 use futures::future::join_all;
 use libp2p::{
     build_multiaddr,
-    identity::{
-        secp256k1::{Keypair as SecpKeypair, PublicKey},
-        Keypair,
-    },
+    identity::{secp256k1::Keypair as SecpKeypair, Keypair},
     PeerId,
 };
 use snafu::whatever;
@@ -18,6 +15,7 @@ use strata_p2p::{
     events::EventKind,
     swarm::handle::P2PHandle,
 };
+use strata_p2p_types::OperatorPubKey;
 use strata_p2p_wire::p2p::v1::{GossipsubMsg, GossipsubMsgDepositKind, GossipsubMsgKind};
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use tracing::info;
@@ -349,7 +347,9 @@ async fn exchange_deposit_sigs(
     Ok(())
 }
 
-fn generate_pk() -> PublicKey {
+fn generate_pk() -> OperatorPubKey {
     let kp = SecpKeypair::generate();
-    kp.public().clone()
+    let pk = kp.public().clone();
+
+    OperatorPubKey::from(pk)
 }

@@ -4,10 +4,9 @@ use bitcoin::{
     hashes::{Hash, sha256},
     io::Cursor,
 };
-use libp2p_identity::secp256k1::PublicKey;
 use musig2::{PartialSignature, PubNonce};
 use prost::{DecodeError, Message};
-use strata_p2p_db::OperatorPubkey;
+use strata_p2p_types::OperatorPubKey;
 
 use super::proto::{
     DepositNoncesExchange as ProtoDepositNonces, DepositRequestKey,
@@ -28,11 +27,11 @@ pub enum GetMessageRequestExchangeKind {
 #[allow(unused)]
 pub enum GetMessageRequest {
     Genesis {
-        operator_pk: OperatorPubkey,
+        operator_pk: OperatorPubKey,
     },
     ExchangeSession {
         scope: sha256::Hash,
-        operator_pk: OperatorPubkey,
+        operator_pk: OperatorPubKey,
         kind: GetMessageRequestExchangeKind,
     },
 }
@@ -53,12 +52,12 @@ impl GetMessageRequest {
             }
             ProtoGetMessageRequestBody::GenesisInfo(GenesisRequestKey { operator }) => {
                 return Some(Self::Genesis {
-                    operator_pk: OperatorPubkey::from(operator),
+                    operator_pk: OperatorPubKey::from(operator),
                 });
             }
         };
 
-        let operator_pk = OperatorPubkey::from(operator_pk);
+        let operator_pk = OperatorPubKey::from(operator_pk);
         let mut cur = Cursor::new(deposit_txid);
         let scope = Decodable::consensus_decode(&mut cur).ok()?;
 
@@ -311,7 +310,7 @@ impl<DSP: Message + Default> GossipsubMsgKind<DSP> {
 #[derive(Clone, Debug)]
 pub struct GossipsubMsg<DepositSetupPayload: Message + Clone> {
     pub signature: Vec<u8>,
-    pub key: PublicKey,
+    pub key: OperatorPubKey,
     pub kind: GossipsubMsgKind<DepositSetupPayload>,
 }
 
@@ -326,8 +325,7 @@ where
         };
 
         let kind = GossipsubMsgKind::<DepositSetupPayload>::from_msg_proto(&body)?;
-        let key =
-            PublicKey::try_from_bytes(&msg.key).map_err(|err| DecodeError::new(err.to_string()))?;
+        let key = msg.key.into();
 
         Ok(Self {
             signature: msg.signature,
@@ -339,15 +337,14 @@ where
     pub fn from_proto(msg: ProtoGossipMsg) -> Result<Self, DecodeError> {
         Ok(Self {
             signature: msg.signature,
-            key: PublicKey::try_from_bytes(&msg.key)
-                .map_err(|_| DecodeError::new("couldn't parse pub key"))?,
+            key: msg.key.into(),
             kind: GossipsubMsgKind::from_msg_proto(&msg.body.unwrap())?,
         })
     }
 
     pub fn into_raw(self) -> ProtoGossipMsg {
         ProtoGossipMsg {
-            key: self.key.to_bytes().to_vec(),
+            key: self.key.0,
             signature: self.signature,
             body: Some(self.kind.to_raw()),
         }

@@ -12,6 +12,7 @@ prost.workspace = true
 serde.workspace = true
 snafu.workspace = true
 tracing.workspace = true
+strata-p2p-types.path = "./../types"
 
 # make this implementation optional
 sled = "0.34.7"

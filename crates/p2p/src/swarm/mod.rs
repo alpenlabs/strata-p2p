@@ -17,7 +17,7 @@ use prost::Message as ProtoMsg;
 use snafu::prelude::*;
 use strata_p2p_db::{
     states::PeerDepositState, DBResult, DepositSetupEntry, GenesisInfoEntry, NoncesEntry,
-    OperatorPubkey, PartialSignaturesEntry, RepositoryError, RepositoryExt,
+    PartialSignaturesEntry, RepositoryError, RepositoryExt,
 };
 use strata_p2p_wire::p2p::{
     v1,
@@ -362,22 +362,19 @@ where
         msg: &GossipsubMsg<DSP>,
         set_timeout: bool,
     ) -> DBResult<bool> {
-        let operator_pk = OperatorPubkey::from(msg.key.clone());
+        let operator_pk = msg.key.clone();
 
         match &msg.kind {
             GossipsubMsgKind::GenesisInfo(info) => {
-                let entry = self.db.get_genesis_info(operator_pk.clone()).await?;
+                let entry = self.db.get_genesis_info(&operator_pk).await?;
 
                 if entry.is_none() {
                     self.db
-                        .set_genesis_info(
-                            operator_pk.clone(),
-                            GenesisInfoEntry {
-                                entry: (info.pre_stake_outpoint, info.checkpoint_pubkeys.clone()),
-                                signature: msg.signature.clone(),
-                                key: msg.key.clone(),
-                            },
-                        )
+                        .set_genesis_info(GenesisInfoEntry {
+                            entry: (info.pre_stake_outpoint, info.checkpoint_pubkeys.clone()),
+                            signature: msg.signature.clone(),
+                            key: msg.key.clone(),
+                        })
                         .await?;
 
                     if set_timeout {
@@ -390,15 +387,11 @@ where
             }
             GossipsubMsgKind::Deposit { scope, kind } => match kind {
                 GossipsubMsgDepositKind::Setup(dep) => {
-                    let entry = self
-                        .db
-                        .get_deposit_setup(operator_pk.clone(), *scope)
-                        .await?;
+                    let entry = self.db.get_deposit_setup(&operator_pk, *scope).await?;
 
                     if entry.is_none() {
                         self.db
                             .set_deposit_setup(
-                                operator_pk.clone(),
                                 *scope,
                                 DepositSetupEntry {
                                     payload: dep.payload.clone(),
@@ -420,12 +413,11 @@ where
                     }
                 }
                 GossipsubMsgDepositKind::Nonces(dep) => {
-                    let entry = self.db.get_pub_nonces(operator_pk.clone(), *scope).await?;
+                    let entry = self.db.get_pub_nonces(&operator_pk, *scope).await?;
 
                     if entry.is_none() {
                         self.db
                             .set_pub_nonces(
-                                operator_pk.clone(),
                                 *scope,
                                 NoncesEntry {
                                     entry: dep.nonces.clone(),
@@ -446,15 +438,11 @@ where
                     }
                 }
                 GossipsubMsgDepositKind::Sigs(dep) => {
-                    let entry = self
-                        .db
-                        .get_partial_signatures(operator_pk.clone(), *scope)
-                        .await?;
+                    let entry = self.db.get_partial_signatures(&operator_pk, *scope).await?;
 
                     if entry.is_none() {
                         self.db
                             .set_partial_signatures(
-                                operator_pk.clone(),
                                 *scope,
                                 PartialSignaturesEntry {
                                     entry: dep.partial_sigs.clone(),
@@ -509,7 +497,7 @@ where
 
         let peer_deposit_status = self
             .db
-            .get_peer_deposit_status(operator_pk.clone(), scope)
+            .get_peer_deposit_status(&operator_pk, scope)
             .await
             .context(RepositorySnafu)?;
 
@@ -631,7 +619,7 @@ where
             v1::GetMessageRequest::Genesis { operator_pk } => {
                 let info = self
                     .db
-                    .get_genesis_info(operator_pk)
+                    .get_genesis_info(&operator_pk)
                     .await
                     .context(RepositorySnafu)?;
 
@@ -647,7 +635,7 @@ where
                             .collect(),
                     })),
                     signature: v.signature,
-                    key: v.key.to_bytes().to_vec(),
+                    key: v.key.0,
                 })
             }
             v1::GetMessageRequest::ExchangeSession {
@@ -658,7 +646,7 @@ where
                 GetMessageRequestExchangeKind::Setup => {
                     let setup = self
                         .db
-                        .get_deposit_setup(operator_pk, scope)
+                        .get_deposit_setup(&operator_pk, scope)
                         .await
                         .context(RepositorySnafu)?;
 
@@ -668,13 +656,13 @@ where
                             payload: v.payload.encode_to_vec(),
                         })),
                         signature: v.signature,
-                        key: v.key.to_bytes().to_vec(),
+                        key: v.key.0,
                     })
                 }
                 GetMessageRequestExchangeKind::Nonces => {
                     let nonces = self
                         .db
-                        .get_pub_nonces(operator_pk, scope)
+                        .get_pub_nonces(&operator_pk, scope)
                         .await
                         .context(RepositorySnafu)?;
 
@@ -684,13 +672,13 @@ where
                             pub_nonces: v.entry.iter().map(|n| n.serialize().to_vec()).collect(),
                         })),
                         signature: v.signature,
-                        key: v.key.to_bytes().to_vec(),
+                        key: v.key.0,
                     })
                 }
                 GetMessageRequestExchangeKind::Signatures => {
                     let sigs = self
                         .db
-                        .get_partial_signatures(operator_pk, scope)
+                        .get_partial_signatures(&operator_pk, scope)
                         .await
                         .context(RepositorySnafu)?;
 
@@ -700,7 +688,7 @@ where
                             partial_sigs: v.entry.iter().map(|n| n.serialize().to_vec()).collect(),
                         })),
                         signature: v.signature,
-                        key: v.key.to_bytes().to_vec(),
+                        key: v.key.0,
                     })
                 }
             },
@@ -710,17 +698,15 @@ where
     }
 
     async fn handle_get_message_response(&mut self, msg: GossipsubMsg<DSP>) -> P2PResult<()> {
-        let operator_pk = OperatorPubkey::from(msg.key.clone());
-
         match msg.kind {
             GossipsubMsgKind::GenesisInfo(v) => {
                 let entry = GenesisInfoEntry {
                     entry: (v.pre_stake_outpoint, v.checkpoint_pubkeys),
                     signature: msg.signature,
-                    key: msg.key.clone(),
+                    key: msg.key,
                 };
                 self.db
-                    .set_genesis_info(operator_pk, entry)
+                    .set_genesis_info(entry)
                     .await
                     .context(RepositorySnafu)?
             }
@@ -729,10 +715,10 @@ where
                     let entry = PartialSignaturesEntry {
                         entry: v.partial_sigs,
                         signature: msg.signature,
-                        key: msg.key.clone(),
+                        key: msg.key,
                     };
                     self.db
-                        .set_partial_signatures(operator_pk, scope, entry)
+                        .set_partial_signatures(scope, entry)
                         .await
                         .context(RepositorySnafu)?
                 }
@@ -740,10 +726,10 @@ where
                     let entry = DepositSetupEntry {
                         payload: v.payload,
                         signature: msg.signature,
-                        key: msg.key.clone(),
+                        key: msg.key,
                     };
                     self.db
-                        .set_deposit_setup(operator_pk, scope, entry)
+                        .set_deposit_setup(scope, entry)
                         .await
                         .context(RepositorySnafu)?
                 }
@@ -751,10 +737,10 @@ where
                     let entry = NoncesEntry {
                         entry: v.nonces,
                         signature: msg.signature,
-                        key: msg.key.clone(),
+                        key: msg.key,
                     };
                     self.db
-                        .set_pub_nonces(operator_pk, scope, entry)
+                        .set_pub_nonces(scope, entry)
                         .await
                         .context(RepositorySnafu)?
                 }

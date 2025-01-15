@@ -1,18 +1,16 @@
 use async_trait::async_trait;
 use bitcoin::{OutPoint, XOnlyPublicKey, hashes::sha256};
-use libp2p_identity::secp256k1::PublicKey;
 use musig2::{PartialSignature, PubNonce};
 use serde::{Serialize, de::DeserializeOwned};
 use snafu::{ResultExt, Snafu};
+use strata_p2p_types::OperatorPubKey;
 
-pub use crate::operator::OperatorPubkey;
 use crate::states::PeerDepositState;
 
-pub mod operator;
 pub mod sled;
+
 pub mod states;
 
-mod pk_serde;
 mod prost_serde;
 
 pub type DBResult<T> = Result<T, RepositoryError>;
@@ -31,8 +29,7 @@ pub enum RepositoryError {
 pub struct AuthenticatedEntry<T> {
     pub entry: T,
     pub signature: Vec<u8>,
-    #[serde(with = "pk_serde")]
-    pub key: PublicKey,
+    pub key: OperatorPubKey,
 }
 
 pub type PartialSignaturesEntry = AuthenticatedEntry<Vec<PartialSignature>>;
@@ -79,7 +76,7 @@ where
 {
     async fn get_partial_signatures(
         &self,
-        operator_pk: OperatorPubkey,
+        operator_pk: &OperatorPubKey,
         scope: sha256::Hash,
     ) -> DBResult<Option<PartialSignaturesEntry>> {
         let key = format!("sigs-{operator_pk}_{scope}");
@@ -88,36 +85,30 @@ where
 
     async fn set_partial_signatures(
         &self,
-        operator_pk: OperatorPubkey,
         scope: sha256::Hash,
         entry: PartialSignaturesEntry,
     ) -> DBResult<()> {
-        let key = format!("sigs-{operator_pk}_{scope}");
+        let key = format!("sigs-{}_{scope}", entry.key);
         self.set(key, entry).await
     }
 
     async fn get_pub_nonces(
         &self,
-        operator_pk: OperatorPubkey,
+        operator_pk: &OperatorPubKey,
         scope: sha256::Hash,
     ) -> DBResult<Option<NoncesEntry>> {
         let key = format!("nonces-{operator_pk}_{scope}");
         self.get(key).await
     }
 
-    async fn set_pub_nonces(
-        &self,
-        operator_pk: OperatorPubkey,
-        scope: sha256::Hash,
-        entry: NoncesEntry,
-    ) -> DBResult<()> {
-        let key = format!("nonces-{operator_pk}_{scope}");
+    async fn set_pub_nonces(&self, scope: sha256::Hash, entry: NoncesEntry) -> DBResult<()> {
+        let key = format!("nonces-{}_{scope}", entry.key);
         self.set(key, entry).await
     }
 
     async fn get_deposit_setup(
         &self,
-        operator_pk: OperatorPubkey,
+        operator_pk: &OperatorPubKey,
         scope: sha256::Hash,
     ) -> DBResult<Option<DepositSetupEntry<DepositSetupPayload>>> {
         let key = format!("setup-{operator_pk}_{scope}");
@@ -126,40 +117,31 @@ where
 
     async fn set_deposit_setup(
         &self,
-        operator_pk: OperatorPubkey,
         scope: sha256::Hash,
         setup: DepositSetupEntry<DepositSetupPayload>,
     ) -> DBResult<()> {
-        let key = format!("setup-{operator_pk}_{scope}");
+        let key = format!("setup-{}_{scope}", setup.key);
         self.set(key, setup).await
     }
 
     async fn get_peer_deposit_status(
         &self,
-        operator_pk: OperatorPubkey,
+        operator_pk: &OperatorPubKey,
         scope: sha256::Hash,
     ) -> DBResult<PeerDepositState> {
         if self
-            .get_partial_signatures(operator_pk.clone(), scope)
+            .get_partial_signatures(operator_pk, scope)
             .await?
             .is_some()
         {
             return Ok(PeerDepositState::Sigs);
         }
 
-        if self
-            .get_pub_nonces(operator_pk.clone(), scope)
-            .await?
-            .is_some()
-        {
+        if self.get_pub_nonces(operator_pk, scope).await?.is_some() {
             return Ok(PeerDepositState::Nonces);
         }
 
-        if self
-            .get_deposit_setup(operator_pk.clone(), scope)
-            .await?
-            .is_some()
-        {
+        if self.get_deposit_setup(operator_pk, scope).await?.is_some() {
             return Ok(PeerDepositState::Setup);
         }
 
@@ -168,18 +150,14 @@ where
 
     async fn get_genesis_info(
         &self,
-        operator_pk: OperatorPubkey,
+        operator_pk: &OperatorPubKey,
     ) -> DBResult<Option<GenesisInfoEntry>> {
         let key = format!("genesis-{operator_pk}");
         self.get(key).await
     }
 
-    async fn set_genesis_info(
-        &self,
-        operator_pk: OperatorPubkey,
-        info: GenesisInfoEntry,
-    ) -> DBResult<()> {
-        let key = format!("genesis-{operator_pk}");
+    async fn set_genesis_info(&self, info: GenesisInfoEntry) -> DBResult<()> {
+        let key = format!("genesis-{}", info.key);
         self.set(key, info).await
     }
 }
@@ -196,6 +174,5 @@ pub struct DepositSetupEntry<DSP: prost::Message + Default> {
     #[serde(with = "prost_serde")]
     pub payload: DSP,
     pub signature: Vec<u8>,
-    #[serde(with = "pk_serde")]
-    pub key: PublicKey,
+    pub key: OperatorPubKey,
 }

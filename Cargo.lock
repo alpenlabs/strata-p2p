@@ -1040,6 +1040,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fbf6a919d6cf397374f7dfeeea91d974c7c0a7221d0d0f4f20d859d329e53fcc"
 
 [[package]]
+name = "hex"
+version = "0.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
+
+[[package]]
 name = "hex-conservative"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3174,10 +3180,10 @@ dependencies = [
  "prost",
  "rand",
  "secp256k1",
- "serde",
  "sled",
  "snafu",
  "strata-p2p-db",
+ "strata-p2p-types",
  "strata-p2p-wire",
  "threadpool",
  "tokio",
@@ -3201,9 +3207,19 @@ dependencies = [
  "serde_json",
  "sled",
  "snafu",
+ "strata-p2p-types",
  "threadpool",
  "tokio",
  "tracing",
+]
+
+[[package]]
+name = "strata-p2p-types"
+version = "0.1.0"
+dependencies = [
+ "hex",
+ "libp2p-identity",
+ "serde",
 ]
 
 [[package]]
@@ -3215,7 +3231,7 @@ dependencies = [
  "musig2",
  "prost",
  "prost-build",
- "strata-p2p-db",
+ "strata-p2p-types",
 ]
 
 [[package]]

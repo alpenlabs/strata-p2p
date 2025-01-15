@@ -8,24 +8,24 @@ use std::{
 
 use bitcoin::hashes::sha256;
 use futures::{FutureExt, Stream, StreamExt};
-use strata_p2p_db::OperatorPubkey;
+use strata_p2p_types::OperatorPubKey;
 use tokio::time::{sleep, Sleep};
 
 /// Kind of timeout which can be omitted by [`TimeoutsManager`].
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(crate) enum TimeoutEvent {
     /// Timeout related to genesis stage for some operator.
-    Genesis { operator_pk: OperatorPubkey },
+    Genesis { operator_pk: OperatorPubKey },
     /// Timeout related to deposit processing stage for some operator and deposit.
     Deposit {
-        operator_pk: OperatorPubkey,
+        operator_pk: OperatorPubKey,
         scope: sha256::Hash,
     },
 }
 
 impl TimeoutEvent {
     #[allow(unused)]
-    pub fn operator_pk(self) -> OperatorPubkey {
+    pub fn operator_pk(self) -> OperatorPubKey {
         match self {
             TimeoutEvent::Genesis { operator_pk } | TimeoutEvent::Deposit { operator_pk, .. } => {
                 operator_pk
@@ -53,7 +53,7 @@ impl TimeoutsManager {
 
     pub fn set_deposit_timeout(
         &mut self,
-        operator_pk: OperatorPubkey,
+        operator_pk: OperatorPubKey,
         scope: sha256::Hash,
         timeout: Duration,
     ) {
@@ -64,7 +64,7 @@ impl TimeoutsManager {
         );
     }
 
-    pub fn set_genesis_timeout(&mut self, operator_pk: OperatorPubkey, timeout: Duration) {
+    pub fn set_genesis_timeout(&mut self, operator_pk: OperatorPubKey, timeout: Duration) {
         let sleep = sleep(timeout);
         self.timeouts
             .insert(TimeoutEvent::Genesis { operator_pk }, Box::pin(sleep));
@@ -108,7 +108,7 @@ mod tests {
 
     use bitcoin::hashes::{sha256, Hash};
     use futures::StreamExt;
-    use strata_p2p_db::OperatorPubkey;
+    use strata_p2p_types::OperatorPubKey;
 
     use crate::timeouts::TimeoutsManager;
 
@@ -117,7 +117,7 @@ mod tests {
         const TIMEOUTS_NUM: usize = 5;
         let mut mng = TimeoutsManager::new();
 
-        let operators = vec![OperatorPubkey(vec![1]); TIMEOUTS_NUM];
+        let operators = vec![OperatorPubKey(vec![1]); TIMEOUTS_NUM];
 
         for (idx, operator_pk) in operators.iter().enumerate() {
             mng.set_deposit_timeout(
@@ -127,7 +127,7 @@ mod tests {
             );
         }
 
-        let mut collected: Vec<OperatorPubkey> = mng
+        let mut collected: Vec<OperatorPubKey> = mng
             .map(|event| event.operator_pk())
             .take(TIMEOUTS_NUM)
             .collect()
@@ -141,7 +141,7 @@ mod tests {
     async fn test_next_timeout_works() {
         let mut mng = TimeoutsManager::new();
 
-        let operators = vec![OperatorPubkey(vec![1]); 3];
+        let operators = vec![OperatorPubKey(vec![1]); 3];
 
         for (idx, operator_pk) in operators.iter().enumerate() {
             mng.set_deposit_timeout(
@@ -163,7 +163,7 @@ mod tests {
     async fn test_push_after_next_timeout() {
         let mut mng = TimeoutsManager::new();
 
-        let operators = vec![OperatorPubkey(vec![1]); 4];
+        let operators = vec![OperatorPubKey(vec![1]); 4];
 
         for (idx, operator_pk) in operators.iter().take(3).enumerate() {
             mng.set_deposit_timeout(
