@@ -1,4 +1,4 @@
-use std::{collections::HashSet, fmt::Debug, sync::LazyLock, time::Duration};
+use std::{collections::HashSet, fmt::Debug, io, sync::LazyLock, time::Duration};
 
 use behavior::{Behaviour, BehaviourEvent};
 use bitcoin::hashes::Hash;
@@ -11,10 +11,9 @@ use libp2p::{
     noise, request_response,
     request_response::Event as RequestResponseEvent,
     swarm::SwarmEvent,
-    yamux, Multiaddr, PeerId, Swarm, SwarmBuilder, Transport,
+    yamux, Multiaddr, PeerId, Swarm, SwarmBuilder, Transport, TransportError,
 };
 use prost::Message as ProtoMsg;
-use snafu::prelude::*;
 use strata_p2p_db::{
     states::PeerDepositState, DBResult, DepositSetupEntry, GenesisInfoEntry, NoncesEntry,
     PartialSignaturesEntry, RepositoryError, RepositoryExt,
@@ -31,6 +30,7 @@ use strata_p2p_wire::p2p::{
         GetMessageRequestExchangeKind, GossipsubMsg, GossipsubMsgDepositKind, GossipsubMsgKind,
     },
 };
+use thiserror::Error;
 use tokio::{
     select,
     sync::{broadcast, mpsc},
@@ -56,17 +56,31 @@ static TOPIC: LazyLock<Sha256Topic> = LazyLock::new(|| Sha256Topic::new("bitvm2"
 /// Global name of the protocol
 const PROTOCOL_NAME: &str = "/strata-bitvm2";
 
-#[derive(Snafu, Debug)]
+#[derive(Debug, Error)]
 pub enum Error {
-    #[snafu(display("Database error: {source}"))]
-    Repository { source: RepositoryError },
-
-    #[snafu(whatever, display("{message}"))]
-    Whatever {
-        message: String,
-        #[snafu(source(from(Box<dyn std::error::Error>, Some)))]
-        source: Option<Box<dyn std::error::Error>>,
+    #[error("Database error: {source}")]
+    Repository {
+        #[source]
+        source: RepositoryError,
     },
+    #[error("Validation error: {message}")]
+    Validation { message: String },
+    #[error("Protocol error: {message}")]
+    Protocol { message: String },
+}
+
+impl From<TransportError<io::Error>> for Error {
+    fn from(e: TransportError<io::Error>) -> Self {
+        Error::Protocol {
+            message: format!("Protocol error: {e}"),
+        }
+    }
+}
+
+impl From<RepositoryError> for Error {
+    fn from(e: RepositoryError) -> Self {
+        Error::Repository { source: e }
+    }
 }
 
 pub type P2PResult<T> = Result<T, Error>;
@@ -127,7 +141,7 @@ where
     ) -> P2PResult<P2PWithHandle<DSP, DB>> {
         swarm
             .listen_on(cfg.listening_addr.clone())
-            .whatever_context("failed to listen")?;
+            .map_err(Into::<TransportError<io::Error>>::into)?;
 
         // TODO(Velnbur): make this configurable
         let (events_tx, events_rx) = broadcast::channel(50_000);
@@ -328,7 +342,7 @@ where
         let new_event = self
             .insert_msg_if_not_exists_with_timeout(&msg, true)
             .await
-            .context(RepositorySnafu)?;
+            .map_err(Into::<RepositoryError>::into)?;
 
         let event = Event::new(source, EventKind::GossipsubMsg(msg));
 
@@ -351,7 +365,9 @@ where
         }
 
         if self.events.send(event).is_err() {
-            whatever!("Events channel should never close");
+            return Err(Error::Protocol {
+                message: "Events channel should never close".to_string(),
+            });
         }
 
         Ok(())
@@ -473,7 +489,7 @@ where
             &msg, /* do net set timeout for local peer */ false,
         )
         .await
-        .context(RepositorySnafu)?;
+        .map_err(Into::<RepositoryError>::into)?;
 
         // TODO(Velnbur): add retry mechanism later, instead of skipping the error
         let _ = self
@@ -503,7 +519,7 @@ where
             .db
             .get_peer_deposit_status(&operator_pk, scope)
             .await
-            .context(RepositorySnafu)?;
+            .map_err(Into::<RepositoryError>::into)?;
 
         let request_key = DepositRequestKey {
             scope: scope.to_byte_array().to_vec(),
@@ -625,7 +641,7 @@ where
                     .db
                     .get_genesis_info(&operator_pk)
                     .await
-                    .context(RepositorySnafu)?;
+                    .map_err(Into::<RepositoryError>::into)?;
 
                 info.map(|v| proto::GossipsubMsg {
                     body: Some(Body::GenesisInfo(proto::GenesisInfo {
@@ -652,7 +668,7 @@ where
                         .db
                         .get_deposit_setup(&operator_pk, scope)
                         .await
-                        .context(RepositorySnafu)?;
+                        .map_err(Into::<RepositoryError>::into)?;
 
                     setup.map(|v| proto::GossipsubMsg {
                         body: Some(Body::Setup(proto::DepositSetupExchange {
@@ -668,7 +684,7 @@ where
                         .db
                         .get_pub_nonces(&operator_pk, scope)
                         .await
-                        .context(RepositorySnafu)?;
+                        .map_err(Into::<RepositoryError>::into)?;
 
                     nonces.map(|v| proto::GossipsubMsg {
                         body: Some(Body::Nonce(proto::DepositNoncesExchange {
@@ -684,7 +700,7 @@ where
                         .db
                         .get_partial_signatures(&operator_pk, scope)
                         .await
-                        .context(RepositorySnafu)?;
+                        .map_err(Into::<RepositoryError>::into)?;
 
                     sigs.map(|v| proto::GossipsubMsg {
                         body: Some(Body::Sigs(proto::DepositSignaturesExchange {
@@ -712,7 +728,7 @@ where
                 self.db
                     .set_genesis_info(entry)
                     .await
-                    .context(RepositorySnafu)?
+                    .map_err(Into::<RepositoryError>::into)?;
             }
             GossipsubMsgKind::Deposit { scope, kind } => match kind {
                 GossipsubMsgDepositKind::Sigs(v) => {
@@ -724,7 +740,7 @@ where
                     self.db
                         .set_partial_signatures(scope, entry)
                         .await
-                        .context(RepositorySnafu)?
+                        .map_err(Into::<RepositoryError>::into)?;
                 }
                 GossipsubMsgDepositKind::Setup(v) => {
                     let entry = DepositSetupEntry {
@@ -735,7 +751,7 @@ where
                     self.db
                         .set_deposit_setup(scope, entry)
                         .await
-                        .context(RepositorySnafu)?
+                        .map_err(Into::<RepositoryError>::into)?;
                 }
                 GossipsubMsgDepositKind::Nonces(v) => {
                     let entry = NoncesEntry {
@@ -746,7 +762,7 @@ where
                     self.db
                         .set_pub_nonces(scope, entry)
                         .await
-                        .context(RepositorySnafu)?
+                        .map_err(Into::<RepositoryError>::into)?;
                 }
             },
         }
@@ -755,14 +771,18 @@ where
     }
 
     /// Checks gossip sub message for validity by protocol rules.
-    fn validate_gossipsub_msg(&self, msg: &GossipsubMsg<DSP>) -> Result<(), snafu::Whatever> {
+    fn validate_gossipsub_msg(&self, msg: &GossipsubMsg<DSP>) -> P2PResult<()> {
         if !self.config.signers_allowlist.contains(&msg.key) {
-            whatever!("Signer is not accepted by allowlist: {}", msg.key);
+            return Err(Error::Validation {
+                message: format!("Signer is not accepted by allowlist: {}", msg.key),
+            });
         }
 
         let content = msg.content();
         if !msg.key.verify(&content, &msg.signature) {
-            whatever!("Invalid signature");
+            return Err(Error::Validation {
+                message: "Invalid signature".to_string(),
+            });
         }
 
         Ok(())
@@ -780,7 +800,7 @@ macro_rules! init_swarm {
     };
 }
 
-/// Finish builder of swarm with paramets from config.
+/// Finish builder of swarm with parameters from config.
 ///
 /// Again, macro is used as there is no way to specify this behaviour in
 /// function, because `with_tcp` and `with_other_transport` return
@@ -788,9 +808,13 @@ macro_rules! init_swarm {
 macro_rules! finish_swarm {
     ($builder:expr, $cfg:expr) => {
         $builder
-            .whatever_context("failed to initialize transport")?
+            .map_err(|e| Error::Protocol {
+                message: format!("failed to initialize transport: {}", e.to_string()),
+            })?
             .with_behaviour(|_| Behaviour::new(PROTOCOL_NAME, &$cfg.keypair, &$cfg.allowlist))
-            .whatever_context("failed to initialize behaviour")?
+            .map_err(|e| Error::Protocol {
+                message: format!("failed to initialize behaviour: {}", e.to_string()),
+            })?
             .with_swarm_config(|c| c.with_idle_connection_timeout($cfg.idle_connection_timeout))
             .build()
     };
