@@ -11,8 +11,8 @@ musig2.workspace = true
 prost.workspace = true
 serde.workspace = true
 snafu.workspace = true
-tracing.workspace = true
 strata-p2p-types.path = "./../types"
+tracing.workspace = true
 
 # make this implementation optional
 sled = "0.34.7"
