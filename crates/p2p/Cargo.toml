@@ -25,6 +25,7 @@ serde = { workspace = true, features = ["derive"] }
 snafu = { workspace = true, features = ["rust_1_81", "backtrace", "std"] }
 strata-p2p-db.path = "../db"
 strata-p2p-wire.path = "../wire"
+threadpool.workspace = true
 tokio = { workspace = true, features = ["macros", "time"] }
 tokio-util.workspace = true
 tracing.workspace = true

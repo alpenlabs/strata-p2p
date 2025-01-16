@@ -11,11 +11,14 @@ musig2.workspace = true
 prost.workspace = true
 serde.workspace = true
 snafu.workspace = true
+tracing.workspace = true
 
 # make this implementation optional
 sled = "0.34.7"
 # temporaty solution for DB serialization. `ciborium` crate is not working, unfortunatly.
 serde_json = "1.0.135"
+threadpool.workspace = true
+tokio = { workspace = true, features = ["sync"] }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt"] }
