@@ -22,7 +22,6 @@ futures.workspace = true
 musig2 = { workspace = true, features = ["serde"] }
 prost.workspace = true
 snafu = { workspace = true, features = ["rust_1_81", "backtrace", "std"] }
-threadpool.workspace = true
 tokio = { workspace = true, features = ["macros", "time"] }
 tokio-util.workspace = true
 tracing.workspace = true
@@ -34,7 +33,5 @@ strata-p2p-wire.path = "../wire"
 [dev-dependencies]
 sled = "0.34.7"
 tokio = { workspace = true, features = ["rt", "rt-multi-thread"] }
-rand = "0.8.5"
-secp256k1 = { version = "0.29.0", features = ["rand"] }
 tokio-util.workspace = true
 tracing-subscriber.workspace = true

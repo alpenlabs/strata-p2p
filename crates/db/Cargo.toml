@@ -6,7 +6,6 @@ edition = "2024"
 [dependencies]
 async-trait.workspace = true
 bitcoin.workspace = true
-libp2p-identity.workspace = true
 musig2.workspace = true
 prost.workspace = true
 serde.workspace = true
