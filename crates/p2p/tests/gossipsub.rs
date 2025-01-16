@@ -15,11 +15,11 @@ use strata_p2p::{
     events::EventKind,
     swarm::handle::P2PHandle,
 };
+use strata_p2p_types::OperatorPubKey;
 use strata_p2p_wire::p2p::v1::{GossipsubMsg, GossipsubMsgDepositKind, GossipsubMsgKind};
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use tracing::info;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
-use strata_p2p_types::OperatorPubKey;
 
 mod common;
 
@@ -38,7 +38,11 @@ impl Setup {
 
         let cancel = CancellationToken::new();
         let mut operators = Vec::new();
-        let whitelisted_signers: Vec<OperatorPubKey> = keypairs.clone().into_iter().map(|kp| kp.public().clone().into()).collect();
+        let whitelisted_signers: Vec<OperatorPubKey> = keypairs
+            .clone()
+            .into_iter()
+            .map(|kp| kp.public().clone().into())
+            .collect();
 
         for (idx, (keypair, addr)) in keypairs.iter().zip(&multiaddresses).enumerate() {
             let mut other_addrs = multiaddresses.clone();
@@ -54,7 +58,7 @@ impl Setup {
                 other_addrs,
                 addr.clone(),
                 cancel.child_token(),
-                whitelisted_signers.clone()
+                whitelisted_signers.clone(),
             )?;
 
             operators.push(operator);
@@ -215,7 +219,9 @@ async fn exchange_deposit_setup(
     scope_hash: sha256::Hash,
 ) -> Result<(), snafu::Whatever> {
     for (operator, _, kp) in operators.iter() {
-        operator.send_command(mock_deposit_setup(kp, scope_hash)).await;
+        operator
+            .send_command(mock_deposit_setup(kp, scope_hash))
+            .await;
     }
     for (operator, peer_id, _) in operators.iter_mut() {
         for _ in 0..operators_num - 1 {
@@ -249,7 +255,9 @@ async fn exchange_deposit_nonces(
     scope_hash: sha256::Hash,
 ) -> Result<(), snafu::Whatever> {
     for (operator, _, kp) in operators.iter() {
-        operator.send_command(mock_deposit_nonces(kp, scope_hash)).await;
+        operator
+            .send_command(mock_deposit_nonces(kp, scope_hash))
+            .await;
     }
     for (operator, peer_id, _) in operators.iter_mut() {
         for _ in 0..operators_num - 1 {
@@ -283,7 +291,9 @@ async fn exchange_deposit_sigs(
     scope_hash: sha256::Hash,
 ) -> Result<(), snafu::Whatever> {
     for (operator, _, kp) in operators.iter() {
-        operator.send_command(mock_deposit_sigs(kp, scope_hash)).await;
+        operator
+            .send_command(mock_deposit_sigs(kp, scope_hash))
+            .await;
     }
 
     for (operator, peer_id, _) in operators.iter_mut() {

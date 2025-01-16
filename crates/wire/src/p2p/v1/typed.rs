@@ -1,20 +1,19 @@
 use bitcoin::{
-    OutPoint, XOnlyPublicKey,
     consensus::Decodable,
-    hashes::{Hash, sha256},
+    hashes::{sha256, Hash},
     io::Cursor,
+    OutPoint, XOnlyPublicKey,
 };
 use musig2::{PartialSignature, PubNonce};
 use prost::{DecodeError, Message};
 use strata_p2p_types::OperatorPubKey;
 
 use super::proto::{
-    DepositNoncesExchange as ProtoDepositNonces, DepositRequestKey,
-    DepositSetupExchange as ProtoDepositSetup, DepositSignaturesExchange as ProtoDepositSigs,
-    GenesisInfo as ProtoGenesisInfo, GenesisRequestKey,
-    GetMessageRequest as ProtoGetMessageRequest, GossipsubMsg as ProtoGossipMsg,
     get_message_request::Body as ProtoGetMessageRequestBody,
-    gossipsub_msg::Body as ProtoGossipsubMsgBody,
+    gossipsub_msg::Body as ProtoGossipsubMsgBody, DepositNoncesExchange as ProtoDepositNonces,
+    DepositRequestKey, DepositSetupExchange as ProtoDepositSetup,
+    DepositSignaturesExchange as ProtoDepositSigs, GenesisInfo as ProtoGenesisInfo,
+    GenesisRequestKey, GetMessageRequest as ProtoGetMessageRequest, GossipsubMsg as ProtoGossipMsg,
 };
 
 pub enum GetMessageRequestExchangeKind {

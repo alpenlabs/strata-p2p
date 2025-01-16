@@ -1,7 +1,7 @@
 use async_trait::async_trait;
-use bitcoin::{OutPoint, XOnlyPublicKey, hashes::sha256};
+use bitcoin::{hashes::sha256, OutPoint, XOnlyPublicKey};
 use musig2::{PartialSignature, PubNonce};
-use serde::{Serialize, de::DeserializeOwned};
+use serde::{de::DeserializeOwned, Serialize};
 use snafu::{ResultExt, Snafu};
 use strata_p2p_types::OperatorPubKey;
 

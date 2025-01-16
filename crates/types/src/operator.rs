@@ -1,4 +1,5 @@
 use std::fmt;
+
 use hex::ToHex;
 use libp2p_identity::secp256k1::PublicKey;
 

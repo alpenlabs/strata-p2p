@@ -73,16 +73,16 @@ mod tests {
     use std::sync::Arc;
 
     use bitcoin::{
+        hashes::{sha256, Hash},
         OutPoint, XOnlyPublicKey,
-        hashes::{Hash, sha256},
     };
-    use musig2::{AggNonce, KeyAggContext, SecNonce, sign_partial};
+    use musig2::{sign_partial, AggNonce, KeyAggContext, SecNonce};
     use rand::thread_rng;
     use secp256k1::{All, Keypair, Secp256k1};
     use strata_p2p_types::OperatorPubKey;
 
     use crate::{
-        GenesisInfoEntry, NoncesEntry, PartialSignaturesEntry, RepositoryExt, sled::AsyncDB,
+        sled::AsyncDB, GenesisInfoEntry, NoncesEntry, PartialSignaturesEntry, RepositoryExt,
     };
 
     #[tokio::test]
