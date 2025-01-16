@@ -1,18 +1,62 @@
+use std::sync::Arc;
+
 use async_trait::async_trait;
+use sled::Db;
+use threadpool::ThreadPool;
+use tokio::sync::oneshot;
+use tracing::warn;
 
 use super::{DBResult, Repository, RepositoryError};
 
-#[async_trait]
-impl Repository for sled::Db {
-    async fn get_raw(&self, key: String) -> DBResult<Option<Vec<u8>>> {
-        let value = sled::Tree::get(self, key)?;
+pub struct AsyncDB {
+    pool: ThreadPool,
+    db: Arc<Db>,
+}
 
-        Ok(value.map(|v| v.to_vec()))
+impl AsyncDB {
+    pub fn new(pool: ThreadPool, db: Arc<Db>) -> Self {
+        Self { pool, db }
     }
-    async fn set_raw(&self, key: String, value: Vec<u8>) -> DBResult<()> {
-        self.insert(key, value)?;
+}
 
-        Ok(())
+#[async_trait]
+impl Repository for AsyncDB {
+    async fn get_raw(&self, key: String) -> DBResult<Option<Vec<u8>>> {
+        let (tx, rx) = oneshot::channel();
+
+        let db = self.db.clone();
+        self.pool.execute(move || {
+            let value = sled::Tree::get(&db, key).map(|opt| opt.map(|v| v.to_vec()));
+
+            if tx.send(value).is_err() {
+                warn!("Receiver channel hanged up or dropped");
+            }
+        });
+
+        rx.await
+            .map_err(|_| RepositoryError::KeyValueStorage {
+                source: "Channel closed unexpectedly".into(),
+            })?
+            .map_err(|err| RepositoryError::KeyValueStorage { source: err.into() })
+    }
+
+    async fn set_raw(&self, key: String, value: Vec<u8>) -> DBResult<()> {
+        let (tx, rx) = oneshot::channel();
+
+        let db = self.db.clone();
+        self.pool.execute(move || {
+            let value = db.insert(key, value).map(|_| ());
+
+            if tx.send(value).is_err() {
+                warn!("Receiver channel hanged up or dropped");
+            }
+        });
+
+        rx.await
+            .map_err(|_| RepositoryError::KeyValueStorage {
+                source: "Channel closed unexpectedly".into(),
+            })?
+            .map_err(|err| RepositoryError::KeyValueStorage { source: err.into() })
     }
 }
 
@@ -26,6 +70,8 @@ impl From<sled::Error> for RepositoryError {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use bitcoin::{
         OutPoint, XOnlyPublicKey,
         hashes::{Hash, sha256},
@@ -35,12 +81,15 @@ mod tests {
     use rand::thread_rng;
     use secp256k1::{All, Keypair, Secp256k1};
 
-    use crate::{GenesisInfoEntry, NoncesEntry, PartialSignaturesEntry, RepositoryExt};
+    use crate::{
+        GenesisInfoEntry, NoncesEntry, PartialSignaturesEntry, RepositoryExt, sled::AsyncDB,
+    };
 
     #[tokio::test]
     async fn test_repository() {
         let config = sled::Config::new().temporary(true);
         let db = config.open().expect("Failed to open sled database");
+        let db = AsyncDB::new(Default::default(), Arc::new(db));
 
         async fn inner(db: &impl RepositoryExt<()>) {
             let secp = Secp256k1::new();

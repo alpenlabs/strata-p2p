@@ -8,7 +8,7 @@ use snafu::{ResultExt, Snafu};
 use crate::states::PeerDepositState;
 
 mod prost_serde;
-mod sled;
+pub mod sled;
 pub mod states;
 
 pub type DBResult<T> = Result<T, RepositoryError>;
