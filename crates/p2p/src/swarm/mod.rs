@@ -310,7 +310,7 @@ where
         let source = message
             .source
             .expect("Message must have author as ValidationMode set to Permissive");
-        if let Err(err) = validate_gossipsub_msg(&self.config.whitelisted_signers, &msg) {
+        if let Err(err) = self.validate_gossipsub_msg(&msg) {
             debug!(reason=%err, "Message failed validation.");
             // no error should appear in case of message rejection
             let _ = self
@@ -602,8 +602,7 @@ where
                             continue;
                         }
                     };
-                    if let Err(err) = validate_gossipsub_msg(&self.config.whitelisted_signers, &msg)
-                    {
+                    if let Err(err) = self.validate_gossipsub_msg(&msg) {
                         debug!(%peer, reason=%err, "Message failed validation");
                         continue;
                     }
@@ -754,23 +753,20 @@ where
 
         Ok(())
     }
-}
 
-/// Checks gossip sub message for validity by protocol rules.
-fn validate_gossipsub_msg<DSP: prost::Message + Clone + Default>(
-    whitelisted_signers: &[OperatorPubKey],
-    msg: &GossipsubMsg<DSP>,
-) -> Result<(), snafu::Whatever> {
-    if !whitelisted_signers.contains(&msg.key) {
-        whatever!("Signer is not whitelisted: {}", msg.key);
+    /// Checks gossip sub message for validity by protocol rules.
+    fn validate_gossipsub_msg(&self, msg: &GossipsubMsg<DSP>) -> Result<(), snafu::Whatever> {
+        if !self.config.whitelisted_signers.contains(&msg.key) {
+            whatever!("Signer is not whitelisted: {}", msg.key);
+        }
+
+        let content = msg.content();
+        if !msg.key.verify(&content, &msg.signature) {
+            whatever!("Invalid signature");
+        }
+
+        Ok(())
     }
-
-    let content = msg.content();
-    if !msg.key.verify(&content, &msg.signature) {
-        whatever!("Invalid signature");
-    }
-
-    Ok(())
 }
 
 /// Constructs swarm builder with existing identity.
