@@ -5,10 +5,12 @@ use snafu::ResultExt;
 use strata_p2p::swarm::{self, handle::P2PHandle, P2PConfig, P2P};
 use strata_p2p_db::sled::AsyncDB;
 use tokio_util::sync::CancellationToken;
+use strata_p2p_types::OperatorPubKey;
 
 pub struct Operator {
     pub p2p: P2P<(), AsyncDB>,
     pub handle: P2PHandle<()>,
+    pub kp: SecpKeypair,
 }
 
 impl Operator {
@@ -18,6 +20,7 @@ impl Operator {
         connect_to: Vec<Multiaddr>,
         local_addr: Multiaddr,
         cancel: CancellationToken,
+        whitelisted_signers: Vec<OperatorPubKey>
     ) -> Result<Self, snafu::Whatever> {
         let db = sled::Config::new()
             .temporary(true)
@@ -26,11 +29,12 @@ impl Operator {
 
         let config = P2PConfig {
             next_stage_timeout: Duration::from_secs(10),
-            keypair,
+            keypair: keypair.clone(),
             idle_connection_timeout: Duration::from_secs(30),
             listening_addr: local_addr,
             allowlist,
             connect_to,
+            whitelisted_signers,
         };
 
         let swarm = swarm::with_inmemory_transport(&config)
@@ -39,6 +43,6 @@ impl Operator {
         let (p2p, handle) = P2P::<(), AsyncDB>::from_config(config, cancel, db, swarm)
             .whatever_context("invalid p2p config")?;
 
-        Ok(Self { handle, p2p })
+        Ok(Self { handle, p2p, kp: keypair })
     }
 }

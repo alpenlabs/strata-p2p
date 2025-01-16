@@ -36,7 +36,7 @@ use tokio::{
 };
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, instrument};
-
+use strata_p2p_types::OperatorPubKey;
 use crate::{
     commands::Command,
     events::{Event, EventKind},
@@ -89,6 +89,9 @@ pub struct P2PConfig {
 
     /// Initial list of nodes to connect to at startup.
     pub connect_to: Vec<Multiaddr>,
+
+    /// List of signers' public keys, whose messages node accepts.
+    pub whitelisted_signers: Vec<OperatorPubKey>
 }
 
 /// Implementation of p2p protocol for BitVM2 data exchange.
@@ -306,7 +309,7 @@ where
         let source = message
             .source
             .expect("Message must have author as ValidationMode set to Permissive");
-        if let Err(err) = validate_gossipsub_msg(&msg) {
+        if let Err(err) = self.validate_gossipsub_msg(&msg).await {
             debug!(reason=%err, "Message failed validation.");
             // no error should appear in case of message rejection
             let _ = self
@@ -598,7 +601,7 @@ where
                             continue;
                         }
                     };
-                    if let Err(err) = validate_gossipsub_msg::<DSP>(&msg) {
+                    if let Err(err) = self.validate_gossipsub_msg(&msg).await {
                         debug!(%peer, reason=%err, "Message failed validation");
                         continue;
                     }
@@ -749,19 +752,23 @@ where
 
         Ok(())
     }
-}
 
-/// Checks gossip sub message for validity by protocol rules.
-// NOTE(Velnbur): may be we should make this a method or move to separate repo, but I'm not sure.
-fn validate_gossipsub_msg<DSP: prost::Message + Clone + Default>(
-    msg: &GossipsubMsg<DSP>,
-) -> Result<(), snafu::Whatever> {
-    let content = msg.content();
-    if !msg.key.verify(&content, &msg.signature) {
-        whatever!("Invalid signature");
+    /// Checks gossip sub message for validity by protocol rules.
+    async fn validate_gossipsub_msg(
+        &self,
+        msg: &GossipsubMsg<DSP>,
+    ) -> Result<(), snafu::Whatever> {
+        if !self.config.whitelisted_signers.contains(&msg.key){
+            whatever!("Signer is not whitelisted: {}", msg.key);
+        }
+
+        let content = msg.content();
+        if !msg.key.verify(&content, &msg.signature) {
+            whatever!("Invalid signature");
+        }
+
+        Ok(())
     }
-
-    Ok(())
 }
 
 /// Constructs swarm builder with existing identity.

@@ -19,12 +19,13 @@ use strata_p2p_wire::p2p::v1::{GossipsubMsg, GossipsubMsgDepositKind, GossipsubM
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use tracing::info;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
+use strata_p2p_types::OperatorPubKey;
 
 mod common;
 
 struct Setup {
     cancel: CancellationToken,
-    operators: Vec<(P2PHandle<()>, PeerId)>,
+    operators: Vec<(P2PHandle<()>, PeerId, SecpKeypair)>,
     tasks: TaskTracker,
 }
 
@@ -37,6 +38,7 @@ impl Setup {
 
         let cancel = CancellationToken::new();
         let mut operators = Vec::new();
+        let whitelisted_signers: Vec<OperatorPubKey> = keypairs.clone().into_iter().map(|kp| kp.public().clone().into()).collect();
 
         for (idx, (keypair, addr)) in keypairs.iter().zip(&multiaddresses).enumerate() {
             let mut other_addrs = multiaddresses.clone();
@@ -52,6 +54,7 @@ impl Setup {
                 other_addrs,
                 addr.clone(),
                 cancel.child_token(),
+                whitelisted_signers.clone()
             )?;
 
             operators.push(operator);
@@ -88,7 +91,7 @@ impl Setup {
     /// and then spawn [`P2P::listen`]s in separate tasks using [`TaskTracker`].
     async fn start_operators(
         mut operators: Vec<Operator>,
-    ) -> (Vec<(P2PHandle<()>, PeerId)>, TaskTracker) {
+    ) -> (Vec<(P2PHandle<()>, PeerId, SecpKeypair)>, TaskTracker) {
         // wait until all of of them established connections and subscriptions
         join_all(
             operators
@@ -103,7 +106,7 @@ impl Setup {
         for operator in operators {
             let peer_id = operator.p2p.local_peer_id();
             tasks.spawn(operator.p2p.listen());
-            handles.push((operator.handle, peer_id));
+            handles.push((operator.handle, peer_id, operator.kp));
         }
         tasks.close();
         (handles, tasks)
@@ -178,13 +181,13 @@ async fn test_all_to_all_multiple_scopes() -> Result<(), snafu::Whatever> {
 }
 
 async fn exchange_genesis_info(
-    operators: &mut [(P2PHandle<()>, PeerId)],
+    operators: &mut [(P2PHandle<()>, PeerId, SecpKeypair)],
     operators_num: usize,
 ) -> Result<(), snafu::Whatever> {
-    for (operator, _) in operators.iter() {
-        operator.send_command(mock_genesis_info()).await;
+    for (operator, _, kp) in operators.iter() {
+        operator.send_command(mock_genesis_info(kp)).await;
     }
-    for (operator, peer_id) in operators.iter_mut() {
+    for (operator, peer_id, _) in operators.iter_mut() {
         // received genesis info from other n-1 operators
         for _ in 0..operators_num - 1 {
             let event = operator.next_event().await.unwrap();
@@ -207,14 +210,14 @@ async fn exchange_genesis_info(
 }
 
 async fn exchange_deposit_setup(
-    operators: &mut [(P2PHandle<()>, PeerId)],
+    operators: &mut [(P2PHandle<()>, PeerId, SecpKeypair)],
     operators_num: usize,
     scope_hash: sha256::Hash,
 ) -> Result<(), snafu::Whatever> {
-    for (operator, _) in operators.iter() {
-        operator.send_command(mock_deposit_setup(scope_hash)).await;
+    for (operator, _, kp) in operators.iter() {
+        operator.send_command(mock_deposit_setup(kp, scope_hash)).await;
     }
-    for (operator, peer_id) in operators.iter_mut() {
+    for (operator, peer_id, _) in operators.iter_mut() {
         for _ in 0..operators_num - 1 {
             let event = operator.next_event().await.unwrap();
             // Skip messages from other scopes.
@@ -241,14 +244,14 @@ async fn exchange_deposit_setup(
 }
 
 async fn exchange_deposit_nonces(
-    operators: &mut [(P2PHandle<()>, PeerId)],
+    operators: &mut [(P2PHandle<()>, PeerId, SecpKeypair)],
     operators_num: usize,
     scope_hash: sha256::Hash,
 ) -> Result<(), snafu::Whatever> {
-    for (operator, _) in operators.iter() {
-        operator.send_command(mock_deposit_nonces(scope_hash)).await;
+    for (operator, _, kp) in operators.iter() {
+        operator.send_command(mock_deposit_nonces(kp, scope_hash)).await;
     }
-    for (operator, peer_id) in operators.iter_mut() {
+    for (operator, peer_id, _) in operators.iter_mut() {
         for _ in 0..operators_num - 1 {
             let event = operator.next_event().await.unwrap();
             // Skip messages from other scopes.
@@ -275,15 +278,15 @@ async fn exchange_deposit_nonces(
 }
 
 async fn exchange_deposit_sigs(
-    operators: &mut [(P2PHandle<()>, PeerId)],
+    operators: &mut [(P2PHandle<()>, PeerId, SecpKeypair)],
     operators_num: usize,
     scope_hash: sha256::Hash,
 ) -> Result<(), snafu::Whatever> {
-    for (operator, _) in operators.iter() {
-        operator.send_command(mock_deposit_sigs(scope_hash)).await;
+    for (operator, _, kp) in operators.iter() {
+        operator.send_command(mock_deposit_sigs(kp, scope_hash)).await;
     }
 
-    for (operator, peer_id) in operators.iter_mut() {
+    for (operator, peer_id, _) in operators.iter_mut() {
         for _ in 0..operators_num - 1 {
             let event = operator.next_event().await.unwrap();
             // Skip messages from other scopes.
@@ -310,38 +313,34 @@ async fn exchange_deposit_sigs(
     Ok(())
 }
 
-fn mock_genesis_info() -> Command<()> {
+fn mock_genesis_info(kp: &SecpKeypair) -> Command<()> {
     let kind = CommandKind::SendGenesisInfo {
         pre_stake_outpoint: OutPoint::null(),
         checkpoint_pubkeys: vec![],
     };
-    let kp = SecpKeypair::generate();
-    kind.sign_secp256k1(&kp)
+    kind.sign_secp256k1(kp)
 }
 
-fn mock_deposit_setup(scope_hash: sha256::Hash) -> Command<()> {
+fn mock_deposit_setup(kp: &SecpKeypair, scope_hash: sha256::Hash) -> Command<()> {
     let kind = CommandKind::SendDepositSetup {
         scope: scope_hash,
         payload: (),
     };
-    let kp = SecpKeypair::generate();
-    kind.sign_secp256k1(&kp)
+    kind.sign_secp256k1(kp)
 }
 
-fn mock_deposit_nonces(scope_hash: sha256::Hash) -> Command<()> {
+fn mock_deposit_nonces(kp: &SecpKeypair, scope_hash: sha256::Hash) -> Command<()> {
     let kind = CommandKind::SendDepositNonces {
         scope: scope_hash,
         pub_nonces: vec![],
     };
-    let kp = SecpKeypair::generate();
-    kind.sign_secp256k1(&kp)
+    kind.sign_secp256k1(kp)
 }
 
-fn mock_deposit_sigs(scope_hash: sha256::Hash) -> Command<()> {
+fn mock_deposit_sigs(kp: &SecpKeypair, scope_hash: sha256::Hash) -> Command<()> {
     let kind = CommandKind::SendPartialSignatures {
         scope: scope_hash,
         partial_sigs: vec![],
     };
-    let kp = SecpKeypair::generate();
-    kind.sign_secp256k1(&kp)
+    kind.sign_secp256k1(kp)
 }
