@@ -82,7 +82,7 @@ mod tests {
     use strata_p2p_types::OperatorPubKey;
 
     use crate::{
-        GenesisInfoEntry, NoncesEntry, PartialSignaturesEntry, RepositoryExt, sled::AsyncDB
+        GenesisInfoEntry, NoncesEntry, PartialSignaturesEntry, RepositoryExt, sled::AsyncDB,
     };
 
     #[tokio::test]
