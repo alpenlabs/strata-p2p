@@ -15,7 +15,6 @@ use strata_p2p::{
     events::EventKind,
     swarm::handle::P2PHandle,
 };
-use strata_p2p_types::OperatorPubKey;
 use strata_p2p_wire::p2p::v1::{GossipsubMsg, GossipsubMsgDepositKind, GossipsubMsgKind};
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use tracing::info;
@@ -67,7 +66,7 @@ impl Setup {
         })
     }
 
-    /// Create N random keypairs, peer ids from them and sequantial in-memory
+    /// Create N random keypairs, peer ids from them and sequential in-memory
     /// addresses.
     fn setup_keys_ids_addrs_of_n_operators(
         number: usize,
@@ -183,16 +182,7 @@ async fn exchange_genesis_info(
     operators_num: usize,
 ) -> Result<(), snafu::Whatever> {
     for (operator, _) in operators.iter() {
-        operator
-            .send_command(Command {
-                key: generate_pk(),
-                signature: vec![],
-                kind: CommandKind::SendGenesisInfo {
-                    pre_stake_outpoint: OutPoint::null(),
-                    checkpoint_pubkeys: vec![],
-                },
-            })
-            .await;
+        operator.send_command(mock_genesis_info()).await;
     }
     for (operator, peer_id) in operators.iter_mut() {
         // received genesis info from other n-1 operators
@@ -222,16 +212,7 @@ async fn exchange_deposit_setup(
     scope_hash: sha256::Hash,
 ) -> Result<(), snafu::Whatever> {
     for (operator, _) in operators.iter() {
-        operator
-            .send_command(Command {
-                key: generate_pk(),
-                signature: vec![],
-                kind: CommandKind::SendDepositSetup {
-                    scope: scope_hash,
-                    payload: (),
-                },
-            })
-            .await;
+        operator.send_command(mock_deposit_setup(scope_hash)).await;
     }
     for (operator, peer_id) in operators.iter_mut() {
         for _ in 0..operators_num - 1 {
@@ -265,16 +246,7 @@ async fn exchange_deposit_nonces(
     scope_hash: sha256::Hash,
 ) -> Result<(), snafu::Whatever> {
     for (operator, _) in operators.iter() {
-        operator
-            .send_command(Command {
-                key: generate_pk(),
-                signature: vec![],
-                kind: CommandKind::SendDepositNonces {
-                    scope: scope_hash,
-                    pub_nonces: vec![],
-                },
-            })
-            .await;
+        operator.send_command(mock_deposit_nonces(scope_hash)).await;
     }
     for (operator, peer_id) in operators.iter_mut() {
         for _ in 0..operators_num - 1 {
@@ -308,16 +280,7 @@ async fn exchange_deposit_sigs(
     scope_hash: sha256::Hash,
 ) -> Result<(), snafu::Whatever> {
     for (operator, _) in operators.iter() {
-        operator
-            .send_command(Command {
-                key: generate_pk(),
-                signature: vec![],
-                kind: CommandKind::SendPartialSignatures {
-                    scope: scope_hash,
-                    partial_sigs: vec![],
-                },
-            })
-            .await;
+        operator.send_command(mock_deposit_sigs(scope_hash)).await;
     }
 
     for (operator, peer_id) in operators.iter_mut() {
@@ -347,9 +310,38 @@ async fn exchange_deposit_sigs(
     Ok(())
 }
 
-fn generate_pk() -> OperatorPubKey {
+fn mock_genesis_info() -> Command<()> {
+    let kind = CommandKind::SendGenesisInfo {
+        pre_stake_outpoint: OutPoint::null(),
+        checkpoint_pubkeys: vec![],
+    };
     let kp = SecpKeypair::generate();
-    let pk = kp.public().clone();
+    kind.sign_secp256k1(&kp)
+}
 
-    OperatorPubKey::from(pk)
+fn mock_deposit_setup(scope_hash: sha256::Hash) -> Command<()> {
+    let kind = CommandKind::SendDepositSetup {
+        scope: scope_hash,
+        payload: (),
+    };
+    let kp = SecpKeypair::generate();
+    kind.sign_secp256k1(&kp)
+}
+
+fn mock_deposit_nonces(scope_hash: sha256::Hash) -> Command<()> {
+    let kind = CommandKind::SendDepositNonces {
+        scope: scope_hash,
+        pub_nonces: vec![],
+    };
+    let kp = SecpKeypair::generate();
+    kind.sign_secp256k1(&kp)
+}
+
+fn mock_deposit_sigs(scope_hash: sha256::Hash) -> Command<()> {
+    let kind = CommandKind::SendPartialSignatures {
+        scope: scope_hash,
+        partial_sigs: vec![],
+    };
+    let kp = SecpKeypair::generate();
+    kind.sign_secp256k1(&kp)
 }

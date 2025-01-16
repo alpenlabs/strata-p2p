@@ -1,6 +1,7 @@
 //! Commands for P2P implementation from operator implementation.
 
 use bitcoin::{hashes::sha256, OutPoint, XOnlyPublicKey};
+use libp2p::identity::secp256k1;
 use musig2::{PartialSignature, PubNonce};
 use prost::Message;
 use strata_p2p_types::OperatorPubKey;
@@ -44,6 +45,19 @@ impl<DSP: Message + Clone> From<Command<DSP>> for GossipsubMsg<DSP> {
             signature: value.signature,
             key: value.key,
             kind: value.kind.into(),
+        }
+    }
+}
+
+impl<DSP: Message + Default + Clone> CommandKind<DSP> {
+    pub fn sign_secp256k1(&self, keypair: &secp256k1::Keypair) -> Command<DSP> {
+        let kind: GossipsubMsgKind<DSP> = self.clone().into();
+        let msg = kind.content();
+        let signature = keypair.secret().sign(&msg);
+        Command {
+            key: keypair.public().clone().into(),
+            signature,
+            kind: self.clone(),
         }
     }
 }

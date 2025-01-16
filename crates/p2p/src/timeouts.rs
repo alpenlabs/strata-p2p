@@ -34,7 +34,7 @@ impl TimeoutEvent {
     }
 }
 
-/// Manager for timeouts by operator id and deposit transactions id.
+/// Manager for timeouts by operator pk and deposit transactions id.
 ///
 /// Implements endless stream, that returns execution if one of the timeouts have ended.
 ///
