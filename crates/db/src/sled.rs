@@ -105,7 +105,7 @@ mod tests {
             );
             let pub_nonce = sec_nonce.public_nonce();
 
-            let operator_pk = OperatorPubKey(vec![0x8; 32]);
+            let operator_pk = OperatorPubKey::from(vec![0x8; 32]);
             let scope = sha256::Hash::all_zeros();
 
             let nonces_entry = NoncesEntry {
