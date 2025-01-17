@@ -38,7 +38,7 @@ impl Setup {
 
         let cancel = CancellationToken::new();
         let mut operators = Vec::new();
-        let whitelisted_signers: Vec<OperatorPubKey> = keypairs
+        let signers_allowlist: Vec<OperatorPubKey> = keypairs
             .clone()
             .into_iter()
             .map(|kp| kp.public().clone().into())
@@ -58,7 +58,7 @@ impl Setup {
                 other_addrs,
                 addr.clone(),
                 cancel.child_token(),
-                whitelisted_signers.clone(),
+                signers_allowlist.clone(),
             )?;
 
             operators.push(operator);

@@ -20,7 +20,7 @@ impl Operator {
         connect_to: Vec<Multiaddr>,
         local_addr: Multiaddr,
         cancel: CancellationToken,
-        whitelisted_signers: Vec<OperatorPubKey>,
+        signers_allowlist: Vec<OperatorPubKey>,
     ) -> Result<Self, snafu::Whatever> {
         let db = sled::Config::new()
             .temporary(true)
@@ -34,7 +34,7 @@ impl Operator {
             listening_addr: local_addr,
             allowlist,
             connect_to,
-            whitelisted_signers,
+            signers_allowlist,
         };
 
         let swarm = swarm::with_inmemory_transport(&config)

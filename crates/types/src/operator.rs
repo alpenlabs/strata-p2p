@@ -8,7 +8,7 @@ use libp2p_identity::secp256k1::PublicKey;
 #[derive(
     serde::Serialize, serde::Deserialize, Debug, Clone, Eq, PartialEq, Hash, Ord, PartialOrd,
 )]
-pub struct OperatorPubKey(pub Vec<u8>);
+pub struct OperatorPubKey(Vec<u8>);
 
 impl fmt::Display for OperatorPubKey {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -16,9 +16,21 @@ impl fmt::Display for OperatorPubKey {
     }
 }
 
+impl AsRef<[u8]> for OperatorPubKey {
+    fn as_ref(&self) -> &[u8] {
+        &self.0
+    }
+}
+
 impl From<Vec<u8>> for OperatorPubKey {
     fn from(value: Vec<u8>) -> Self {
         Self(value)
+    }
+}
+
+impl From<OperatorPubKey> for Vec<u8> {
+    fn from(value: OperatorPubKey) -> Self {
+        value.0
     }
 }
 

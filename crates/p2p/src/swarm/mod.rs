@@ -92,7 +92,7 @@ pub struct P2PConfig {
     pub connect_to: Vec<Multiaddr>,
 
     /// List of signers' public keys, whose messages node accepts.
-    pub whitelisted_signers: Vec<OperatorPubKey>,
+    pub signers_allowlist: Vec<OperatorPubKey>,
 }
 
 /// Implementation of p2p protocol for BitVM2 data exchange.
@@ -507,7 +507,7 @@ where
 
         let request_key = DepositRequestKey {
             scope: scope.to_byte_array().to_vec(),
-            operator: operator_pk.0.to_vec(),
+            operator: operator_pk.into(),
         };
 
         let body = match peer_deposit_status {
@@ -639,7 +639,7 @@ where
                             .collect(),
                     })),
                     signature: v.signature,
-                    key: v.key.0,
+                    key: v.key.into(),
                 })
             }
             v1::GetMessageRequest::ExchangeSession {
@@ -660,7 +660,7 @@ where
                             payload: v.payload.encode_to_vec(),
                         })),
                         signature: v.signature,
-                        key: v.key.0,
+                        key: v.key.into(),
                     })
                 }
                 GetMessageRequestExchangeKind::Nonces => {
@@ -676,7 +676,7 @@ where
                             pub_nonces: v.entry.iter().map(|n| n.serialize().to_vec()).collect(),
                         })),
                         signature: v.signature,
-                        key: v.key.0,
+                        key: v.key.into(),
                     })
                 }
                 GetMessageRequestExchangeKind::Signatures => {
@@ -692,7 +692,7 @@ where
                             partial_sigs: v.entry.iter().map(|n| n.serialize().to_vec()).collect(),
                         })),
                         signature: v.signature,
-                        key: v.key.0,
+                        key: v.key.into(),
                     })
                 }
             },
@@ -756,8 +756,8 @@ where
 
     /// Checks gossip sub message for validity by protocol rules.
     fn validate_gossipsub_msg(&self, msg: &GossipsubMsg<DSP>) -> Result<(), snafu::Whatever> {
-        if !self.config.whitelisted_signers.contains(&msg.key) {
-            whatever!("Signer is not whitelisted: {}", msg.key);
+        if !self.config.signers_allowlist.contains(&msg.key) {
+            whatever!("Signer is not accepted by allowlist: {}", msg.key);
         }
 
         let content = msg.content();

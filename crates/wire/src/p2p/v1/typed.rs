@@ -343,7 +343,7 @@ where
 
     pub fn into_raw(self) -> ProtoGossipMsg {
         ProtoGossipMsg {
-            key: self.key.0,
+            key: self.key.into(),
             signature: self.signature,
             body: Some(self.kind.to_raw()),
         }

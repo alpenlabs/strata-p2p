@@ -117,7 +117,7 @@ mod tests {
         const TIMEOUTS_NUM: usize = 5;
         let mut mng = TimeoutsManager::new();
 
-        let operators = vec![OperatorPubKey(vec![1]); TIMEOUTS_NUM];
+        let operators: Vec<OperatorPubKey> = vec![vec![1].into(); TIMEOUTS_NUM];
 
         for (idx, operator_pk) in operators.iter().enumerate() {
             mng.set_deposit_timeout(
@@ -141,7 +141,7 @@ mod tests {
     async fn test_next_timeout_works() {
         let mut mng = TimeoutsManager::new();
 
-        let operators = vec![OperatorPubKey(vec![1]); 3];
+        let operators: Vec<OperatorPubKey> = vec![vec![1].into(); 3];
 
         for (idx, operator_pk) in operators.iter().enumerate() {
             mng.set_deposit_timeout(
@@ -163,7 +163,7 @@ mod tests {
     async fn test_push_after_next_timeout() {
         let mut mng = TimeoutsManager::new();
 
-        let operators = vec![OperatorPubKey(vec![1]); 4];
+        let operators: Vec<OperatorPubKey> = vec![vec![1].into(); 4];
 
         for (idx, operator_pk) in operators.iter().take(3).enumerate() {
             mng.set_deposit_timeout(

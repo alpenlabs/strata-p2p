@@ -50,6 +50,8 @@ impl<DSP: Message + Clone> From<Command<DSP>> for GossipsubMsg<DSP> {
 }
 
 impl<DSP: Message + Default + Clone> CommandKind<DSP> {
+    /// Sign `self` using supplied `keypair`. Returns a `Command`
+    /// with resulting signature and public key from `keypair`.
     pub fn sign_secp256k1(&self, keypair: &secp256k1::Keypair) -> Command<DSP> {
         let kind: GossipsubMsgKind<DSP> = self.clone().into();
         let msg = kind.content();
