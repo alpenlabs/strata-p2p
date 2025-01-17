@@ -1,16 +1,16 @@
 [package]
 name = "strata-p2p-db"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
 
 [dependencies]
 async-trait.workspace = true
 bitcoin.workspace = true
-libp2p-identity.workspace = true
 musig2.workspace = true
 prost.workspace = true
 serde.workspace = true
 snafu.workspace = true
+strata-p2p-types.path = "./../types"
 tracing.workspace = true
 
 # make this implementation optional

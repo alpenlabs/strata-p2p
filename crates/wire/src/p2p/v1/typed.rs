@@ -1,20 +1,19 @@
 use bitcoin::{
-    OutPoint, XOnlyPublicKey,
     consensus::Decodable,
-    hashes::{Hash, sha256},
+    hashes::{sha256, Hash},
     io::Cursor,
+    OutPoint, XOnlyPublicKey,
 };
-use libp2p_identity::{PeerId, secp256k1::PublicKey};
 use musig2::{PartialSignature, PubNonce};
 use prost::{DecodeError, Message};
+use strata_p2p_types::OperatorPubKey;
 
 use super::proto::{
-    DepositNoncesExchange as ProtoDepositNonces, DepositRequestKey,
-    DepositSetupExchange as ProtoDepositSetup, DepositSignaturesExchange as ProtoDepositSigs,
-    GenesisInfo as ProtoGenesisInfo, GenesisRequestKey,
-    GetMessageRequest as ProtoGetMessageRequest, GossipsubMsg as ProtoGossipMsg,
     get_message_request::Body as ProtoGetMessageRequestBody,
-    gossipsub_msg::Body as ProtoGossipsubMsgBody,
+    gossipsub_msg::Body as ProtoGossipsubMsgBody, DepositNoncesExchange as ProtoDepositNonces,
+    DepositRequestKey, DepositSetupExchange as ProtoDepositSetup,
+    DepositSignaturesExchange as ProtoDepositSigs, GenesisInfo as ProtoGenesisInfo,
+    GenesisRequestKey, GetMessageRequest as ProtoGetMessageRequest, GossipsubMsg as ProtoGossipMsg,
 };
 
 pub enum GetMessageRequestExchangeKind {
@@ -27,11 +26,11 @@ pub enum GetMessageRequestExchangeKind {
 #[allow(unused)]
 pub enum GetMessageRequest {
     Genesis {
-        operator_id: PeerId,
+        operator_pk: OperatorPubKey,
     },
     ExchangeSession {
         scope: sha256::Hash,
-        operator_id: PeerId,
+        operator_pk: OperatorPubKey,
         kind: GetMessageRequestExchangeKind,
     },
 }
@@ -40,7 +39,7 @@ impl GetMessageRequest {
     pub fn from_msg(msg: ProtoGetMessageRequest) -> Option<GetMessageRequest> {
         let body = msg.body?;
 
-        let (operator_id, deposit_txid, kind) = match body {
+        let (operator_pk, deposit_txid, kind) = match body {
             ProtoGetMessageRequestBody::DepositSetup(DepositRequestKey { scope, operator }) => {
                 (scope, operator, GetMessageRequestExchangeKind::Setup)
             }
@@ -52,18 +51,18 @@ impl GetMessageRequest {
             }
             ProtoGetMessageRequestBody::GenesisInfo(GenesisRequestKey { operator }) => {
                 return Some(Self::Genesis {
-                    operator_id: PeerId::from_bytes(&operator).ok()?,
+                    operator_pk: OperatorPubKey::from(operator),
                 });
             }
         };
 
-        let operator_id = PeerId::from_bytes(&operator_id).ok()?;
+        let operator_pk = OperatorPubKey::from(operator_pk);
         let mut cur = Cursor::new(deposit_txid);
         let scope = Decodable::consensus_decode(&mut cur).ok()?;
 
         Some(Self::ExchangeSession {
             scope,
-            operator_id,
+            operator_pk,
             kind,
         })
     }
@@ -310,7 +309,7 @@ impl<DSP: Message + Default> GossipsubMsgKind<DSP> {
 #[derive(Clone, Debug)]
 pub struct GossipsubMsg<DepositSetupPayload: Message + Clone> {
     pub signature: Vec<u8>,
-    pub key: PublicKey,
+    pub key: OperatorPubKey,
     pub kind: GossipsubMsgKind<DepositSetupPayload>,
 }
 
@@ -325,8 +324,7 @@ where
         };
 
         let kind = GossipsubMsgKind::<DepositSetupPayload>::from_msg_proto(&body)?;
-        let key =
-            PublicKey::try_from_bytes(&msg.key).map_err(|err| DecodeError::new(err.to_string()))?;
+        let key = msg.key.into();
 
         Ok(Self {
             signature: msg.signature,
@@ -338,15 +336,14 @@ where
     pub fn from_proto(msg: ProtoGossipMsg) -> Result<Self, DecodeError> {
         Ok(Self {
             signature: msg.signature,
-            key: PublicKey::try_from_bytes(&msg.key)
-                .map_err(|_| DecodeError::new("couldn't parse pub key"))?,
+            key: msg.key.into(),
             kind: GossipsubMsgKind::from_msg_proto(&msg.body.unwrap())?,
         })
     }
 
     pub fn into_raw(self) -> ProtoGossipMsg {
         ProtoGossipMsg {
-            key: self.key.to_bytes().to_vec(),
+            key: self.key.into(),
             signature: self.signature,
             body: Some(self.kind.to_raw()),
         }

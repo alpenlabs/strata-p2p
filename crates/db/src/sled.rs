@@ -73,16 +73,16 @@ mod tests {
     use std::sync::Arc;
 
     use bitcoin::{
+        hashes::{sha256, Hash},
         OutPoint, XOnlyPublicKey,
-        hashes::{Hash, sha256},
     };
-    use libp2p_identity::{PeerId, secp256k1::PublicKey};
-    use musig2::{AggNonce, KeyAggContext, SecNonce, sign_partial};
+    use musig2::{sign_partial, AggNonce, KeyAggContext, SecNonce};
     use rand::thread_rng;
     use secp256k1::{All, Keypair, Secp256k1};
+    use strata_p2p_types::OperatorPubKey;
 
     use crate::{
-        GenesisInfoEntry, NoncesEntry, PartialSignaturesEntry, RepositoryExt, sled::AsyncDB,
+        sled::AsyncDB, GenesisInfoEntry, NoncesEntry, PartialSignaturesEntry, RepositoryExt,
     };
 
     #[tokio::test]
@@ -95,7 +95,6 @@ mod tests {
             let secp = Secp256k1::new();
             let keypair = Keypair::new(&secp, &mut rand::thread_rng());
             let message = b"message";
-            let libp2p_pkey = generate_random_pubkey();
 
             let sec_nonce = SecNonce::generate(
                 [0u8; 32],
@@ -106,18 +105,16 @@ mod tests {
             );
             let pub_nonce = sec_nonce.public_nonce();
 
-            let operator_id = PeerId::random();
-            let tx_id = sha256::Hash::all_zeros();
+            let operator_pk = OperatorPubKey::from(vec![0x8; 32]);
+            let scope = sha256::Hash::all_zeros();
 
             let nonces_entry = NoncesEntry {
                 entry: vec![pub_nonce.clone()],
                 signature: vec![0x8; 32],
-                key: libp2p_pkey.clone(),
+                key: operator_pk.clone(),
             };
 
-            db.set_pub_nonces(operator_id, tx_id, nonces_entry)
-                .await
-                .unwrap();
+            db.set_pub_nonces(scope, nonces_entry).await.unwrap();
 
             let agg_nonce = AggNonce::sum([pub_nonce.clone()]);
             let ctx = KeyAggContext::new([keypair.public_key()]).unwrap();
@@ -128,15 +125,15 @@ mod tests {
             let sigs_entry = PartialSignaturesEntry {
                 entry: vec![signature],
                 signature: vec![],
-                key: libp2p_pkey.clone(),
+                key: operator_pk.clone(),
             };
 
-            db.set_partial_signatures(operator_id, tx_id, sigs_entry)
+            db.set_partial_signatures(scope, sigs_entry)
                 .await
                 .expect("Failed to set signature");
 
             let retrieved_signature = db
-                .get_partial_signatures(operator_id, tx_id)
+                .get_partial_signatures(&operator_pk, scope)
                 .await
                 .unwrap()
                 .expect("Failed to retrieve signature");
@@ -148,20 +145,20 @@ mod tests {
             let entry = GenesisInfoEntry {
                 entry: (outpoint, checkpoint_pubkeys.clone()),
                 signature: vec![],
-                key: libp2p_pkey.clone(),
+                key: operator_pk.clone(),
             };
 
-            db.set_genesis_info(operator_id, entry).await.unwrap();
+            db.set_genesis_info(entry).await.unwrap();
 
             let GenesisInfoEntry {
                 entry: (got_op, got_keys),
                 ..
-            } = db.get_genesis_info(operator_id).await.unwrap().unwrap();
+            } = db.get_genesis_info(&operator_pk).await.unwrap().unwrap();
             assert_eq!(got_op, outpoint);
             assert_eq!(got_keys, checkpoint_pubkeys);
 
             let retrieved_pub_nonces = db
-                .get_pub_nonces(operator_id, tx_id)
+                .get_pub_nonces(&operator_pk, scope)
                 .await
                 .unwrap()
                 .unwrap();
@@ -175,10 +172,5 @@ mod tests {
         let (_seckey, pubkey) = ctx.generate_keypair(&mut thread_rng());
         let (xonly, _parity) = pubkey.x_only_public_key();
         xonly
-    }
-
-    fn generate_random_pubkey() -> PublicKey {
-        let kp = libp2p_identity::secp256k1::Keypair::generate();
-        kp.public().clone()
     }
 }

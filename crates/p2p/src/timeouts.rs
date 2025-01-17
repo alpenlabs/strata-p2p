@@ -8,33 +8,33 @@ use std::{
 
 use bitcoin::hashes::sha256;
 use futures::{FutureExt, Stream, StreamExt};
-use libp2p::PeerId;
+use strata_p2p_types::OperatorPubKey;
 use tokio::time::{sleep, Sleep};
 
 /// Kind of timeout which can be omitted by [`TimeoutsManager`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(crate) enum TimeoutEvent {
-    /// Timeout related to genesis stage for some peer.
-    Genesis { operator_id: PeerId },
-    /// Timeout related to deposit processing stage for some peer and deposit.
+    /// Timeout related to genesis stage for some operator.
+    Genesis { operator_pk: OperatorPubKey },
+    /// Timeout related to deposit processing stage for some operator and deposit.
     Deposit {
-        operator_id: PeerId,
+        operator_pk: OperatorPubKey,
         scope: sha256::Hash,
     },
 }
 
 impl TimeoutEvent {
     #[allow(unused)]
-    pub fn operator_id(self) -> PeerId {
+    pub fn operator_pk(self) -> OperatorPubKey {
         match self {
-            TimeoutEvent::Genesis { operator_id } | TimeoutEvent::Deposit { operator_id, .. } => {
-                operator_id
+            TimeoutEvent::Genesis { operator_pk } | TimeoutEvent::Deposit { operator_pk, .. } => {
+                operator_pk
             }
         }
     }
 }
 
-/// Manager for timeouts by peer id and deposit transactions id.
+/// Manager for timeouts by operator pk and deposit transactions id.
 ///
 /// Implements endless stream, that returns execution if one of the timeouts have ended.
 ///
@@ -53,21 +53,21 @@ impl TimeoutsManager {
 
     pub fn set_deposit_timeout(
         &mut self,
-        operator_id: PeerId,
+        operator_pk: OperatorPubKey,
         scope: sha256::Hash,
         timeout: Duration,
     ) {
         let sleep = sleep(timeout);
         self.timeouts.insert(
-            TimeoutEvent::Deposit { operator_id, scope },
+            TimeoutEvent::Deposit { operator_pk, scope },
             Box::pin(sleep),
         );
     }
 
-    pub fn set_genesis_timeout(&mut self, operator_id: PeerId, timeout: Duration) {
+    pub fn set_genesis_timeout(&mut self, operator_pk: OperatorPubKey, timeout: Duration) {
         let sleep = sleep(timeout);
         self.timeouts
-            .insert(TimeoutEvent::Genesis { operator_id }, Box::pin(sleep));
+            .insert(TimeoutEvent::Genesis { operator_pk }, Box::pin(sleep));
     }
 
     pub async fn next_timeout(&mut self) -> TimeoutEvent {
@@ -87,7 +87,7 @@ impl Stream for TimeoutsManager {
         let mut event_to_remove = None;
         for (event, timeout) in self.timeouts.iter_mut() {
             if timeout.poll_unpin(cx).is_ready() {
-                event_to_remove = Some(*event);
+                event_to_remove = Some(event.clone());
                 break;
             }
         }
@@ -108,77 +108,77 @@ mod tests {
 
     use bitcoin::hashes::{sha256, Hash};
     use futures::StreamExt;
-    use libp2p::PeerId;
+    use strata_p2p_types::OperatorPubKey;
 
     use crate::timeouts::TimeoutsManager;
 
     #[tokio::test]
-    async fn test_reveresed_order_timeouts_returned_in_forward_order() {
+    async fn test_reversed_order_timeouts_returned_in_forward_order() {
         const TIMEOUTS_NUM: usize = 5;
         let mut mng = TimeoutsManager::new();
 
-        let peers = vec![PeerId::random(); TIMEOUTS_NUM];
+        let operators: Vec<OperatorPubKey> = vec![vec![1].into(); TIMEOUTS_NUM];
 
-        for (idx, peer) in peers.iter().enumerate() {
+        for (idx, operator_pk) in operators.iter().enumerate() {
             mng.set_deposit_timeout(
-                *peer,
+                operator_pk.clone(),
                 sha256::Hash::hash(&idx.to_le_bytes()),
                 Duration::from_millis(500 - idx as u64 * 100),
             );
         }
 
-        let mut collected: Vec<PeerId> = mng
-            .map(|event| event.operator_id())
+        let mut collected: Vec<OperatorPubKey> = mng
+            .map(|event| event.operator_pk())
             .take(TIMEOUTS_NUM)
             .collect()
             .await;
         collected.reverse();
 
-        assert_eq!(peers, collected);
+        assert_eq!(operators, collected);
     }
 
     #[tokio::test]
     async fn test_next_timeout_works() {
         let mut mng = TimeoutsManager::new();
 
-        let peers = vec![PeerId::random(); 3];
+        let operators: Vec<OperatorPubKey> = vec![vec![1].into(); 3];
 
-        for (idx, peer) in peers.iter().enumerate() {
+        for (idx, operator_pk) in operators.iter().enumerate() {
             mng.set_deposit_timeout(
-                *peer,
+                operator_pk.clone(),
                 sha256::Hash::hash(&idx.to_le_bytes()),
                 Duration::from_millis(100 * idx as u64),
             );
             assert_eq!(mng.timeouts.len(), idx + 1);
         }
 
-        assert_eq!(mng.next_timeout().await.operator_id(), peers[0]);
+        assert_eq!(mng.next_timeout().await.operator_pk(), operators[0]);
         println!("hello1");
-        assert_eq!(mng.next_timeout().await.operator_id(), peers[1]);
+        assert_eq!(mng.next_timeout().await.operator_pk(), operators[1]);
         println!("hello2");
-        assert_eq!(mng.next_timeout().await.operator_id(), peers[2]);
+        assert_eq!(mng.next_timeout().await.operator_pk(), operators[2]);
     }
 
     #[tokio::test]
     async fn test_push_after_next_timeout() {
         let mut mng = TimeoutsManager::new();
 
-        let peers = vec![PeerId::random(); 4];
+        let operators: Vec<OperatorPubKey> = vec![vec![1].into(); 4];
 
-        for (idx, peer) in peers.iter().take(3).enumerate() {
+        for (idx, operator_pk) in operators.iter().take(3).enumerate() {
             mng.set_deposit_timeout(
-                *peer,
+                operator_pk.clone(),
                 sha256::Hash::hash(&idx.to_le_bytes()),
                 Duration::from_millis(100 * idx as u64),
             );
             assert_eq!(mng.timeouts.len(), idx + 1);
         }
 
-        assert_eq!(mng.next_timeout().await.operator_id(), peers[0]);
-        mng.set_genesis_timeout(peers[3], Duration::from_millis(50));
-        assert_eq!(mng.next_timeout().await.operator_id(), peers[3]);
-        assert_eq!(mng.next_timeout().await.operator_id(), peers[1]);
-        assert_eq!(mng.next_timeout().await.operator_id(), peers[2]);
+        assert_eq!(mng.next_timeout().await.operator_pk(), operators[0]);
+        mng.set_genesis_timeout(operators[3].clone(), Duration::from_millis(50));
+        assert_eq!(mng.next_timeout().await.operator_pk(), operators[3]);
+        assert_eq!(mng.next_timeout().await.operator_pk(), operators[1]);
+        assert_eq!(mng.next_timeout().await.operator_pk(), operators[2]);
     }
 
     #[tokio::test]
