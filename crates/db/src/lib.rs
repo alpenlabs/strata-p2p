@@ -5,7 +5,7 @@ use serde::{de::DeserializeOwned, Serialize};
 use strata_p2p_types::OperatorPubKey;
 use thiserror::Error;
 
-use crate::{states::PeerDepositState, RepositoryError::InvalidData};
+use crate::states::PeerDepositState;
 
 pub mod sled;
 
@@ -17,13 +17,10 @@ pub type DBResult<T> = Result<T, RepositoryError>;
 
 #[derive(Debug, Error)]
 pub enum RepositoryError {
-    #[error("KeyValueStorage error: {source}")]
-    KeyValueStorage {
-        #[source]
-        source: Box<dyn std::error::Error>,
-    },
-    #[error("Invalid data: [{source}]")]
-    InvalidData { source: Box<dyn std::error::Error> },
+    #[error("Storage error: {0}")]
+    Storage(#[from] Box<dyn std::error::Error>),
+    #[error("Serialization error: {0}")]
+    Serialization(#[from] serde_json::Error),
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
@@ -48,9 +45,8 @@ pub trait Repository: Send + Sync + 'static {
             return Ok(None);
         };
 
-        let entry: T = serde_json::from_reader(bytes.as_slice()).map_err(|err| InvalidData {
-            source: Box::new(err) as Box<dyn std::error::Error>,
-        })?;
+        let entry: T =
+            serde_json::from_reader(bytes.as_slice()).map_err(Into::<serde_json::Error>::into)?;
 
         Ok(Some(entry))
     }
@@ -60,9 +56,7 @@ pub trait Repository: Send + Sync + 'static {
         T: Serialize + Send + Sync + 'static,
     {
         let mut buf = Vec::new();
-        serde_json::to_writer(&mut buf, &value).map_err(|err| InvalidData {
-            source: Box::new(err) as Box<dyn std::error::Error>,
-        })?;
+        serde_json::to_writer(&mut buf, &value).map_err(Into::<serde_json::Error>::into)?;
 
         self.set_raw(key, buf).await?;
 

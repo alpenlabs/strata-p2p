@@ -3,7 +3,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use sled::Db;
 use threadpool::ThreadPool;
-use tokio::sync::oneshot;
+use tokio::sync::{oneshot, oneshot::error::RecvError};
 use tracing::warn;
 
 use super::{DBResult, Repository, RepositoryError};
@@ -34,10 +34,8 @@ impl Repository for AsyncDB {
         });
 
         rx.await
-            .map_err(|_| RepositoryError::KeyValueStorage {
-                source: "Channel closed unexpectedly".into(),
-            })?
-            .map_err(|err| RepositoryError::KeyValueStorage { source: err.into() })
+            .map_err(Into::<RecvError>::into)?
+            .map_err(Into::into)
     }
 
     async fn set_raw(&self, key: String, value: Vec<u8>) -> DBResult<()> {
@@ -53,18 +51,20 @@ impl Repository for AsyncDB {
         });
 
         rx.await
-            .map_err(|_| RepositoryError::KeyValueStorage {
-                source: "Channel closed unexpectedly".into(),
-            })?
-            .map_err(|err| RepositoryError::KeyValueStorage { source: err.into() })
+            .map_err(Into::<RecvError>::into)?
+            .map_err(Into::into)
+    }
+}
+
+impl From<RecvError> for RepositoryError {
+    fn from(value: RecvError) -> Self {
+        RepositoryError::Storage(value.into())
     }
 }
 
 impl From<sled::Error> for RepositoryError {
     fn from(value: sled::Error) -> Self {
-        RepositoryError::KeyValueStorage {
-            source: value.into(),
-        }
+        RepositoryError::Storage(value.into())
     }
 }
 

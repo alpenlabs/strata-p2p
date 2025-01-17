@@ -12,7 +12,7 @@ use libp2p::{
 use strata_p2p::{
     commands::{Command, CommandKind},
     events::EventKind,
-    swarm::{handle::P2PHandle, Error, P2PResult},
+    swarm::handle::P2PHandle,
 };
 use strata_p2p_types::OperatorPubKey;
 use strata_p2p_wire::p2p::v1::{GossipsubMsg, GossipsubMsgDepositKind, GossipsubMsgKind};
@@ -31,7 +31,7 @@ struct Setup {
 impl Setup {
     /// Spawn N operators that are connected "all-to-all" with handles to them, task tracker
     /// to stop control async tasks they are spawned in.
-    pub async fn all_to_all(number: usize) -> P2PResult<Self> {
+    pub async fn all_to_all(number: usize) -> Result<Self, Box<dyn std::error::Error>> {
         let (keypairs, peer_ids, multiaddresses) =
             Self::setup_keys_ids_addrs_of_n_operators(number);
 
@@ -117,7 +117,7 @@ impl Setup {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
-async fn test_all_to_all_one_scope() -> P2PResult<()> {
+async fn test_all_to_all_one_scope() -> Result<(), Box<dyn std::error::Error>> {
     const OPERATORS_NUM: usize = 4;
 
     tracing_subscriber::registry()
@@ -146,7 +146,7 @@ async fn test_all_to_all_one_scope() -> P2PResult<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
-async fn test_all_to_all_multiple_scopes() -> P2PResult<()> {
+async fn test_all_to_all_multiple_scopes() -> Result<(), Box<dyn std::error::Error>> {
     const OPERATORS_NUM: usize = 10;
 
     tracing_subscriber::registry()
@@ -186,7 +186,7 @@ async fn test_all_to_all_multiple_scopes() -> P2PResult<()> {
 async fn exchange_genesis_info(
     operators: &mut [(P2PHandle<()>, PeerId, SecpKeypair)],
     operators_num: usize,
-) -> P2PResult<()> {
+) -> Result<(), Box<dyn std::error::Error>> {
     for (operator, _, kp) in operators.iter() {
         operator.send_command(mock_genesis_info(kp)).await;
     }
@@ -202,9 +202,7 @@ async fn exchange_genesis_info(
                     ..
                 })
             ) {
-                return Err(Error::Protocol {
-                    message: format!("Got event of other than 'genesis_info' - {:?}", event),
-                });
+                return Err(format!("Got event other than 'genesis_info' - {:?}", event).into());
             }
             info!(to=%peer_id, from=%event.peer_id, "Got genesis info");
         }
@@ -218,7 +216,7 @@ async fn exchange_deposit_setup(
     operators: &mut [(P2PHandle<()>, PeerId, SecpKeypair)],
     operators_num: usize,
     scope_hash: sha256::Hash,
-) -> P2PResult<()> {
+) -> Result<(), Box<dyn std::error::Error>> {
     for (operator, _, kp) in operators.iter() {
         operator
             .send_command(mock_deposit_setup(kp, scope_hash))
@@ -241,9 +239,7 @@ async fn exchange_deposit_setup(
                     ..
                 })
             ) {
-                return Err(Error::Protocol {
-                    message: format!("Got event of other than 'deposit_setup' - {:?}", event),
-                });
+                return Err(format!("Got event other than 'deposit_setup' - {:?}", event).into());
             }
             info!(to=%peer_id, from=%event.peer_id, "Got deposit setup");
         }
@@ -256,7 +252,7 @@ async fn exchange_deposit_nonces(
     operators: &mut [(P2PHandle<()>, PeerId, SecpKeypair)],
     operators_num: usize,
     scope_hash: sha256::Hash,
-) -> P2PResult<()> {
+) -> Result<(), Box<dyn std::error::Error>> {
     for (operator, _, kp) in operators.iter() {
         operator
             .send_command(mock_deposit_nonces(kp, scope_hash))
@@ -279,9 +275,7 @@ async fn exchange_deposit_nonces(
                     ..
                 })
             ) {
-                return Err(Error::Protocol {
-                    message: format!("Got event of other than 'deposit_nonces' - {:?}", event),
-                });
+                return Err(format!("Got event other than 'deposit_nonces' - {:?}", event).into());
             }
             info!(to=%peer_id, from=%event.peer_id, "Got deposit nonces");
         }
@@ -294,7 +288,7 @@ async fn exchange_deposit_sigs(
     operators: &mut [(P2PHandle<()>, PeerId, SecpKeypair)],
     operators_num: usize,
     scope_hash: sha256::Hash,
-) -> P2PResult<()> {
+) -> Result<(), Box<dyn std::error::Error>> {
     for (operator, _, kp) in operators.iter() {
         operator
             .send_command(mock_deposit_sigs(kp, scope_hash))
@@ -318,9 +312,7 @@ async fn exchange_deposit_sigs(
                     ..
                 })
             ) {
-                return Err(Error::Protocol {
-                    message: format!("Got event other than 'deposit_sigs' - {:?}", event),
-                });
+                return Err(format!("Got event other than 'deposit_sigs' - {:?}", event).into());
             }
             info!(to=%peer_id, from=%event.peer_id, "Got deposit sigs");
         }

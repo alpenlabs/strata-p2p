@@ -1,7 +1,7 @@
 use std::{sync::Arc, time::Duration};
 
 use libp2p::{identity::secp256k1::Keypair as SecpKeypair, Multiaddr, PeerId};
-use strata_p2p::swarm::{self, handle::P2PHandle, Error, P2PConfig, P2PResult, P2P};
+use strata_p2p::swarm::{self, handle::P2PHandle, P2PConfig, P2P};
 use strata_p2p_db::sled::AsyncDB;
 use strata_p2p_types::OperatorPubKey;
 use tokio_util::sync::CancellationToken;
@@ -20,11 +20,8 @@ impl Operator {
         local_addr: Multiaddr,
         cancel: CancellationToken,
         signers_allowlist: Vec<OperatorPubKey>,
-    ) -> P2PResult<Self> {
-        let db = sled::Config::new()
-            .temporary(true)
-            .open()
-            .map_err(|e| Error::Repository { source: e.into() })?;
+    ) -> Result<Self, Box<dyn std::error::Error>> {
+        let db = sled::Config::new().temporary(true).open()?;
 
         let config = P2PConfig {
             next_stage_timeout: Duration::from_secs(10),
