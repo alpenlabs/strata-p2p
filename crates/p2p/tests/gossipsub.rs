@@ -1,3 +1,4 @@
+use anyhow::bail;
 use bitcoin::{
     hashes::{sha256, Hash},
     OutPoint,
@@ -9,7 +10,6 @@ use libp2p::{
     identity::{secp256k1::Keypair as SecpKeypair, Keypair},
     PeerId,
 };
-use snafu::whatever;
 use strata_p2p::{
     commands::{Command, CommandKind},
     events::EventKind,
@@ -32,7 +32,7 @@ struct Setup {
 impl Setup {
     /// Spawn N operators that are connected "all-to-all" with handles to them, task tracker
     /// to stop control async tasks they are spawned in.
-    pub async fn all_to_all(number: usize) -> Result<Self, snafu::Whatever> {
+    pub async fn all_to_all(number: usize) -> anyhow::Result<Self> {
         let (keypairs, peer_ids, multiaddresses) =
             Self::setup_keys_ids_addrs_of_n_operators(number);
 
@@ -118,7 +118,7 @@ impl Setup {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
-async fn test_all_to_all_one_scope() -> Result<(), snafu::Whatever> {
+async fn test_all_to_all_one_scope() -> anyhow::Result<()> {
     const OPERATORS_NUM: usize = 4;
 
     tracing_subscriber::registry()
@@ -147,7 +147,7 @@ async fn test_all_to_all_one_scope() -> Result<(), snafu::Whatever> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
-async fn test_all_to_all_multiple_scopes() -> Result<(), snafu::Whatever> {
+async fn test_all_to_all_multiple_scopes() -> anyhow::Result<()> {
     const OPERATORS_NUM: usize = 10;
 
     tracing_subscriber::registry()
@@ -187,7 +187,7 @@ async fn test_all_to_all_multiple_scopes() -> Result<(), snafu::Whatever> {
 async fn exchange_genesis_info(
     operators: &mut [(P2PHandle<()>, PeerId, SecpKeypair)],
     operators_num: usize,
-) -> Result<(), snafu::Whatever> {
+) -> anyhow::Result<()> {
     for (operator, _, kp) in operators.iter() {
         operator.send_command(mock_genesis_info(kp)).await;
     }
@@ -203,7 +203,7 @@ async fn exchange_genesis_info(
                     ..
                 })
             ) {
-                whatever!("Got event of other than 'genesis_info' kind: {:?}", event);
+                bail!("Got event other than 'genesis_info' - {:?}", event);
             }
             info!(to=%peer_id, from=%event.peer_id, "Got genesis info");
         }
@@ -217,7 +217,7 @@ async fn exchange_deposit_setup(
     operators: &mut [(P2PHandle<()>, PeerId, SecpKeypair)],
     operators_num: usize,
     scope_hash: sha256::Hash,
-) -> Result<(), snafu::Whatever> {
+) -> anyhow::Result<()> {
     for (operator, _, kp) in operators.iter() {
         operator
             .send_command(mock_deposit_setup(kp, scope_hash))
@@ -240,7 +240,7 @@ async fn exchange_deposit_setup(
                     ..
                 })
             ) {
-                whatever!("Got event of other than 'deposit_setup' kind: {:?}", event);
+                bail!("Got event other than 'deposit_setup' - {:?}", event);
             }
             info!(to=%peer_id, from=%event.peer_id, "Got deposit setup");
         }
@@ -253,7 +253,7 @@ async fn exchange_deposit_nonces(
     operators: &mut [(P2PHandle<()>, PeerId, SecpKeypair)],
     operators_num: usize,
     scope_hash: sha256::Hash,
-) -> Result<(), snafu::Whatever> {
+) -> anyhow::Result<()> {
     for (operator, _, kp) in operators.iter() {
         operator
             .send_command(mock_deposit_nonces(kp, scope_hash))
@@ -276,7 +276,7 @@ async fn exchange_deposit_nonces(
                     ..
                 })
             ) {
-                whatever!("Got event of other than 'deposit_nonces' kind: {:?}", event);
+                bail!("Got event other than 'deposit_nonces' - {:?}", event);
             }
             info!(to=%peer_id, from=%event.peer_id, "Got deposit nonces");
         }
@@ -289,7 +289,7 @@ async fn exchange_deposit_sigs(
     operators: &mut [(P2PHandle<()>, PeerId, SecpKeypair)],
     operators_num: usize,
     scope_hash: sha256::Hash,
-) -> Result<(), snafu::Whatever> {
+) -> anyhow::Result<()> {
     for (operator, _, kp) in operators.iter() {
         operator
             .send_command(mock_deposit_sigs(kp, scope_hash))
@@ -313,7 +313,7 @@ async fn exchange_deposit_sigs(
                     ..
                 })
             ) {
-                whatever!("Got event of other than 'deposit_nonces' kind: {:?}", event);
+                bail!("Got event other than 'deposit_sigs' - {:?}", event);
             }
             info!(to=%peer_id, from=%event.peer_id, "Got deposit sigs");
         }

@@ -2,8 +2,8 @@ use async_trait::async_trait;
 use bitcoin::{hashes::sha256, OutPoint, XOnlyPublicKey};
 use musig2::{PartialSignature, PubNonce};
 use serde::{de::DeserializeOwned, Serialize};
-use snafu::{ResultExt, Snafu};
 use strata_p2p_types::OperatorPubKey;
+use thiserror::Error;
 
 use crate::states::PeerDepositState;
 
@@ -15,14 +15,18 @@ mod prost_serde;
 
 pub type DBResult<T> = Result<T, RepositoryError>;
 
-#[derive(Debug, Snafu)]
+#[derive(Debug, Error)]
 pub enum RepositoryError {
-    KeyValueStorage {
-        #[snafu(source)]
-        source: Box<dyn std::error::Error>,
-    },
-    #[snafu(display("Invalid data: [{}]", source))]
-    InvalidData { source: Box<dyn std::error::Error> },
+    #[error("Storage error: {0}")]
+    Storage(#[from] Box<dyn std::error::Error + Send + Sync>),
+    #[error("Invalid data error: {0}")]
+    InvalidData(Box<dyn std::error::Error + Send + Sync>),
+}
+
+impl From<serde_json::Error> for RepositoryError {
+    fn from(err: serde_json::Error) -> Self {
+        Self::InvalidData(Box::new(err))
+    }
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
@@ -47,9 +51,7 @@ pub trait Repository: Send + Sync + 'static {
             return Ok(None);
         };
 
-        let entry: T = serde_json::from_reader(bytes.as_slice())
-            .map_err(|err| Box::new(err) as Box<dyn std::error::Error>)
-            .context(InvalidDataSnafu)?;
+        let entry: T = serde_json::from_reader(bytes.as_slice())?;
 
         Ok(Some(entry))
     }
@@ -59,9 +61,7 @@ pub trait Repository: Send + Sync + 'static {
         T: Serialize + Send + Sync + 'static,
     {
         let mut buf = Vec::new();
-        serde_json::to_writer(&mut buf, &value)
-            .map_err(|err| Box::new(err) as Box<dyn std::error::Error>)
-            .context(InvalidDataSnafu)?;
+        serde_json::to_writer(&mut buf, &value)?;
 
         self.set_raw(key, buf).await?;
 

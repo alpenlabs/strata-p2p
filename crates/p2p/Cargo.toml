@@ -21,7 +21,7 @@ bitcoin = { workspace = true, features = ["serde"] }
 futures.workspace = true
 musig2 = { workspace = true, features = ["serde"] }
 prost.workspace = true
-snafu = { workspace = true, features = ["rust_1_81", "backtrace", "std"] }
+thiserror.workspace = true
 tokio = { workspace = true, features = ["macros", "time"] }
 tokio-util.workspace = true
 tracing.workspace = true
@@ -35,3 +35,4 @@ sled = "0.34.7"
 tokio = { workspace = true, features = ["rt", "rt-multi-thread"] }
 tokio-util.workspace = true
 tracing-subscriber.workspace = true
+anyhow = "1.0.95"

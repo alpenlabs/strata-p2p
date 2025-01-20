@@ -1,4 +1,4 @@
-use std::{collections::HashSet, fmt::Debug, sync::LazyLock, time::Duration};
+use std::{collections::HashSet, fmt::Debug, io, sync::LazyLock, time::Duration};
 
 use behavior::{Behaviour, BehaviourEvent};
 use bitcoin::hashes::Hash;
@@ -11,10 +11,9 @@ use libp2p::{
     noise, request_response,
     request_response::Event as RequestResponseEvent,
     swarm::SwarmEvent,
-    yamux, Multiaddr, PeerId, Swarm, SwarmBuilder, Transport,
+    yamux, Multiaddr, PeerId, Swarm, SwarmBuilder, Transport, TransportError,
 };
 use prost::Message as ProtoMsg;
-use snafu::prelude::*;
 use strata_p2p_db::{
     states::PeerDepositState, DBResult, DepositSetupEntry, GenesisInfoEntry, NoncesEntry,
     PartialSignaturesEntry, RepositoryError, RepositoryExt,
@@ -31,6 +30,7 @@ use strata_p2p_wire::p2p::{
         GetMessageRequestExchangeKind, GossipsubMsg, GossipsubMsgDepositKind, GossipsubMsgKind,
     },
 };
+use thiserror::Error;
 use tokio::{
     select,
     sync::{broadcast, mpsc},
@@ -56,17 +56,34 @@ static TOPIC: LazyLock<Sha256Topic> = LazyLock::new(|| Sha256Topic::new("bitvm2"
 /// Global name of the protocol
 const PROTOCOL_NAME: &str = "/strata-bitvm2";
 
-#[derive(Snafu, Debug)]
+#[derive(Debug, Error)]
 pub enum Error {
-    #[snafu(display("Database error: {source}"))]
-    Repository { source: RepositoryError },
+    #[error("Database error")]
+    Repository(#[from] RepositoryError),
+    #[error("Validation error")]
+    Validation(#[from] ValidationError),
+    #[error("Protocol error")]
+    Protocol(#[from] ProtocolError),
+}
 
-    #[snafu(whatever, display("{message}"))]
-    Whatever {
-        message: String,
-        #[snafu(source(from(Box<dyn std::error::Error>, Some)))]
-        source: Option<Box<dyn std::error::Error>>,
-    },
+#[derive(Debug, Error)]
+pub enum ValidationError {
+    #[error("Invalid signature")]
+    InvalidSignature,
+    #[error("Not in signers allowlist")]
+    NotInSignersAllowlist,
+}
+
+#[derive(Debug, Error)]
+pub enum ProtocolError {
+    #[error("Failed to listen: {0}")]
+    Listen(#[from] TransportError<io::Error>),
+    #[error("Events channel closed: {0}")]
+    EventsChannelClosed(Box<dyn std::error::Error + Sync + Send>),
+    #[error("Failed to initialize transport: {0}")]
+    TransportInitialization(Box<dyn std::error::Error + Sync + Send>),
+    #[error("Failed to initialize behaviour: {0}")]
+    BehaviourInitialization(Box<dyn std::error::Error + Sync + Send>),
 }
 
 pub type P2PResult<T> = Result<T, Error>;
@@ -127,7 +144,7 @@ where
     ) -> P2PResult<P2PWithHandle<DSP, DB>> {
         swarm
             .listen_on(cfg.listening_addr.clone())
-            .whatever_context("failed to listen")?;
+            .map_err(ProtocolError::Listen)?;
 
         // TODO(Velnbur): make this configurable
         let (events_tx, events_rx) = broadcast::channel(50_000);
@@ -327,8 +344,7 @@ where
 
         let new_event = self
             .insert_msg_if_not_exists_with_timeout(&msg, true)
-            .await
-            .context(RepositorySnafu)?;
+            .await?;
 
         let event = Event::new(source, EventKind::GossipsubMsg(msg));
 
@@ -350,9 +366,9 @@ where
             return Ok(());
         }
 
-        if self.events.send(event).is_err() {
-            whatever!("Events channel should never close");
-        }
+        self.events
+            .send(event)
+            .map_err(|e| ProtocolError::EventsChannelClosed(e.into()))?;
 
         Ok(())
     }
@@ -472,8 +488,7 @@ where
         self.insert_msg_if_not_exists_with_timeout(
             &msg, /* do net set timeout for local peer */ false,
         )
-        .await
-        .context(RepositorySnafu)?;
+        .await?;
 
         // TODO(Velnbur): add retry mechanism later, instead of skipping the error
         let _ = self
@@ -499,11 +514,7 @@ where
             return Ok(());
         };
 
-        let peer_deposit_status = self
-            .db
-            .get_peer_deposit_status(&operator_pk, scope)
-            .await
-            .context(RepositorySnafu)?;
+        let peer_deposit_status = self.db.get_peer_deposit_status(&operator_pk, scope).await?;
 
         let request_key = DepositRequestKey {
             scope: scope.to_byte_array().to_vec(),
@@ -621,11 +632,7 @@ where
     ) -> P2PResult<Option<proto::GossipsubMsg>> {
         let msg = match request {
             v1::GetMessageRequest::Genesis { operator_pk } => {
-                let info = self
-                    .db
-                    .get_genesis_info(&operator_pk)
-                    .await
-                    .context(RepositorySnafu)?;
+                let info = self.db.get_genesis_info(&operator_pk).await?;
 
                 info.map(|v| proto::GossipsubMsg {
                     body: Some(Body::GenesisInfo(proto::GenesisInfo {
@@ -648,11 +655,7 @@ where
                 kind,
             } => match kind {
                 GetMessageRequestExchangeKind::Setup => {
-                    let setup = self
-                        .db
-                        .get_deposit_setup(&operator_pk, scope)
-                        .await
-                        .context(RepositorySnafu)?;
+                    let setup = self.db.get_deposit_setup(&operator_pk, scope).await?;
 
                     setup.map(|v| proto::GossipsubMsg {
                         body: Some(Body::Setup(proto::DepositSetupExchange {
@@ -664,11 +667,7 @@ where
                     })
                 }
                 GetMessageRequestExchangeKind::Nonces => {
-                    let nonces = self
-                        .db
-                        .get_pub_nonces(&operator_pk, scope)
-                        .await
-                        .context(RepositorySnafu)?;
+                    let nonces = self.db.get_pub_nonces(&operator_pk, scope).await?;
 
                     nonces.map(|v| proto::GossipsubMsg {
                         body: Some(Body::Nonce(proto::DepositNoncesExchange {
@@ -680,11 +679,7 @@ where
                     })
                 }
                 GetMessageRequestExchangeKind::Signatures => {
-                    let sigs = self
-                        .db
-                        .get_partial_signatures(&operator_pk, scope)
-                        .await
-                        .context(RepositorySnafu)?;
+                    let sigs = self.db.get_partial_signatures(&operator_pk, scope).await?;
 
                     sigs.map(|v| proto::GossipsubMsg {
                         body: Some(Body::Sigs(proto::DepositSignaturesExchange {
@@ -709,10 +704,7 @@ where
                     signature: msg.signature,
                     key: msg.key,
                 };
-                self.db
-                    .set_genesis_info(entry)
-                    .await
-                    .context(RepositorySnafu)?
+                self.db.set_genesis_info(entry).await?;
             }
             GossipsubMsgKind::Deposit { scope, kind } => match kind {
                 GossipsubMsgDepositKind::Sigs(v) => {
@@ -721,10 +713,7 @@ where
                         signature: msg.signature,
                         key: msg.key,
                     };
-                    self.db
-                        .set_partial_signatures(scope, entry)
-                        .await
-                        .context(RepositorySnafu)?
+                    self.db.set_partial_signatures(scope, entry).await?;
                 }
                 GossipsubMsgDepositKind::Setup(v) => {
                     let entry = DepositSetupEntry {
@@ -732,10 +721,7 @@ where
                         signature: msg.signature,
                         key: msg.key,
                     };
-                    self.db
-                        .set_deposit_setup(scope, entry)
-                        .await
-                        .context(RepositorySnafu)?
+                    self.db.set_deposit_setup(scope, entry).await?;
                 }
                 GossipsubMsgDepositKind::Nonces(v) => {
                     let entry = NoncesEntry {
@@ -743,10 +729,7 @@ where
                         signature: msg.signature,
                         key: msg.key,
                     };
-                    self.db
-                        .set_pub_nonces(scope, entry)
-                        .await
-                        .context(RepositorySnafu)?
+                    self.db.set_pub_nonces(scope, entry).await?;
                 }
             },
         }
@@ -755,14 +738,14 @@ where
     }
 
     /// Checks gossip sub message for validity by protocol rules.
-    fn validate_gossipsub_msg(&self, msg: &GossipsubMsg<DSP>) -> Result<(), snafu::Whatever> {
+    fn validate_gossipsub_msg(&self, msg: &GossipsubMsg<DSP>) -> P2PResult<()> {
         if !self.config.signers_allowlist.contains(&msg.key) {
-            whatever!("Signer is not accepted by allowlist: {}", msg.key);
+            return Err(ValidationError::NotInSignersAllowlist.into());
         }
 
         let content = msg.content();
         if !msg.key.verify(&content, &msg.signature) {
-            whatever!("Invalid signature");
+            return Err(ValidationError::InvalidSignature.into());
         }
 
         Ok(())
@@ -780,7 +763,7 @@ macro_rules! init_swarm {
     };
 }
 
-/// Finish builder of swarm with paramets from config.
+/// Finish builder of swarm with parameters from config.
 ///
 /// Again, macro is used as there is no way to specify this behaviour in
 /// function, because `with_tcp` and `with_other_transport` return
@@ -788,9 +771,9 @@ macro_rules! init_swarm {
 macro_rules! finish_swarm {
     ($builder:expr, $cfg:expr) => {
         $builder
-            .whatever_context("failed to initialize transport")?
+            .map_err(|e| ProtocolError::TransportInitialization(e.into()))?
             .with_behaviour(|_| Behaviour::new(PROTOCOL_NAME, &$cfg.keypair, &$cfg.allowlist))
-            .whatever_context("failed to initialize behaviour")?
+            .map_err(|e| ProtocolError::BehaviourInitialization(e.into()))?
             .with_swarm_config(|c| c.with_idle_connection_timeout($cfg.idle_connection_timeout))
             .build()
     };

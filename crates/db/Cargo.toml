@@ -9,8 +9,8 @@ bitcoin.workspace = true
 musig2.workspace = true
 prost.workspace = true
 serde.workspace = true
-snafu.workspace = true
 strata-p2p-types.path = "./../types"
+thiserror.workspace = true
 tracing.workspace = true
 
 # make this implementation optional

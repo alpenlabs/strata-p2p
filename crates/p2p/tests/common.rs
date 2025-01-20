@@ -1,7 +1,6 @@
 use std::{sync::Arc, time::Duration};
 
 use libp2p::{identity::secp256k1::Keypair as SecpKeypair, Multiaddr, PeerId};
-use snafu::ResultExt;
 use strata_p2p::swarm::{self, handle::P2PHandle, P2PConfig, P2P};
 use strata_p2p_db::sled::AsyncDB;
 use strata_p2p_types::OperatorPubKey;
@@ -21,11 +20,8 @@ impl Operator {
         local_addr: Multiaddr,
         cancel: CancellationToken,
         signers_allowlist: Vec<OperatorPubKey>,
-    ) -> Result<Self, snafu::Whatever> {
-        let db = sled::Config::new()
-            .temporary(true)
-            .open()
-            .whatever_context("Failed to init DB")?;
+    ) -> anyhow::Result<Self> {
+        let db = sled::Config::new().temporary(true).open()?;
 
         let config = P2PConfig {
             next_stage_timeout: Duration::from_secs(10),
@@ -37,11 +33,9 @@ impl Operator {
             signers_allowlist,
         };
 
-        let swarm = swarm::with_inmemory_transport(&config)
-            .whatever_context("failed to initialize swarm")?;
+        let swarm = swarm::with_inmemory_transport(&config)?;
         let db = AsyncDB::new(Default::default(), Arc::new(db));
-        let (p2p, handle) = P2P::<(), AsyncDB>::from_config(config, cancel, db, swarm)
-            .whatever_context("invalid p2p config")?;
+        let (p2p, handle) = P2P::<(), AsyncDB>::from_config(config, cancel, db, swarm)?;
 
         Ok(Self {
             handle,
