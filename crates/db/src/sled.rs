@@ -75,12 +75,12 @@ impl From<RecvError> for RepositoryError {
 
 fn set_if_not_exist(db: Arc<sled::Db>, key: String, value: Vec<u8>) -> Result<bool, sled::Error> {
     if db.get(key.clone())?.is_some() {
-        return Ok(true);
+        return Ok(false);
     }
 
     db.insert(key, value)?;
 
-    Ok(false)
+    Ok(true)
 }
 
 impl From<sled::Error> for RepositoryError {

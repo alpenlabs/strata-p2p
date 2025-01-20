@@ -47,8 +47,6 @@ impl Setup {
         for (idx, (keypair, addr)) in keypairs.iter().zip(&multiaddresses).enumerate() {
             let mut other_addrs = multiaddresses.clone();
             other_addrs.remove(idx);
-            let mut other_keypairs = keypairs.clone();
-            other_keypairs.remove(idx);
             let mut other_peerids = peer_ids.clone();
             other_peerids.remove(idx);
 
@@ -332,25 +330,25 @@ fn mock_genesis_info(kp: &SecpKeypair) -> Command<()> {
 }
 
 fn mock_deposit_setup(kp: &SecpKeypair, scope_hash: sha256::Hash) -> Command<()> {
-    let kind = UnsignedPublishMessage::DepositSetup {
+    let unsigned = UnsignedPublishMessage::DepositSetup {
         scope: scope_hash,
         payload: (),
     };
-    kind.sign_secp256k1(kp).into()
+    unsigned.sign_secp256k1(kp).into()
 }
 
 fn mock_deposit_nonces(kp: &SecpKeypair, scope_hash: sha256::Hash) -> Command<()> {
-    let kind = UnsignedPublishMessage::DepositNonces {
+    let unsigned = UnsignedPublishMessage::DepositNonces {
         scope: scope_hash,
         pub_nonces: vec![],
     };
-    kind.sign_secp256k1(kp).into()
+    unsigned.sign_secp256k1(kp).into()
 }
 
 fn mock_deposit_sigs(kp: &SecpKeypair, scope_hash: sha256::Hash) -> Command<()> {
-    let kind = UnsignedPublishMessage::PartialSignatures {
+    let unsigned = UnsignedPublishMessage::PartialSignatures {
         scope: scope_hash,
         partial_sigs: vec![],
     };
-    kind.sign_secp256k1(kp).into()
+    unsigned.sign_secp256k1(kp).into()
 }

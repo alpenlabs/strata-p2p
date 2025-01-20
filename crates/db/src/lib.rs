@@ -41,13 +41,18 @@ pub trait Repository: Send + Sync + 'static {
     async fn get_raw(&self, key: String) -> DBResult<Option<Vec<u8>>>;
     async fn set_raw(&self, key: String, value: Vec<u8>) -> DBResult<()>;
 
+    /// Set new value if it wasn't there before. Default implementation is
+    /// just `get`+`set`, but some databases may have more optimized
+    /// implementation in one go.
+    /// 
+    /// Returns `true` if `value` wasn't there before.
     async fn set_raw_if_not_exists(&self, key: String, value: Vec<u8>) -> DBResult<bool> {
         if self.get_raw(key.clone()).await?.is_some() {
-            return Ok(true);
+            return Ok(false);
         }
         self.set_raw(key, value).await?;
 
-        Ok(false)
+        Ok(true)
     }
 
     async fn set_if_not_exists<T>(&self, key: String, value: T) -> DBResult<bool>
@@ -142,8 +147,6 @@ where
         let key = format!("setup-{}_{scope}", setup.key);
         self.set_if_not_exists(key, setup).await
     }
-
-    /* TODO(Velnbur): make genesis_info entry a separate type */
 
     async fn get_genesis_info(
         &self,
