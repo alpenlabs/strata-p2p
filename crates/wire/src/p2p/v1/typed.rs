@@ -16,6 +16,7 @@ use super::proto::{
     GenesisRequestKey, GetMessageRequest as ProtoGetMessageRequest, GossipsubMsg as ProtoGossipMsg,
 };
 
+#[derive(Clone, Debug)]
 pub enum GetMessageRequestExchangeKind {
     Setup,
     Nonces,
@@ -23,7 +24,7 @@ pub enum GetMessageRequestExchangeKind {
 }
 
 /// Typed version of "get_message_request::GetMessageRequest".
-#[allow(unused)]
+#[derive(Clone, Debug)]
 pub enum GetMessageRequest {
     Genesis {
         operator_pk: OperatorPubKey,

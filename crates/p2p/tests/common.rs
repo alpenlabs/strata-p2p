@@ -24,7 +24,6 @@ impl Operator {
         let db = sled::Config::new().temporary(true).open()?;
 
         let config = P2PConfig {
-            next_stage_timeout: Duration::from_secs(10),
             keypair: keypair.clone(),
             idle_connection_timeout: Duration::from_secs(30),
             listening_addr: local_addr,
