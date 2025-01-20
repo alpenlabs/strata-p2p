@@ -32,7 +32,7 @@ struct Setup {
 impl Setup {
     /// Spawn N operators that are connected "all-to-all" with handles to them, task tracker
     /// to stop control async tasks they are spawned in.
-    pub async fn all_to_all(number: usize) -> Result<Self, Box<dyn std::error::Error>> {
+    pub async fn all_to_all(number: usize) -> anyhow::Result<Self> {
         let (keypairs, peer_ids, multiaddresses) =
             Self::setup_keys_ids_addrs_of_n_operators(number);
 
@@ -118,7 +118,7 @@ impl Setup {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
-async fn test_all_to_all_one_scope() -> Result<(), Box<dyn std::error::Error>> {
+async fn test_all_to_all_one_scope() -> anyhow::Result<()> {
     const OPERATORS_NUM: usize = 4;
 
     tracing_subscriber::registry()
@@ -147,7 +147,7 @@ async fn test_all_to_all_one_scope() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
-async fn test_all_to_all_multiple_scopes() -> Result<(), Box<dyn std::error::Error>> {
+async fn test_all_to_all_multiple_scopes() -> anyhow::Result<()> {
     const OPERATORS_NUM: usize = 10;
 
     tracing_subscriber::registry()
@@ -187,7 +187,7 @@ async fn test_all_to_all_multiple_scopes() -> Result<(), Box<dyn std::error::Err
 async fn exchange_genesis_info(
     operators: &mut [(P2PHandle<()>, PeerId, SecpKeypair)],
     operators_num: usize,
-) -> Result<(), anyhow::Error> {
+) -> anyhow::Result<()> {
     for (operator, _, kp) in operators.iter() {
         operator.send_command(mock_genesis_info(kp)).await;
     }
@@ -217,7 +217,7 @@ async fn exchange_deposit_setup(
     operators: &mut [(P2PHandle<()>, PeerId, SecpKeypair)],
     operators_num: usize,
     scope_hash: sha256::Hash,
-) -> Result<(), anyhow::Error> {
+) -> anyhow::Result<()> {
     for (operator, _, kp) in operators.iter() {
         operator
             .send_command(mock_deposit_setup(kp, scope_hash))
@@ -253,7 +253,7 @@ async fn exchange_deposit_nonces(
     operators: &mut [(P2PHandle<()>, PeerId, SecpKeypair)],
     operators_num: usize,
     scope_hash: sha256::Hash,
-) -> Result<(), anyhow::Error> {
+) -> anyhow::Result<()> {
     for (operator, _, kp) in operators.iter() {
         operator
             .send_command(mock_deposit_nonces(kp, scope_hash))
@@ -289,7 +289,7 @@ async fn exchange_deposit_sigs(
     operators: &mut [(P2PHandle<()>, PeerId, SecpKeypair)],
     operators_num: usize,
     scope_hash: sha256::Hash,
-) -> Result<(), anyhow::Error> {
+) -> anyhow::Result<()> {
     for (operator, _, kp) in operators.iter() {
         operator
             .send_command(mock_deposit_sigs(kp, scope_hash))

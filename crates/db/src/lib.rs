@@ -18,9 +18,9 @@ pub type DBResult<T> = Result<T, RepositoryError>;
 #[derive(Debug, Error)]
 pub enum RepositoryError {
     #[error("Storage error: {0}")]
-    Storage(#[from] Box<dyn std::error::Error>),
+    Storage(#[from] Box<dyn std::error::Error + Send + Sync>),
     #[error("Invalid data error: {0}")]
-    InvalidData(Box<dyn std::error::Error>),
+    InvalidData(Box<dyn std::error::Error + Send + Sync>),
 }
 
 impl From<serde_json::Error> for RepositoryError {

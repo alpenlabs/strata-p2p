@@ -79,11 +79,11 @@ pub enum ProtocolError {
     #[error("Failed to listen: {0}")]
     Listen(#[from] TransportError<io::Error>),
     #[error("Events channel closed: {0}")]
-    EventsChannelClosed(Box<dyn std::error::Error>),
+    EventsChannelClosed(Box<dyn std::error::Error + Sync + Send>),
     #[error("Failed to initialize transport: {0}")]
-    TransportInitialization(Box<dyn std::error::Error>),
+    TransportInitialization(Box<dyn std::error::Error + Sync + Send>),
     #[error("Failed to initialize behaviour: {0}")]
-    BehaviourInitialization(Box<dyn std::error::Error>),
+    BehaviourInitialization(Box<dyn std::error::Error + Sync + Send>),
 }
 
 pub type P2PResult<T> = Result<T, Error>;
@@ -368,7 +368,6 @@ where
 
         self.events
             .send(event)
-            .map(|_| ())
             .map_err(|e| ProtocolError::EventsChannelClosed(e.into()))?;
 
         Ok(())

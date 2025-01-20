@@ -20,7 +20,7 @@ impl Operator {
         local_addr: Multiaddr,
         cancel: CancellationToken,
         signers_allowlist: Vec<OperatorPubKey>,
-    ) -> Result<Self, Box<dyn std::error::Error>> {
+    ) -> anyhow::Result<Self> {
         let db = sled::Config::new().temporary(true).open()?;
 
         let config = P2PConfig {
