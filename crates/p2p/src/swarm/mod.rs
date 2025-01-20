@@ -33,7 +33,7 @@ use tokio::{
     sync::{broadcast, mpsc},
 };
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, error, info, instrument, warn};
+use tracing::{debug, error, info, instrument};
 
 use crate::{
     commands::Command,
@@ -432,20 +432,32 @@ where
             }
             Command::RequestMessage(request) => {
                 let request_target_pubkey = request.operator_pubkey();
-                let distributor_peer_id = self
+
+                let maybe_distributor = self
                     .db
                     .get_peer_by_signer_pubkey(request_target_pubkey)
                     .await?;
 
-                let Some(distributor_peer_id) = distributor_peer_id else {
-                    warn!("Tried to sent request for operator that has no corresponding peer");
-                    return Ok(());
-                };
+                let request = request.into_msg();
 
-                self.swarm
-                    .behaviour_mut()
-                    .request_response
-                    .send_request(&distributor_peer_id, request.into_msg());
+                if let Some(distributor_peer_id) = maybe_distributor {
+                    if self.swarm.is_connected(&distributor_peer_id) {
+                        self.swarm
+                            .behaviour_mut()
+                            .request_response
+                            .send_request(&distributor_peer_id, request);
+                        return Ok(());
+                    } // TODO: try to establish connection?
+                }
+
+                let connected_peers = self.swarm.connected_peers().cloned().collect::<Vec<_>>();
+                for peer in connected_peers {
+                    self.swarm
+                        .behaviour_mut()
+                        .request_response
+                        .send_request(&peer, request.clone());
+                }
+
                 Ok(())
             }
         }
@@ -482,8 +494,8 @@ where
                 };
 
                 let Some(msg) = self.handle_get_message_request(req).await? else {
-                    debug!(%request_id, "Have no needed data, requesting from neighbours");
-                    return Ok(()); // TODO(NikitaMasych): launch recursive request.
+                    debug!(%request_id, "Have no needed data");
+                    return Ok(());
                 };
 
                 let response = GetMessageResponse { msg: vec![msg] };
@@ -501,8 +513,8 @@ where
                 response,
             } => {
                 if response.msg.is_empty() {
-                    debug!(%request_id, "Have no needed data, requesting from neighbours");
-                    return Ok(()); // TODO(NikitaMasych): launch recursive request.
+                    debug!(%request_id, "Received empty response");
+                    return Ok(());
                 }
 
                 for msg in response.msg.into_iter() {
