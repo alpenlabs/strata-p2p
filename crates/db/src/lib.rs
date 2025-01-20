@@ -44,7 +44,7 @@ pub trait Repository: Send + Sync + 'static {
     /// Set new value if it wasn't there before. Default implementation is
     /// just `get`+`set`, but some databases may have more optimized
     /// implementation in one go.
-    /// 
+    ///
     /// Returns `true` if `value` wasn't there before.
     async fn set_raw_if_not_exists(&self, key: String, value: Vec<u8>) -> DBResult<bool> {
         if self.get_raw(key.clone()).await?.is_some() {
