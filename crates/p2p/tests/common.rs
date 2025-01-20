@@ -4,6 +4,7 @@ use libp2p::{identity::secp256k1::Keypair as SecpKeypair, Multiaddr, PeerId};
 use strata_p2p::swarm::{self, handle::P2PHandle, P2PConfig, P2P};
 use strata_p2p_db::sled::AsyncDB;
 use strata_p2p_types::OperatorPubKey;
+use threadpool::ThreadPool;
 use tokio_util::sync::CancellationToken;
 
 pub struct Operator {
@@ -33,7 +34,7 @@ impl Operator {
         };
 
         let swarm = swarm::with_inmemory_transport(&config)?;
-        let db = AsyncDB::new(Default::default(), Arc::new(db));
+        let db = AsyncDB::new(ThreadPool::new(1), Arc::new(db));
         let (p2p, handle) = P2P::<(), AsyncDB>::from_config(config, cancel, db, swarm)?;
 
         Ok(Self {

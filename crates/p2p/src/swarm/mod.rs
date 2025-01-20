@@ -323,17 +323,12 @@ where
             return Ok(());
         }
 
-        let new_event = self
-            .add_msg_if_not_exists(&msg)
-            .await?;
+        let new_event = self.add_msg_if_not_exists(&msg).await?;
 
         // For each message we get, take track of peers from which
         // this message was sent from, so we can request directly from
         // them something, knowing signer's (operator's) node peer id.
-        self.db
-            .set_peer_for_signer_pubkey(&msg.key, source)
-            .await
-            .context(RepositorySnafu)?;
+        self.db.set_peer_for_signer_pubkey(&msg.key, source).await?;
 
         let event = Event::new(source, EventKind::GossipsubMsg(msg));
 
@@ -423,8 +418,7 @@ where
             Command::PublishMessage(send_message) => {
                 let msg = send_message.into();
 
-                self.add_msg_if_not_exists(&msg)
-                    .await?;
+                self.add_msg_if_not_exists(&msg).await?;
 
                 // TODO(Velnbur): add retry mechanism later, instead of skipping the error
                 let _ = self
@@ -441,8 +435,7 @@ where
                 let distributor_peer_id = self
                     .db
                     .get_peer_by_signer_pubkey(request_target_pubkey)
-                    .await
-                    .context(RepositorySnafu)?;
+                    .await?;
 
                 let Some(distributor_peer_id) = distributor_peer_id else {
                     warn!("Tried to sent request for operator that has no corresponding peer");
@@ -609,8 +602,7 @@ where
     }
 
     async fn handle_get_message_response(&mut self, msg: GossipsubMsg<DSP>) -> P2PResult<()> {
-        self.add_msg_if_not_exists(&msg)
-            .await?;
+        self.add_msg_if_not_exists(&msg).await?;
 
         Ok(())
     }

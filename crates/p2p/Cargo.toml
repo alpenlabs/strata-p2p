@@ -23,6 +23,7 @@ musig2 = { workspace = true, features = ["serde"] }
 prost.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["macros", "time"] }
+threadpool.workspace = true
 tokio-util.workspace = true
 tracing.workspace = true
 
