@@ -15,18 +15,15 @@ use libp2p::{
 };
 use prost::Message as ProtoMsg;
 use strata_p2p_db::{
-    states::PeerDepositState, DBResult, DepositSetupEntry, GenesisInfoEntry, NoncesEntry,
-    PartialSignaturesEntry, RepositoryError, RepositoryExt,
+    DBResult, DepositSetupEntry, GenesisInfoEntry, NoncesEntry, PartialSignaturesEntry,
+    RepositoryError, RepositoryExt,
 };
 use strata_p2p_types::OperatorPubKey;
 use strata_p2p_wire::p2p::{
     v1,
     v1::{
         proto,
-        proto::{
-            get_message_request, gossipsub_msg::Body, DepositRequestKey, GetMessageRequest,
-            GetMessageResponse,
-        },
+        proto::{gossipsub_msg::Body, GetMessageRequest, GetMessageResponse},
         GetMessageRequestExchangeKind, GossipsubMsg, GossipsubMsgDepositKind, GossipsubMsgKind,
     },
 };
@@ -36,12 +33,11 @@ use tokio::{
     sync::{broadcast, mpsc},
 };
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, error, info, instrument};
+use tracing::{debug, error, info, instrument, warn};
 
 use crate::{
     commands::Command,
     events::{Event, EventKind},
-    timeouts::{TimeoutEvent, TimeoutsManager},
 };
 
 mod behavior;
@@ -90,11 +86,7 @@ pub type P2PResult<T> = Result<T, Error>;
 
 /// Configuration options for [`P2P`].
 pub struct P2PConfig {
-    /// Duration which will be considered stale after last moment current operator received message
-    /// that advanced it's state.
-    pub next_stage_timeout: Duration,
-
-    /// Pair of keys used as PeerId and for signing.
+    /// Pair of keys used as PeerId.
     pub keypair: Keypair,
 
     /// Idle connection timeout.
@@ -123,7 +115,6 @@ pub struct P2P<DepositSetupPayload: ProtoMsg + Clone, Repository> {
     commands_sender: mpsc::Sender<Command<DepositSetupPayload>>,
 
     db: Repository,
-    timeouts_mng: TimeoutsManager,
 
     cancellation_token: CancellationToken,
     config: P2PConfig,
@@ -149,7 +140,6 @@ where
         // TODO(Velnbur): make this configurable
         let (events_tx, events_rx) = broadcast::channel(50_000);
         let (cmds_tx, cmds_rx) = mpsc::channel(50_000);
-        let timeouts = TimeoutsManager::new();
 
         Ok((
             Self {
@@ -158,7 +148,6 @@ where
                 commands: cmds_rx,
                 commands_sender: cmds_tx.clone(),
                 db,
-                timeouts_mng: timeouts,
                 cancellation_token: cancel,
                 config: cfg,
             },
@@ -245,9 +234,6 @@ where
                 Some(cmd) = self.commands.recv() => {
                     self.handle_command(cmd).await
                 },
-                event = self.timeouts_mng.next_timeout() => {
-                    self.handle_timeout(event).await
-                },
             };
 
             if let Err(err) = result {
@@ -269,11 +255,6 @@ where
             BehaviourEvent::Gossipsub(event) => self.handle_gossip_event(event).await,
             BehaviourEvent::RequestResponse(event) => {
                 self.handle_request_response_event(event).await
-            }
-            BehaviourEvent::Identify(_event) => {
-                // let identify::Event::Received()
-                // self.swarm.behaviour_mut().gossipsub.add_explicit_peer(event.);
-                Ok(())
             }
             _ => Ok(()),
         }
@@ -342,9 +323,12 @@ where
             return Ok(());
         }
 
-        let new_event = self
-            .insert_msg_if_not_exists_with_timeout(&msg, true)
-            .await?;
+        let new_event = self.add_msg_if_not_exists(&msg).await?;
+
+        // For each message we get, take track of peers from which
+        // this message was sent from, so we can request directly from
+        // them something, knowing signer's (operator's) node peer id.
+        self.db.set_peer_for_signer_pubkey(&msg.key, source).await?;
 
         let event = Event::new(source, EventKind::GossipsubMsg(msg));
 
@@ -373,177 +357,98 @@ where
         Ok(())
     }
 
-    /// Insert data received from event and reset timeout for this peer and
-    /// deposit if it wasn't set before.
+    /// Add data received from external source to DB if it wasn't there before.
     ///
     /// Returns if the data was already presented or not.
-    async fn insert_msg_if_not_exists_with_timeout(
-        &mut self,
-        msg: &GossipsubMsg<DSP>,
-        set_timeout: bool,
-    ) -> DBResult<bool> {
-        let operator_pk = msg.key.clone();
-
+    async fn add_msg_if_not_exists(&mut self, msg: &GossipsubMsg<DSP>) -> DBResult<bool> {
         match &msg.kind {
             GossipsubMsgKind::GenesisInfo(info) => {
-                let entry = self.db.get_genesis_info(&operator_pk).await?;
-
-                if entry.is_none() {
-                    self.db
-                        .set_genesis_info(GenesisInfoEntry {
-                            entry: (info.pre_stake_outpoint, info.checkpoint_pubkeys.clone()),
-                            signature: msg.signature.clone(),
-                            key: msg.key.clone(),
-                        })
-                        .await?;
-
-                    if set_timeout {
-                        self.timeouts_mng
-                            .set_genesis_timeout(operator_pk, self.config.next_stage_timeout);
-                    }
-
-                    return Ok(true);
-                }
+                self.db
+                    .set_genesis_info_if_not_exists(GenesisInfoEntry {
+                        entry: (info.pre_stake_outpoint, info.checkpoint_pubkeys.clone()),
+                        signature: msg.signature.clone(),
+                        key: msg.key.clone(),
+                    })
+                    .await
             }
             GossipsubMsgKind::Deposit { scope, kind } => match kind {
                 GossipsubMsgDepositKind::Setup(dep) => {
-                    let entry = self.db.get_deposit_setup(&operator_pk, *scope).await?;
-
-                    if entry.is_none() {
-                        self.db
-                            .set_deposit_setup(
-                                *scope,
-                                DepositSetupEntry {
-                                    payload: dep.payload.clone(),
-                                    signature: msg.signature.clone(),
-                                    key: msg.key.clone(),
-                                },
-                            )
-                            .await?;
-
-                        if set_timeout {
-                            self.timeouts_mng.set_deposit_timeout(
-                                operator_pk,
-                                *scope,
-                                self.config.next_stage_timeout,
-                            );
-                        }
-
-                        return Ok(true);
-                    }
+                    self.db
+                        .set_deposit_setup_if_not_exists(
+                            *scope,
+                            DepositSetupEntry {
+                                payload: dep.payload.clone(),
+                                signature: msg.signature.clone(),
+                                key: msg.key.clone(),
+                            },
+                        )
+                        .await
                 }
                 GossipsubMsgDepositKind::Nonces(dep) => {
-                    let entry = self.db.get_pub_nonces(&operator_pk, *scope).await?;
-
-                    if entry.is_none() {
-                        self.db
-                            .set_pub_nonces(
-                                *scope,
-                                NoncesEntry {
-                                    entry: dep.nonces.clone(),
-                                    signature: msg.signature.clone(),
-                                    key: msg.key.clone(),
-                                },
-                            )
-                            .await?;
-                        if set_timeout {
-                            self.timeouts_mng.set_deposit_timeout(
-                                operator_pk,
-                                *scope,
-                                self.config.next_stage_timeout,
-                            );
-                        }
-
-                        return Ok(true);
-                    }
+                    self.db
+                        .set_pub_nonces_if_not_exist(
+                            *scope,
+                            NoncesEntry {
+                                entry: dep.nonces.clone(),
+                                signature: msg.signature.clone(),
+                                key: msg.key.clone(),
+                            },
+                        )
+                        .await
                 }
                 GossipsubMsgDepositKind::Sigs(dep) => {
-                    let entry = self.db.get_partial_signatures(&operator_pk, *scope).await?;
-
-                    if entry.is_none() {
-                        self.db
-                            .set_partial_signatures(
-                                *scope,
-                                PartialSignaturesEntry {
-                                    entry: dep.partial_sigs.clone(),
-                                    signature: msg.signature.clone(),
-                                    key: msg.key.clone(),
-                                },
-                            )
-                            .await?;
-
-                        return Ok(true);
-                    }
+                    self.db
+                        .set_partial_signatures_if_not_exists(
+                            *scope,
+                            PartialSignaturesEntry {
+                                entry: dep.partial_sigs.clone(),
+                                signature: msg.signature.clone(),
+                                key: msg.key.clone(),
+                            },
+                        )
+                        .await
                 }
             },
-        };
-
-        Ok(false)
+        }
     }
 
     /// Handle command sent through channel by P2P implementation user.
     async fn handle_command(&mut self, cmd: Command<DSP>) -> P2PResult<()> {
-        let msg = cmd.into();
+        match cmd {
+            Command::PublishMessage(send_message) => {
+                let msg = send_message.into();
 
-        self.insert_msg_if_not_exists_with_timeout(
-            &msg, /* do net set timeout for local peer */ false,
-        )
-        .await?;
+                self.add_msg_if_not_exists(&msg).await?;
 
-        // TODO(Velnbur): add retry mechanism later, instead of skipping the error
-        let _ = self
-            .swarm
-            .behaviour_mut()
-            .gossipsub
-            .publish(TOPIC.hash(), msg.into_raw().encode_to_vec())
-            .inspect_err(|err| debug!(%err, "Failed to publish msg through gossipsub"));
+                // TODO(Velnbur): add retry mechanism later, instead of skipping the error
+                let _ = self
+                    .swarm
+                    .behaviour_mut()
+                    .gossipsub
+                    .publish(TOPIC.hash(), msg.into_raw().encode_to_vec())
+                    .inspect_err(|err| debug!(%err, "Failed to publish msg through gossipsub"));
 
-        Ok(())
-    }
-
-    /// P2P implementation keeps track of received stages for each peer and deposit, including the
-    /// time P2P implementation received it last time. If after some "timeout" there were no
-    /// messages for next state, P2P implementation request them directly from connected to it
-    /// peers.
-    ///
-    /// This method implementats logic of requesting lost stages directly.
-    #[instrument(skip(self))]
-    async fn handle_timeout(&mut self, event: TimeoutEvent) -> P2PResult<()> {
-        let TimeoutEvent::Deposit { operator_pk, scope } = event else {
-            // FIXME(Velnbur): handle deposit timeout too!
-            return Ok(());
-        };
-
-        let peer_deposit_status = self.db.get_peer_deposit_status(&operator_pk, scope).await?;
-
-        let request_key = DepositRequestKey {
-            scope: scope.to_byte_array().to_vec(),
-            operator: operator_pk.into(),
-        };
-
-        let body = match peer_deposit_status {
-            PeerDepositState::PreSetup => get_message_request::Body::DepositSetup(request_key),
-            PeerDepositState::Setup => get_message_request::Body::DepositNonce(request_key),
-            PeerDepositState::Nonces => get_message_request::Body::DepositSigs(request_key),
-            // NOTE(Velnbur): This should never happen, as after we got signatures from peer
-            // it's the final stage, so we shouldn't establish timeout at this point at all.
-            PeerDepositState::Sigs => {
-                debug!("Tried to request next stage after timeout, but we already got everything");
-                return Ok(());
+                Ok(())
             }
-        };
+            Command::RequestMessage(request) => {
+                let request_target_pubkey = request.operator_pubkey();
+                let distributor_peer_id = self
+                    .db
+                    .get_peer_by_signer_pubkey(request_target_pubkey)
+                    .await?;
 
-        let behaviours = self.swarm.behaviour_mut();
-        for (peer, _) in behaviours.gossipsub.all_peers() {
-            let _req_id = behaviours.request_response.send_request(
-                peer,
-                GetMessageRequest {
-                    body: Some(body.clone()),
-                },
-            );
+                let Some(distributor_peer_id) = distributor_peer_id else {
+                    warn!("Tried to sent request for operator that has no corresponding peer");
+                    return Ok(());
+                };
+
+                self.swarm
+                    .behaviour_mut()
+                    .request_response
+                    .send_request(&distributor_peer_id, request.into_msg());
+                Ok(())
+            }
         }
-
-        Ok(())
     }
 
     #[instrument(skip(self, event))]
@@ -697,42 +602,7 @@ where
     }
 
     async fn handle_get_message_response(&mut self, msg: GossipsubMsg<DSP>) -> P2PResult<()> {
-        match msg.kind {
-            GossipsubMsgKind::GenesisInfo(v) => {
-                let entry = GenesisInfoEntry {
-                    entry: (v.pre_stake_outpoint, v.checkpoint_pubkeys),
-                    signature: msg.signature,
-                    key: msg.key,
-                };
-                self.db.set_genesis_info(entry).await?;
-            }
-            GossipsubMsgKind::Deposit { scope, kind } => match kind {
-                GossipsubMsgDepositKind::Sigs(v) => {
-                    let entry = PartialSignaturesEntry {
-                        entry: v.partial_sigs,
-                        signature: msg.signature,
-                        key: msg.key,
-                    };
-                    self.db.set_partial_signatures(scope, entry).await?;
-                }
-                GossipsubMsgDepositKind::Setup(v) => {
-                    let entry = DepositSetupEntry {
-                        payload: v.payload,
-                        signature: msg.signature,
-                        key: msg.key,
-                    };
-                    self.db.set_deposit_setup(scope, entry).await?;
-                }
-                GossipsubMsgDepositKind::Nonces(v) => {
-                    let entry = NoncesEntry {
-                        entry: v.nonces,
-                        signature: msg.signature,
-                        key: msg.key,
-                    };
-                    self.db.set_pub_nonces(scope, entry).await?;
-                }
-            },
-        }
+        self.add_msg_if_not_exists(&msg).await?;
 
         Ok(())
     }

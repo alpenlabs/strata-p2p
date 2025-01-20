@@ -20,6 +20,8 @@ serde_json = "1.0.135"
 threadpool.workspace = true
 tokio = { workspace = true, features = ["sync"] }
 
+libp2p-identity = { workspace = true, features = ["serde"] }
+
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt"] }
 rand = "0.8.5"

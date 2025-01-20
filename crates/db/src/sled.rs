@@ -50,12 +50,37 @@ impl Repository for AsyncDB {
 
         rx.await?.map_err(Into::into)
     }
+
+    async fn set_raw_if_not_exists(&self, key: String, value: Vec<u8>) -> DBResult<bool> {
+        let (tx, rx) = oneshot::channel();
+
+        let db = self.db.clone();
+        self.pool.execute(move || {
+            let result = set_if_not_exist(db, key, value);
+
+            if tx.send(result).is_err() {
+                warn!("Receiver channel hanged up or dropped");
+            }
+        });
+
+        rx.await?.map_err(Into::into)
+    }
 }
 
 impl From<RecvError> for RepositoryError {
     fn from(value: RecvError) -> Self {
         RepositoryError::Storage(value.into())
     }
+}
+
+fn set_if_not_exist(db: Arc<sled::Db>, key: String, value: Vec<u8>) -> Result<bool, sled::Error> {
+    if db.get(key.clone())?.is_some() {
+        return Ok(false);
+    }
+
+    db.insert(key, value)?;
+
+    Ok(true)
 }
 
 impl From<sled::Error> for RepositoryError {
@@ -110,7 +135,9 @@ mod tests {
                 key: operator_pk.clone(),
             };
 
-            db.set_pub_nonces(scope, nonces_entry).await.unwrap();
+            db.set_pub_nonces_if_not_exist(scope, nonces_entry)
+                .await
+                .unwrap();
 
             let agg_nonce = AggNonce::sum([pub_nonce.clone()]);
             let ctx = KeyAggContext::new([keypair.public_key()]).unwrap();
@@ -124,7 +151,7 @@ mod tests {
                 key: operator_pk.clone(),
             };
 
-            db.set_partial_signatures(scope, sigs_entry)
+            db.set_partial_signatures_if_not_exists(scope, sigs_entry)
                 .await
                 .expect("Failed to set signature");
 
@@ -144,7 +171,7 @@ mod tests {
                 key: operator_pk.clone(),
             };
 
-            db.set_genesis_info(entry).await.unwrap();
+            db.set_genesis_info_if_not_exists(entry).await.unwrap();
 
             let GenesisInfoEntry {
                 entry: (got_op, got_keys),

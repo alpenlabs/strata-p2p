@@ -1,17 +1,13 @@
 use async_trait::async_trait;
 use bitcoin::{hashes::sha256, OutPoint, XOnlyPublicKey};
+use libp2p_identity::PeerId;
 use musig2::{PartialSignature, PubNonce};
 use serde::{de::DeserializeOwned, Serialize};
 use strata_p2p_types::OperatorPubKey;
 use thiserror::Error;
 
-use crate::states::PeerDepositState;
-
-pub mod sled;
-
-pub mod states;
-
 mod prost_serde;
+pub mod sled;
 
 pub type DBResult<T> = Result<T, RepositoryError>;
 
@@ -44,6 +40,30 @@ pub type GenesisInfoEntry = AuthenticatedEntry<(OutPoint, Vec<XOnlyPublicKey>)>;
 pub trait Repository: Send + Sync + 'static {
     async fn get_raw(&self, key: String) -> DBResult<Option<Vec<u8>>>;
     async fn set_raw(&self, key: String, value: Vec<u8>) -> DBResult<()>;
+
+    /// Set new value if it wasn't there before. Default implementation is
+    /// just `get`+`set`, but some databases may have more optimized
+    /// implementation in one go.
+    ///
+    /// Returns `true` if `value` wasn't there before.
+    async fn set_raw_if_not_exists(&self, key: String, value: Vec<u8>) -> DBResult<bool> {
+        if self.get_raw(key.clone()).await?.is_some() {
+            return Ok(false);
+        }
+        self.set_raw(key, value).await?;
+
+        Ok(true)
+    }
+
+    async fn set_if_not_exists<T>(&self, key: String, value: T) -> DBResult<bool>
+    where
+        T: Serialize + Send + Sync + 'static,
+    {
+        let mut buf = Vec::new();
+        serde_json::to_writer(&mut buf, &value)?;
+
+        self.set_raw_if_not_exists(key, buf).await
+    }
 
     async fn get<T: DeserializeOwned>(&self, key: String) -> DBResult<Option<T>> {
         let bytes = self.get_raw(key).await?;
@@ -83,13 +103,13 @@ where
         self.get(key).await
     }
 
-    async fn set_partial_signatures(
+    async fn set_partial_signatures_if_not_exists(
         &self,
         scope: sha256::Hash,
         entry: PartialSignaturesEntry,
-    ) -> DBResult<()> {
+    ) -> DBResult<bool> {
         let key = format!("sigs-{}_{scope}", entry.key);
-        self.set(key, entry).await
+        self.set_if_not_exists(key, entry).await
     }
 
     async fn get_pub_nonces(
@@ -101,9 +121,13 @@ where
         self.get(key).await
     }
 
-    async fn set_pub_nonces(&self, scope: sha256::Hash, entry: NoncesEntry) -> DBResult<()> {
+    async fn set_pub_nonces_if_not_exist(
+        &self,
+        scope: sha256::Hash,
+        entry: NoncesEntry,
+    ) -> DBResult<bool> {
         let key = format!("nonces-{}_{scope}", entry.key);
-        self.set(key, entry).await
+        self.set_if_not_exists(key, entry).await
     }
 
     async fn get_deposit_setup(
@@ -115,37 +139,13 @@ where
         self.get(key).await
     }
 
-    async fn set_deposit_setup(
+    async fn set_deposit_setup_if_not_exists(
         &self,
         scope: sha256::Hash,
         setup: DepositSetupEntry<DepositSetupPayload>,
-    ) -> DBResult<()> {
+    ) -> DBResult<bool> {
         let key = format!("setup-{}_{scope}", setup.key);
-        self.set(key, setup).await
-    }
-
-    async fn get_peer_deposit_status(
-        &self,
-        operator_pk: &OperatorPubKey,
-        scope: sha256::Hash,
-    ) -> DBResult<PeerDepositState> {
-        if self
-            .get_partial_signatures(operator_pk, scope)
-            .await?
-            .is_some()
-        {
-            return Ok(PeerDepositState::Sigs);
-        }
-
-        if self.get_pub_nonces(operator_pk, scope).await?.is_some() {
-            return Ok(PeerDepositState::Nonces);
-        }
-
-        if self.get_deposit_setup(operator_pk, scope).await?.is_some() {
-            return Ok(PeerDepositState::Setup);
-        }
-
-        Ok(PeerDepositState::PreSetup)
+        self.set_if_not_exists(key, setup).await
     }
 
     async fn get_genesis_info(
@@ -156,9 +156,34 @@ where
         self.get(key).await
     }
 
-    async fn set_genesis_info(&self, info: GenesisInfoEntry) -> DBResult<()> {
+    async fn set_genesis_info_if_not_exists(&self, info: GenesisInfoEntry) -> DBResult<bool> {
         let key = format!("genesis-{}", info.key);
-        self.set(key, info).await
+        self.set_if_not_exists(key, info).await
+    }
+
+    /* P2P stores mapping of Musig2 exchange signers (operators) to node peer
+    id that publishes messages. These methods store and retrieve this
+    mapping:  */
+
+    /// Get peer id of node, that distributed message signed by operator
+    /// pubkey.
+    async fn get_peer_by_signer_pubkey(
+        &self,
+        operator_pk: &OperatorPubKey,
+    ) -> DBResult<Option<PeerId>> {
+        let key = format!("signers=>peerid-{}", operator_pk);
+        self.get(key).await
+    }
+
+    /// Store peer id of node, that distributed message signed by this
+    /// operator.
+    async fn set_peer_for_signer_pubkey(
+        &self,
+        operator_pk: &OperatorPubKey,
+        peer_id: PeerId,
+    ) -> DBResult<()> {
+        let key = format!("signers=>peerid-{}", operator_pk);
+        self.set(key, peer_id).await
     }
 }
 

@@ -11,7 +11,7 @@ use libp2p::{
     PeerId,
 };
 use strata_p2p::{
-    commands::{Command, CommandKind},
+    commands::{Command, UnsignedPublishMessage},
     events::EventKind,
     swarm::handle::P2PHandle,
 };
@@ -47,8 +47,6 @@ impl Setup {
         for (idx, (keypair, addr)) in keypairs.iter().zip(&multiaddresses).enumerate() {
             let mut other_addrs = multiaddresses.clone();
             other_addrs.remove(idx);
-            let mut other_keypairs = keypairs.clone();
-            other_keypairs.remove(idx);
             let mut other_peerids = peer_ids.clone();
             other_peerids.remove(idx);
 
@@ -324,33 +322,33 @@ async fn exchange_deposit_sigs(
 }
 
 fn mock_genesis_info(kp: &SecpKeypair) -> Command<()> {
-    let kind = CommandKind::SendGenesisInfo {
+    let kind = UnsignedPublishMessage::GenesisInfo {
         pre_stake_outpoint: OutPoint::null(),
         checkpoint_pubkeys: vec![],
     };
-    kind.sign_secp256k1(kp)
+    kind.sign_secp256k1(kp).into()
 }
 
 fn mock_deposit_setup(kp: &SecpKeypair, scope_hash: sha256::Hash) -> Command<()> {
-    let kind = CommandKind::SendDepositSetup {
+    let unsigned = UnsignedPublishMessage::DepositSetup {
         scope: scope_hash,
         payload: (),
     };
-    kind.sign_secp256k1(kp)
+    unsigned.sign_secp256k1(kp).into()
 }
 
 fn mock_deposit_nonces(kp: &SecpKeypair, scope_hash: sha256::Hash) -> Command<()> {
-    let kind = CommandKind::SendDepositNonces {
+    let unsigned = UnsignedPublishMessage::DepositNonces {
         scope: scope_hash,
         pub_nonces: vec![],
     };
-    kind.sign_secp256k1(kp)
+    unsigned.sign_secp256k1(kp).into()
 }
 
 fn mock_deposit_sigs(kp: &SecpKeypair, scope_hash: sha256::Hash) -> Command<()> {
-    let kind = CommandKind::SendPartialSignatures {
+    let unsigned = UnsignedPublishMessage::PartialSignatures {
         scope: scope_hash,
         partial_sigs: vec![],
     };
-    kind.sign_secp256k1(kp)
+    unsigned.sign_secp256k1(kp).into()
 }
