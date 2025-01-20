@@ -7,6 +7,7 @@ use bitcoin::{
 };
 use serde::{Deserialize, Serialize};
 
+/// A unique identifier of deposit setup made by hashing unique data related to it
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Deserialize, Serialize)]
 pub struct Scope(sha256::Hash);
 

@@ -7,6 +7,8 @@ use bitcoin::{
 };
 use serde::{Deserialize, Serialize};
 
+/// A unique identifier of signatures and nonces exchange session made by
+/// hashing unique data related to it.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Deserialize, Serialize)]
 pub struct SessionId(sha256::Hash);
 
