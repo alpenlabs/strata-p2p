@@ -19,8 +19,8 @@ pub type DBResult<T> = Result<T, RepositoryError>;
 pub enum RepositoryError {
     #[error("Storage error: {0}")]
     Storage(#[from] Box<dyn std::error::Error>),
-    #[error("Serialization error: {0}")]
-    Serialization(#[from] serde_json::Error),
+    #[error("Invalid data error: {0}")]
+    InvalidData(#[from] serde_json::Error),
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
@@ -45,8 +45,7 @@ pub trait Repository: Send + Sync + 'static {
             return Ok(None);
         };
 
-        let entry: T =
-            serde_json::from_reader(bytes.as_slice()).map_err(Into::<serde_json::Error>::into)?;
+        let entry: T = serde_json::from_reader(bytes.as_slice())?;
 
         Ok(Some(entry))
     }
@@ -56,7 +55,7 @@ pub trait Repository: Send + Sync + 'static {
         T: Serialize + Send + Sync + 'static,
     {
         let mut buf = Vec::new();
-        serde_json::to_writer(&mut buf, &value).map_err(Into::<serde_json::Error>::into)?;
+        serde_json::to_writer(&mut buf, &value)?;
 
         self.set_raw(key, buf).await?;
 

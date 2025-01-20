@@ -78,21 +78,12 @@ pub enum ValidationError {
 pub enum ProtocolError {
     #[error("Failed to listen: {0}")]
     Listen(#[from] TransportError<io::Error>),
-    #[error("Events channel closed: {source}")]
-    EventsChannelClosed {
-        #[source]
-        source: Box<dyn std::error::Error>,
-    },
-    #[error("Failed to initialize transport: {source}")]
-    TransportInitialization {
-        #[source]
-        source: Box<dyn std::error::Error>,
-    },
-    #[error("Failed to initialize behaviour: {source}")]
-    BehaviourInitialization {
-        #[source]
-        source: Box<dyn std::error::Error>,
-    },
+    #[error("Events channel closed: {0}")]
+    EventsChannelClosed(Box<dyn std::error::Error>),
+    #[error("Failed to initialize transport: {0}")]
+    TransportInitialization(Box<dyn std::error::Error>),
+    #[error("Failed to initialize behaviour: {0}")]
+    BehaviourInitialization(Box<dyn std::error::Error>),
 }
 
 pub type P2PResult<T> = Result<T, Error>;
@@ -153,8 +144,7 @@ where
     ) -> P2PResult<P2PWithHandle<DSP, DB>> {
         swarm
             .listen_on(cfg.listening_addr.clone())
-            .map_err(ProtocolError::Listen)
-            .map_err(Error::Protocol)?;
+            .map_err(ProtocolError::Listen)?;
 
         // TODO(Velnbur): make this configurable
         let (events_tx, events_rx) = broadcast::channel(50_000);
@@ -354,8 +344,7 @@ where
 
         let new_event = self
             .insert_msg_if_not_exists_with_timeout(&msg, true)
-            .await
-            .map_err(Error::Repository)?;
+            .await?;
 
         let event = Event::new(source, EventKind::GossipsubMsg(msg));
 
@@ -380,8 +369,9 @@ where
         self.events
             .send(event)
             .map(|_| ())
-            .map_err(|e| ProtocolError::EventsChannelClosed { source: e.into() })
-            .map_err(Into::into)
+            .map_err(|e| ProtocolError::EventsChannelClosed(e.into()))?;
+
+        Ok(())
     }
 
     /// Insert data received from event and reset timeout for this peer and
@@ -499,8 +489,7 @@ where
         self.insert_msg_if_not_exists_with_timeout(
             &msg, /* do net set timeout for local peer */ false,
         )
-        .await
-        .map_err(Error::Repository)?;
+        .await?;
 
         // TODO(Velnbur): add retry mechanism later, instead of skipping the error
         let _ = self
@@ -526,11 +515,7 @@ where
             return Ok(());
         };
 
-        let peer_deposit_status = self
-            .db
-            .get_peer_deposit_status(&operator_pk, scope)
-            .await
-            .map_err(Error::Repository)?;
+        let peer_deposit_status = self.db.get_peer_deposit_status(&operator_pk, scope).await?;
 
         let request_key = DepositRequestKey {
             scope: scope.to_byte_array().to_vec(),
@@ -648,11 +633,7 @@ where
     ) -> P2PResult<Option<proto::GossipsubMsg>> {
         let msg = match request {
             v1::GetMessageRequest::Genesis { operator_pk } => {
-                let info = self
-                    .db
-                    .get_genesis_info(&operator_pk)
-                    .await
-                    .map_err(Error::Repository)?;
+                let info = self.db.get_genesis_info(&operator_pk).await?;
 
                 info.map(|v| proto::GossipsubMsg {
                     body: Some(Body::GenesisInfo(proto::GenesisInfo {
@@ -675,11 +656,7 @@ where
                 kind,
             } => match kind {
                 GetMessageRequestExchangeKind::Setup => {
-                    let setup = self
-                        .db
-                        .get_deposit_setup(&operator_pk, scope)
-                        .await
-                        .map_err(Error::Repository)?;
+                    let setup = self.db.get_deposit_setup(&operator_pk, scope).await?;
 
                     setup.map(|v| proto::GossipsubMsg {
                         body: Some(Body::Setup(proto::DepositSetupExchange {
@@ -691,11 +668,7 @@ where
                     })
                 }
                 GetMessageRequestExchangeKind::Nonces => {
-                    let nonces = self
-                        .db
-                        .get_pub_nonces(&operator_pk, scope)
-                        .await
-                        .map_err(Error::Repository)?;
+                    let nonces = self.db.get_pub_nonces(&operator_pk, scope).await?;
 
                     nonces.map(|v| proto::GossipsubMsg {
                         body: Some(Body::Nonce(proto::DepositNoncesExchange {
@@ -707,11 +680,7 @@ where
                     })
                 }
                 GetMessageRequestExchangeKind::Signatures => {
-                    let sigs = self
-                        .db
-                        .get_partial_signatures(&operator_pk, scope)
-                        .await
-                        .map_err(Error::Repository)?;
+                    let sigs = self.db.get_partial_signatures(&operator_pk, scope).await?;
 
                     sigs.map(|v| proto::GossipsubMsg {
                         body: Some(Body::Sigs(proto::DepositSignaturesExchange {
@@ -736,10 +705,7 @@ where
                     signature: msg.signature,
                     key: msg.key,
                 };
-                self.db
-                    .set_genesis_info(entry)
-                    .await
-                    .map_err(Error::Repository)?;
+                self.db.set_genesis_info(entry).await?;
             }
             GossipsubMsgKind::Deposit { scope, kind } => match kind {
                 GossipsubMsgDepositKind::Sigs(v) => {
@@ -748,10 +714,7 @@ where
                         signature: msg.signature,
                         key: msg.key,
                     };
-                    self.db
-                        .set_partial_signatures(scope, entry)
-                        .await
-                        .map_err(Error::Repository)?;
+                    self.db.set_partial_signatures(scope, entry).await?;
                 }
                 GossipsubMsgDepositKind::Setup(v) => {
                     let entry = DepositSetupEntry {
@@ -759,10 +722,7 @@ where
                         signature: msg.signature,
                         key: msg.key,
                     };
-                    self.db
-                        .set_deposit_setup(scope, entry)
-                        .await
-                        .map_err(Error::Repository)?;
+                    self.db.set_deposit_setup(scope, entry).await?;
                 }
                 GossipsubMsgDepositKind::Nonces(v) => {
                     let entry = NoncesEntry {
@@ -770,10 +730,7 @@ where
                         signature: msg.signature,
                         key: msg.key,
                     };
-                    self.db
-                        .set_pub_nonces(scope, entry)
-                        .await
-                        .map_err(Error::Repository)?;
+                    self.db.set_pub_nonces(scope, entry).await?;
                 }
             },
         }
@@ -815,11 +772,9 @@ macro_rules! init_swarm {
 macro_rules! finish_swarm {
     ($builder:expr, $cfg:expr) => {
         $builder
-            .map_err(|e| ProtocolError::TransportInitialization { source: e.into() })
-            .map_err(Error::Protocol)?
+            .map_err(|e| ProtocolError::TransportInitialization(e.into()))?
             .with_behaviour(|_| Behaviour::new(PROTOCOL_NAME, &$cfg.keypair, &$cfg.allowlist))
-            .map_err(|e| ProtocolError::BehaviourInitialization { source: e.into() })
-            .map_err(Error::Protocol)?
+            .map_err(|e| ProtocolError::BehaviourInitialization(e.into()))?
             .with_swarm_config(|c| c.with_idle_connection_timeout($cfg.idle_connection_timeout))
             .build()
     };

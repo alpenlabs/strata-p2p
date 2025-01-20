@@ -33,9 +33,7 @@ impl Repository for AsyncDB {
             }
         });
 
-        rx.await
-            .map_err(Into::<RecvError>::into)?
-            .map_err(Into::into)
+        rx.await?.map_err(Into::into)
     }
 
     async fn set_raw(&self, key: String, value: Vec<u8>) -> DBResult<()> {
@@ -50,9 +48,7 @@ impl Repository for AsyncDB {
             }
         });
 
-        rx.await
-            .map_err(Into::<RecvError>::into)?
-            .map_err(Into::into)
+        rx.await?.map_err(Into::into)
     }
 }
 

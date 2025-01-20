@@ -1,3 +1,4 @@
+use anyhow::bail;
 use bitcoin::{
     hashes::{sha256, Hash},
     OutPoint,
@@ -186,7 +187,7 @@ async fn test_all_to_all_multiple_scopes() -> Result<(), Box<dyn std::error::Err
 async fn exchange_genesis_info(
     operators: &mut [(P2PHandle<()>, PeerId, SecpKeypair)],
     operators_num: usize,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(), anyhow::Error> {
     for (operator, _, kp) in operators.iter() {
         operator.send_command(mock_genesis_info(kp)).await;
     }
@@ -202,7 +203,7 @@ async fn exchange_genesis_info(
                     ..
                 })
             ) {
-                return Err(format!("Got event other than 'genesis_info' - {:?}", event).into());
+                bail!("Got event other than 'genesis_info' - {:?}", event);
             }
             info!(to=%peer_id, from=%event.peer_id, "Got genesis info");
         }
@@ -216,7 +217,7 @@ async fn exchange_deposit_setup(
     operators: &mut [(P2PHandle<()>, PeerId, SecpKeypair)],
     operators_num: usize,
     scope_hash: sha256::Hash,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(), anyhow::Error> {
     for (operator, _, kp) in operators.iter() {
         operator
             .send_command(mock_deposit_setup(kp, scope_hash))
@@ -239,7 +240,7 @@ async fn exchange_deposit_setup(
                     ..
                 })
             ) {
-                return Err(format!("Got event other than 'deposit_setup' - {:?}", event).into());
+                bail!("Got event other than 'deposit_setup' - {:?}", event);
             }
             info!(to=%peer_id, from=%event.peer_id, "Got deposit setup");
         }
@@ -252,7 +253,7 @@ async fn exchange_deposit_nonces(
     operators: &mut [(P2PHandle<()>, PeerId, SecpKeypair)],
     operators_num: usize,
     scope_hash: sha256::Hash,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(), anyhow::Error> {
     for (operator, _, kp) in operators.iter() {
         operator
             .send_command(mock_deposit_nonces(kp, scope_hash))
@@ -275,7 +276,7 @@ async fn exchange_deposit_nonces(
                     ..
                 })
             ) {
-                return Err(format!("Got event other than 'deposit_nonces' - {:?}", event).into());
+                bail!("Got event other than 'deposit_nonces' - {:?}", event);
             }
             info!(to=%peer_id, from=%event.peer_id, "Got deposit nonces");
         }
@@ -288,7 +289,7 @@ async fn exchange_deposit_sigs(
     operators: &mut [(P2PHandle<()>, PeerId, SecpKeypair)],
     operators_num: usize,
     scope_hash: sha256::Hash,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(), anyhow::Error> {
     for (operator, _, kp) in operators.iter() {
         operator
             .send_command(mock_deposit_sigs(kp, scope_hash))
@@ -312,7 +313,7 @@ async fn exchange_deposit_sigs(
                     ..
                 })
             ) {
-                return Err(format!("Got event other than 'deposit_sigs' - {:?}", event).into());
+                bail!("Got event other than 'deposit_sigs' - {:?}", event);
             }
             info!(to=%peer_id, from=%event.peer_id, "Got deposit sigs");
         }
