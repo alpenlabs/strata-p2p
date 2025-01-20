@@ -33,7 +33,7 @@ use tokio::{
     sync::{broadcast, mpsc},
 };
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, error, info, instrument};
+use tracing::{debug, error, info, instrument, warn};
 
 use crate::{
     commands::Command,
@@ -327,6 +327,14 @@ where
             .add_msg_if_not_exists(&msg)
             .await?;
 
+        // For each message we get, take track of peers from which
+        // this message was sent from, so we can request directly from
+        // them something, knowing signer's (operator's) node peer id.
+        self.db
+            .set_peer_for_signer_pubkey(&msg.key, source)
+            .await
+            .context(RepositorySnafu)?;
+
         let event = Event::new(source, EventKind::GossipsubMsg(msg));
 
         let _ = self
@@ -428,7 +436,25 @@ where
 
                 Ok(())
             }
-            Command::RequestMessage(_) => Ok(()),
+            Command::RequestMessage(request) => {
+                let request_target_pubkey = request.operator_pubkey();
+                let distributor_peer_id = self
+                    .db
+                    .get_peer_by_signer_pubkey(request_target_pubkey)
+                    .await
+                    .context(RepositorySnafu)?;
+
+                let Some(distributor_peer_id) = distributor_peer_id else {
+                    warn!("Tried to sent request for operator that has no corresponding peer");
+                    return Ok(());
+                };
+
+                self.swarm
+                    .behaviour_mut()
+                    .request_response
+                    .send_request(&distributor_peer_id, request.into_msg());
+                Ok(())
+            }
         }
     }
 

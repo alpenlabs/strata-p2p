@@ -1,5 +1,6 @@
 use async_trait::async_trait;
 use bitcoin::{hashes::sha256, OutPoint, XOnlyPublicKey};
+use libp2p_identity::PeerId;
 use musig2::{PartialSignature, PubNonce};
 use serde::{de::DeserializeOwned, Serialize};
 use strata_p2p_types::OperatorPubKey;
@@ -155,6 +156,31 @@ where
     async fn set_genesis_info_if_not_exists(&self, info: GenesisInfoEntry) -> DBResult<bool> {
         let key = format!("genesis-{}", info.key);
         self.set_if_not_exists(key, info).await
+    }
+
+    /* P2P stores mapping of Musig2 exchange signers (operators) to node peer
+    id that publishes messages. These methods store and retrieve this
+    mapping:  */
+
+    /// Get peer id of node, that distributed message signed by operator
+    /// pubkey.
+    async fn get_peer_by_signer_pubkey(
+        &self,
+        operator_pk: &OperatorPubKey,
+    ) -> DBResult<Option<PeerId>> {
+        let key = format!("signers=>peerid-{}", operator_pk);
+        self.get(key).await
+    }
+
+    /// Store peer id of node, that distributed message signed by this
+    /// operator.
+    async fn set_peer_for_signer_pubkey(
+        &self,
+        operator_pk: &OperatorPubKey,
+        peer_id: PeerId,
+    ) -> DBResult<()> {
+        let key = format!("signers=>peerid-{}", operator_pk);
+        self.set(key, peer_id).await
     }
 }
 

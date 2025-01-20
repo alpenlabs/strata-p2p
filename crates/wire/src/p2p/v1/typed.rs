@@ -67,6 +67,50 @@ impl GetMessageRequest {
             kind,
         })
     }
+
+    pub fn into_msg(self) -> ProtoGetMessageRequest {
+        let body = match self {
+            GetMessageRequest::Genesis { operator_pk } => {
+                ProtoGetMessageRequestBody::GenesisInfo(GenesisRequestKey {
+                    operator: operator_pk.into(),
+                })
+            }
+            GetMessageRequest::ExchangeSession {
+                scope,
+                operator_pk,
+                kind,
+            } => match kind {
+                GetMessageRequestExchangeKind::Setup => {
+                    ProtoGetMessageRequestBody::DepositSetup(DepositRequestKey {
+                        scope: scope.to_byte_array().to_vec(),
+                        operator: operator_pk.into(),
+                    })
+                }
+                GetMessageRequestExchangeKind::Nonces => {
+                    ProtoGetMessageRequestBody::DepositNonce(DepositRequestKey {
+                        scope: scope.to_byte_array().to_vec(),
+                        operator: operator_pk.into(),
+                    })
+                }
+                GetMessageRequestExchangeKind::Signatures => {
+                    ProtoGetMessageRequestBody::DepositSigs(DepositRequestKey {
+                        scope: scope.to_byte_array().to_vec(),
+                        operator: operator_pk.into(),
+                    })
+                }
+            },
+        };
+
+        ProtoGetMessageRequest { body: Some(body) }
+    }
+
+    pub fn operator_pubkey(&self) -> &OperatorPubKey {
+        match self {
+            Self::Genesis { operator_pk } | Self::ExchangeSession { operator_pk, .. } => {
+                operator_pk
+            }
+        }
+    }
 }
 
 /// New deposit request appeared, and operators
