@@ -7,3 +7,4 @@ edition = "2021"
 hex.workspace = true
 libp2p-identity.workspace = true
 serde.workspace = true
+bitcoin.workspace = true
