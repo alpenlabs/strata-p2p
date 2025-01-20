@@ -20,7 +20,13 @@ pub enum RepositoryError {
     #[error("Storage error: {0}")]
     Storage(#[from] Box<dyn std::error::Error>),
     #[error("Invalid data error: {0}")]
-    InvalidData(#[from] serde_json::Error),
+    InvalidData(Box<dyn std::error::Error>),
+}
+
+impl From<serde_json::Error> for RepositoryError {
+    fn from(err: serde_json::Error) -> Self {
+        Self::InvalidData(Box::new(err))
+    }
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
