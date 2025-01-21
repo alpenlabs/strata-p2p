@@ -7,7 +7,7 @@ use strata_p2p_types::OperatorPubKey;
 use threadpool::ThreadPool;
 use tokio_util::sync::CancellationToken;
 
-pub(crate) struct Operator {
+pub struct Operator {
     pub p2p: P2P<(), AsyncDB>,
     pub handle: P2PHandle<()>,
     pub kp: SecpKeypair,
