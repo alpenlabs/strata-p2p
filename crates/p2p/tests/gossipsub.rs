@@ -22,7 +22,7 @@ use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use tracing::info;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
-pub(crate) mod common;
+mod common;
 
 /// Auxiliary structure to control operators from outside.
 struct OperatorLever {
