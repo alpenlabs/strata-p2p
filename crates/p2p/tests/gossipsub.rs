@@ -25,7 +25,7 @@ use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 mod common;
 
 /// Auxiliary structure to control operators from outside.
-struct OperatorLever {
+struct OperatorHandle {
     handle: P2PHandle<()>,
     peer_id: PeerId,
     kp: SecpKeypair,
@@ -34,7 +34,7 @@ struct OperatorLever {
 
 struct Setup {
     cancel: CancellationToken,
-    operators: Vec<OperatorLever>,
+    operators: Vec<OperatorHandle>,
     tasks: TaskTracker,
 }
 
@@ -100,7 +100,7 @@ impl Setup {
 
     /// Wait until all operators established connections with other operators,
     /// and then spawn [`P2P::listen`]s in separate tasks using [`TaskTracker`].
-    async fn start_operators(mut operators: Vec<Operator>) -> (Vec<OperatorLever>, TaskTracker) {
+    async fn start_operators(mut operators: Vec<Operator>) -> (Vec<OperatorHandle>, TaskTracker) {
         // wait until all of them established connections and subscriptions
         join_all(
             operators
@@ -116,7 +116,7 @@ impl Setup {
             let peer_id = operator.p2p.local_peer_id();
             tasks.spawn(operator.p2p.listen());
 
-            levers.push(OperatorLever {
+            levers.push(OperatorHandle {
                 handle: operator.handle,
                 peer_id,
                 kp: operator.kp,
@@ -265,7 +265,7 @@ async fn test_all_to_all_multiple_scopes() -> anyhow::Result<()> {
 }
 
 async fn exchange_genesis_info(
-    operators: &mut [OperatorLever],
+    operators: &mut [OperatorHandle],
     operators_num: usize,
 ) -> anyhow::Result<()> {
     for operator in operators.iter() {
@@ -297,7 +297,7 @@ async fn exchange_genesis_info(
 }
 
 async fn exchange_deposit_setup(
-    operators: &mut [OperatorLever],
+    operators: &mut [OperatorHandle],
     operators_num: usize,
     scope_hash: sha256::Hash,
 ) -> anyhow::Result<()> {
@@ -331,7 +331,7 @@ async fn exchange_deposit_setup(
 }
 
 async fn exchange_deposit_nonces(
-    operators: &mut [OperatorLever],
+    operators: &mut [OperatorHandle],
     operators_num: usize,
     scope_hash: sha256::Hash,
 ) -> anyhow::Result<()> {
@@ -365,7 +365,7 @@ async fn exchange_deposit_nonces(
 }
 
 async fn exchange_deposit_sigs(
-    operators: &mut [OperatorLever],
+    operators: &mut [OperatorHandle],
     operators_num: usize,
     scope_hash: sha256::Hash,
 ) -> anyhow::Result<()> {
