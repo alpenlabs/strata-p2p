@@ -15,24 +15,33 @@ use strata_p2p::{
     events::Event,
     swarm::handle::P2PHandle,
 };
+use strata_p2p_db::{sled::AsyncDB, GenesisInfoEntry, RepositoryExt};
 use strata_p2p_types::OperatorPubKey;
 use strata_p2p_wire::p2p::v1::{GetMessageRequest, GossipsubMsgDepositKind, GossipsubMsgKind};
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use tracing::info;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
-mod common;
+pub(crate) mod common;
+
+/// Auxiliary structure to control operators from outside.
+struct OperatorLever {
+    handle: P2PHandle<()>,
+    peer_id: PeerId,
+    kp: SecpKeypair,
+    db: AsyncDB, // We include DB here to manipulate internal data and flow mechanics.
+}
 
 struct Setup {
     cancel: CancellationToken,
-    operators: Vec<(P2PHandle<()>, PeerId, SecpKeypair)>,
+    operators: Vec<OperatorLever>,
     tasks: TaskTracker,
 }
 
 impl Setup {
     /// Spawn N operators that are connected "all-to-all" with handles to them, task tracker
     /// to stop control async tasks they are spawned in.
-    pub async fn all_to_all(number: usize, mocked: usize) -> anyhow::Result<Self> {
+    pub async fn all_to_all(number: usize) -> anyhow::Result<Self> {
         let (keypairs, peer_ids, multiaddresses) =
             Self::setup_keys_ids_addrs_of_n_operators(number);
 
@@ -50,38 +59,24 @@ impl Setup {
             let mut other_peerids = peer_ids.clone();
             other_peerids.remove(idx);
 
-            if idx < number - mocked {
-                let operator = Operator::new(
-                    keypair.clone(),
-                    other_peerids,
-                    other_addrs,
-                    addr.clone(),
-                    cancel.child_token(),
-                    signers_allowlist.clone(),
-                )?;
+            let operator = Operator::new(
+                keypair.clone(),
+                other_peerids,
+                other_addrs,
+                addr.clone(),
+                cancel.child_token(),
+                signers_allowlist.clone(),
+            )?;
 
-                operators.push(operator);
-            } else {
-                let operator = Operator::new_with_genesis_info_entry_in_db(
-                    keypair.clone(),
-                    other_peerids,
-                    other_addrs,
-                    addr.clone(),
-                    cancel.child_token(),
-                    signers_allowlist.clone(),
-                )
-                .await?;
-
-                operators.push(operator);
-            }
+            operators.push(operator);
         }
 
-        let (handles, tasks) = Self::start_operators(operators).await;
+        let (operators, tasks) = Self::start_operators(operators).await;
 
         Ok(Self {
             cancel,
             tasks,
-            operators: handles,
+            operators,
         })
     }
 
@@ -105,10 +100,8 @@ impl Setup {
 
     /// Wait until all operators established connections with other operators,
     /// and then spawn [`P2P::listen`]s in separate tasks using [`TaskTracker`].
-    async fn start_operators(
-        mut operators: Vec<Operator>,
-    ) -> (Vec<(P2PHandle<()>, PeerId, SecpKeypair)>, TaskTracker) {
-        // wait until all of of them established connections and subscriptions
+    async fn start_operators(mut operators: Vec<Operator>) -> (Vec<OperatorLever>, TaskTracker) {
+        // wait until all of them established connections and subscriptions
         join_all(
             operators
                 .iter_mut()
@@ -117,15 +110,22 @@ impl Setup {
         )
         .await;
 
-        let mut handles = Vec::new();
+        let mut levers = Vec::new();
         let tasks = TaskTracker::new();
         for operator in operators {
             let peer_id = operator.p2p.local_peer_id();
             tasks.spawn(operator.p2p.listen());
-            handles.push((operator.handle, peer_id, operator.kp));
+
+            levers.push(OperatorLever {
+                handle: operator.handle,
+                peer_id,
+                kp: operator.kp,
+                db: operator.db,
+            });
         }
+
         tasks.close();
-        (handles, tasks)
+        (levers, tasks)
     }
 }
 
@@ -142,7 +142,7 @@ async fn test_all_to_all_one_scope() -> anyhow::Result<()> {
         mut operators,
         cancel,
         tasks,
-    } = Setup::all_to_all(OPERATORS_NUM, 0).await?;
+    } = Setup::all_to_all(OPERATORS_NUM).await?;
 
     let scope_hash = sha256::Hash::hash(b"scope");
 
@@ -171,20 +171,43 @@ async fn test_request_response() -> anyhow::Result<()> {
         mut operators,
         cancel,
         tasks,
-    } = Setup::all_to_all(OPERATORS_NUM, 1).await?;
+    } = Setup::all_to_all(OPERATORS_NUM).await?;
 
     // last operator won't send his info to others
     exchange_genesis_info(&mut operators[..OPERATORS_NUM - 1], OPERATORS_NUM - 1).await?;
 
     // create command to request info from the last operator
-    let operator_pk: OperatorPubKey = operators.last().unwrap().2.public().clone().into();
-    let command: Command<()> = Command::RequestMessage(GetMessageRequest::Genesis {
+    let operator_pk: OperatorPubKey = operators[OPERATORS_NUM - 1].kp.public().clone().into();
+    let command = Command::<()>::RequestMessage(GetMessageRequest::Genesis {
         operator_pk: operator_pk.clone(),
     });
 
-    operators[0].0.send_command(command).await;
+    // put data in the last operator, so that he can respond it
+    match mock_genesis_info(&operators[OPERATORS_NUM - 1].kp.clone()) {
+        Command::PublishMessage(msg) => match msg.msg {
+            UnsignedPublishMessage::GenesisInfo {
+                pre_stake_outpoint,
+                checkpoint_pubkeys,
+            } => {
+                let entry = GenesisInfoEntry {
+                    entry: (pre_stake_outpoint, checkpoint_pubkeys),
+                    signature: msg.signature,
+                    key: msg.key,
+                };
+                <AsyncDB as RepositoryExt<()>>::set_genesis_info_if_not_exists::<'_, '_>(
+                    &operators[OPERATORS_NUM - 1].db,
+                    entry,
+                )
+                .await?;
+            }
+            _ => unreachable!(),
+        },
+        _ => unreachable!(),
+    }
 
-    let event = operators[0].0.next_event().await?;
+    operators[0].handle.send_command(command).await;
+
+    let event = operators[0].handle.next_event().await?;
 
     match event {
         Event::ReceivedMessage(msg)
@@ -216,7 +239,7 @@ async fn test_all_to_all_multiple_scopes() -> anyhow::Result<()> {
         mut operators,
         cancel,
         tasks,
-    } = Setup::all_to_all(OPERATORS_NUM, 0).await?;
+    } = Setup::all_to_all(OPERATORS_NUM).await?;
 
     exchange_genesis_info(&mut operators, OPERATORS_NUM).await?;
 
@@ -242,47 +265,51 @@ async fn test_all_to_all_multiple_scopes() -> anyhow::Result<()> {
 }
 
 async fn exchange_genesis_info(
-    operators: &mut [(P2PHandle<()>, PeerId, SecpKeypair)],
+    operators: &mut [OperatorLever],
     operators_num: usize,
 ) -> anyhow::Result<()> {
-    for (operator, _, kp) in operators.iter() {
-        operator.send_command(mock_genesis_info(kp)).await;
+    for operator in operators.iter() {
+        operator
+            .handle
+            .send_command(mock_genesis_info(&operator.kp))
+            .await;
     }
-    for (operator, peer_id, _) in operators.iter_mut() {
+    for operator in operators.iter_mut() {
         // received genesis info from other n-1 operators
         for _ in 0..operators_num - 1 {
-            let event = operator.next_event().await?;
+            let event = operator.handle.next_event().await?;
 
             match event {
                 Event::ReceivedMessage(msg)
                     if matches!(msg.kind, GossipsubMsgKind::GenesisInfo(_)) =>
                 {
-                    info!(to=%peer_id, "Got genesis info")
+                    info!(to=%operator.peer_id, "Got genesis info")
                 }
 
                 _ => bail!("Got event other than 'genesis_info' - {:?}", event),
             }
         }
 
-        assert!(operator.events_is_empty());
+        assert!(operator.handle.events_is_empty());
     }
 
     Ok(())
 }
 
 async fn exchange_deposit_setup(
-    operators: &mut [(P2PHandle<()>, PeerId, SecpKeypair)],
+    operators: &mut [OperatorLever],
     operators_num: usize,
     scope_hash: sha256::Hash,
 ) -> anyhow::Result<()> {
-    for (operator, _, kp) in operators.iter() {
+    for operator in operators.iter() {
         operator
-            .send_command(mock_deposit_setup(kp, scope_hash))
+            .handle
+            .send_command(mock_deposit_setup(&operator.kp, scope_hash))
             .await;
     }
-    for (operator, peer_id, _) in operators.iter_mut() {
+    for operator in operators.iter_mut() {
         for _ in 0..operators_num - 1 {
-            let event = operator.next_event().await?;
+            let event = operator.handle.next_event().await?;
             match event {
                 Event::ReceivedMessage(msg)
                     if matches!(
@@ -293,29 +320,30 @@ async fn exchange_deposit_setup(
                         },
                     ) =>
                 {
-                    info!(to=%peer_id, "Got deposit setup")
+                    info!(to=%operator.peer_id, "Got deposit setup")
                 }
                 _ => bail!("Got event other than 'deposit_setup' - {:?}", event),
             }
         }
-        assert!(operator.events_is_empty());
+        assert!(operator.handle.events_is_empty());
     }
     Ok(())
 }
 
 async fn exchange_deposit_nonces(
-    operators: &mut [(P2PHandle<()>, PeerId, SecpKeypair)],
+    operators: &mut [OperatorLever],
     operators_num: usize,
     scope_hash: sha256::Hash,
 ) -> anyhow::Result<()> {
-    for (operator, _, kp) in operators.iter() {
+    for operator in operators.iter() {
         operator
-            .send_command(mock_deposit_nonces(kp, scope_hash))
+            .handle
+            .send_command(mock_deposit_nonces(&operator.kp, scope_hash))
             .await;
     }
-    for (operator, peer_id, _) in operators.iter_mut() {
+    for operator in operators.iter_mut() {
         for _ in 0..operators_num - 1 {
-            let event = operator.next_event().await?;
+            let event = operator.handle.next_event().await?;
             match event {
                 Event::ReceivedMessage(msg)
                     if matches!(
@@ -326,30 +354,31 @@ async fn exchange_deposit_nonces(
                         },
                     ) =>
                 {
-                    info!(to=%peer_id, "Got deposit nonces")
+                    info!(to=%operator.peer_id, "Got deposit nonces")
                 }
                 _ => bail!("Got event other than 'deposit_nonces' - {:?}", event),
             }
         }
-        assert!(operator.events_is_empty());
+        assert!(operator.handle.events_is_empty());
     }
     Ok(())
 }
 
 async fn exchange_deposit_sigs(
-    operators: &mut [(P2PHandle<()>, PeerId, SecpKeypair)],
+    operators: &mut [OperatorLever],
     operators_num: usize,
     scope_hash: sha256::Hash,
 ) -> anyhow::Result<()> {
-    for (operator, _, kp) in operators.iter() {
+    for operator in operators.iter() {
         operator
-            .send_command(mock_deposit_sigs(kp, scope_hash))
+            .handle
+            .send_command(mock_deposit_sigs(&operator.kp, scope_hash))
             .await;
     }
 
-    for (operator, peer_id, _) in operators.iter_mut() {
+    for operator in operators.iter_mut() {
         for _ in 0..operators_num - 1 {
-            let event = operator.next_event().await?;
+            let event = operator.handle.next_event().await?;
             match event {
                 Event::ReceivedMessage(msg)
                     if matches!(
@@ -360,12 +389,12 @@ async fn exchange_deposit_sigs(
                         },
                     ) =>
                 {
-                    info!(to=%peer_id, "Got deposit sigs")
+                    info!(to=%operator.peer_id, "Got deposit sigs")
                 }
                 _ => bail!("Got event other than 'deposit_sigs' - {:?}", event),
             }
         }
-        assert!(operator.events_is_empty());
+        assert!(operator.handle.events_is_empty());
     }
 
     Ok(())

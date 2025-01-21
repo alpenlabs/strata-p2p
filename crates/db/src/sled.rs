@@ -8,6 +8,7 @@ use tracing::warn;
 
 use super::{DBResult, Repository, RepositoryError};
 
+#[derive(Clone)]
 pub struct AsyncDB {
     pool: ThreadPool,
     db: Arc<Db>,
