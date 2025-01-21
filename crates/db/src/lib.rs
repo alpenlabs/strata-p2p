@@ -1,9 +1,9 @@
 use async_trait::async_trait;
-use bitcoin::{hashes::sha256, OutPoint, XOnlyPublicKey};
+use bitcoin::{OutPoint, XOnlyPublicKey};
 use libp2p_identity::PeerId;
 use musig2::{PartialSignature, PubNonce};
 use serde::{de::DeserializeOwned, Serialize};
-use strata_p2p_types::OperatorPubKey;
+use strata_p2p_types::{OperatorPubKey, Scope, SessionId};
 use thiserror::Error;
 
 mod prost_serde;
@@ -97,43 +97,43 @@ where
     async fn get_partial_signatures(
         &self,
         operator_pk: &OperatorPubKey,
-        scope: sha256::Hash,
+        session_id: SessionId,
     ) -> DBResult<Option<PartialSignaturesEntry>> {
-        let key = format!("sigs-{operator_pk}_{scope}");
+        let key = format!("sigs-{operator_pk}_{session_id}");
         self.get(key).await
     }
 
     async fn set_partial_signatures_if_not_exists(
         &self,
-        scope: sha256::Hash,
+        session_id: SessionId,
         entry: PartialSignaturesEntry,
     ) -> DBResult<bool> {
-        let key = format!("sigs-{}_{scope}", entry.key);
+        let key = format!("sigs-{}_{session_id}", entry.key);
         self.set_if_not_exists(key, entry).await
     }
 
     async fn get_pub_nonces(
         &self,
         operator_pk: &OperatorPubKey,
-        scope: sha256::Hash,
+        session_id: SessionId,
     ) -> DBResult<Option<NoncesEntry>> {
-        let key = format!("nonces-{operator_pk}_{scope}");
+        let key = format!("nonces-{operator_pk}_{session_id}");
         self.get(key).await
     }
 
     async fn set_pub_nonces_if_not_exist(
         &self,
-        scope: sha256::Hash,
+        session_id: SessionId,
         entry: NoncesEntry,
     ) -> DBResult<bool> {
-        let key = format!("nonces-{}_{scope}", entry.key);
+        let key = format!("nonces-{}_{session_id}", entry.key);
         self.set_if_not_exists(key, entry).await
     }
 
     async fn get_deposit_setup(
         &self,
         operator_pk: &OperatorPubKey,
-        scope: sha256::Hash,
+        scope: Scope,
     ) -> DBResult<Option<DepositSetupEntry<DepositSetupPayload>>> {
         let key = format!("setup-{operator_pk}_{scope}");
         self.get(key).await
@@ -141,7 +141,7 @@ where
 
     async fn set_deposit_setup_if_not_exists(
         &self,
-        scope: sha256::Hash,
+        scope: Scope,
         setup: DepositSetupEntry<DepositSetupPayload>,
     ) -> DBResult<bool> {
         let key = format!("setup-{}_{scope}", setup.key);

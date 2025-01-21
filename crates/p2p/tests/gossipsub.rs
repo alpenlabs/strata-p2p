@@ -1,8 +1,5 @@
 use anyhow::bail;
-use bitcoin::{
-    hashes::{sha256, Hash},
-    OutPoint,
-};
+use bitcoin::OutPoint;
 use common::Operator;
 use futures::future::join_all;
 use libp2p::{
@@ -16,8 +13,8 @@ use strata_p2p::{
     swarm::handle::P2PHandle,
 };
 use strata_p2p_db::{sled::AsyncDB, GenesisInfoEntry, RepositoryExt};
-use strata_p2p_types::OperatorPubKey;
-use strata_p2p_wire::p2p::v1::{GetMessageRequest, GossipsubMsgDepositKind, GossipsubMsgKind};
+use strata_p2p_types::{OperatorPubKey, Scope, SessionId};
+use strata_p2p_wire::p2p::v1::{GetMessageRequest, GossipsubMsg, UnsignedGossipsubMsg};
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use tracing::info;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
@@ -144,12 +141,13 @@ async fn test_all_to_all_one_scope() -> anyhow::Result<()> {
         tasks,
     } = Setup::all_to_all(OPERATORS_NUM).await?;
 
-    let scope_hash = sha256::Hash::hash(b"scope");
+    let scope = Scope::hash(b"scope");
+    let session_id = SessionId::hash(b"session_id");
 
     exchange_genesis_info(&mut operators, OPERATORS_NUM).await?;
-    exchange_deposit_setup(&mut operators, OPERATORS_NUM, scope_hash).await?;
-    exchange_deposit_nonces(&mut operators, OPERATORS_NUM, scope_hash).await?;
-    exchange_deposit_sigs(&mut operators, OPERATORS_NUM, scope_hash).await?;
+    exchange_deposit_setup(&mut operators, OPERATORS_NUM, scope).await?;
+    exchange_deposit_nonces(&mut operators, OPERATORS_NUM, session_id).await?;
+    exchange_deposit_sigs(&mut operators, OPERATORS_NUM, session_id).await?;
 
     cancel.cancel();
 
@@ -211,7 +209,8 @@ async fn test_request_response() -> anyhow::Result<()> {
 
     match event {
         Event::ReceivedMessage(msg)
-            if matches!(msg.kind, GossipsubMsgKind::GenesisInfo(_)) && msg.key == operator_pk =>
+            if matches!(msg.unsigned, UnsignedGossipsubMsg::GenesisInfo(_))
+                && msg.key == operator_pk =>
         {
             info!("Got genesis info from the last operator")
         }
@@ -244,17 +243,21 @@ async fn test_all_to_all_multiple_scopes() -> anyhow::Result<()> {
     exchange_genesis_info(&mut operators, OPERATORS_NUM).await?;
 
     let scopes = (0..10)
-        .map(|i| sha256::Hash::hash(format!("scope{}", i).as_bytes()))
+        .map(|i| Scope::hash(format!("scope{}", i).as_bytes()))
+        .collect::<Vec<_>>();
+
+    let session_ids = (0..10)
+        .map(|i| SessionId::hash(format!("session{}", i).as_bytes()))
         .collect::<Vec<_>>();
 
     for scope in &scopes {
         exchange_deposit_setup(&mut operators, OPERATORS_NUM, *scope).await?;
     }
-    for scope in &scopes {
-        exchange_deposit_nonces(&mut operators, OPERATORS_NUM, *scope).await?;
+    for session_id in &session_ids {
+        exchange_deposit_nonces(&mut operators, OPERATORS_NUM, *session_id).await?;
     }
-    for scope in &scopes {
-        exchange_deposit_sigs(&mut operators, OPERATORS_NUM, *scope).await?;
+    for session_id in &session_ids {
+        exchange_deposit_sigs(&mut operators, OPERATORS_NUM, *session_id).await?;
     }
 
     cancel.cancel();
@@ -279,14 +282,14 @@ async fn exchange_genesis_info(
         for _ in 0..operators_num - 1 {
             let event = operator.handle.next_event().await?;
 
-            match event {
-                Event::ReceivedMessage(msg)
-                    if matches!(msg.kind, GossipsubMsgKind::GenesisInfo(_)) =>
-                {
-                    info!(to=%operator.peer_id, "Got genesis info")
-                }
-
-                _ => bail!("Got event other than 'genesis_info' - {:?}", event),
+            if !matches!(
+                event,
+                Event::ReceivedMessage(GossipsubMsg {
+                    unsigned: UnsignedGossipsubMsg::GenesisInfo(_),
+                    ..
+                })
+            ) {
+                bail!("Got event other than 'genesis_info' - {:?}", event);
             }
         }
 
@@ -299,31 +302,27 @@ async fn exchange_genesis_info(
 async fn exchange_deposit_setup(
     operators: &mut [OperatorHandle],
     operators_num: usize,
-    scope_hash: sha256::Hash,
+    scope: Scope,
 ) -> anyhow::Result<()> {
     for operator in operators.iter() {
         operator
             .handle
-            .send_command(mock_deposit_setup(&operator.kp, scope_hash))
+            .send_command(mock_deposit_setup(&operator.kp, scope))
             .await;
     }
     for operator in operators.iter_mut() {
         for _ in 0..operators_num - 1 {
-            let event = operator.handle.next_event().await?;
-            match event {
-                Event::ReceivedMessage(msg)
-                    if matches!(
-                        msg.kind,
-                        GossipsubMsgKind::Deposit {
-                            kind: GossipsubMsgDepositKind::Setup(_),
-                            ..
-                        },
-                    ) =>
-                {
-                    info!(to=%operator.peer_id, "Got deposit setup")
-                }
-                _ => bail!("Got event other than 'deposit_setup' - {:?}", event),
+            let event = operator.handle.next_event().await.unwrap();
+            if !matches!(
+                event,
+                Event::ReceivedMessage(GossipsubMsg {
+                    unsigned: UnsignedGossipsubMsg::DepositSetup { .. },
+                    ..
+                })
+            ) {
+                bail!("Got event other than 'deposit_setup' - {:?}", event);
             }
+            info!(to=%operator.peer_id, "Got deposit setup");
         }
         assert!(operator.handle.events_is_empty());
     }
@@ -333,31 +332,27 @@ async fn exchange_deposit_setup(
 async fn exchange_deposit_nonces(
     operators: &mut [OperatorHandle],
     operators_num: usize,
-    scope_hash: sha256::Hash,
+    session_id: SessionId,
 ) -> anyhow::Result<()> {
     for operator in operators.iter() {
         operator
             .handle
-            .send_command(mock_deposit_nonces(&operator.kp, scope_hash))
+            .send_command(mock_deposit_nonces(&operator.kp, session_id))
             .await;
     }
     for operator in operators.iter_mut() {
         for _ in 0..operators_num - 1 {
-            let event = operator.handle.next_event().await?;
-            match event {
-                Event::ReceivedMessage(msg)
-                    if matches!(
-                        msg.kind,
-                        GossipsubMsgKind::Deposit {
-                            kind: GossipsubMsgDepositKind::Nonces(_),
-                            ..
-                        },
-                    ) =>
-                {
-                    info!(to=%operator.peer_id, "Got deposit nonces")
-                }
-                _ => bail!("Got event other than 'deposit_nonces' - {:?}", event),
+            let event = operator.handle.next_event().await.unwrap();
+            if !matches!(
+                event,
+                Event::ReceivedMessage(GossipsubMsg {
+                    unsigned: UnsignedGossipsubMsg::Musig2NoncesExchange { .. },
+                    ..
+                })
+            ) {
+                bail!("Got event other than 'deposit_nonces' - {:?}", event);
             }
+            info!(to=%operator.peer_id, "Got deposit setup");
         }
         assert!(operator.handle.events_is_empty());
     }
@@ -367,32 +362,28 @@ async fn exchange_deposit_nonces(
 async fn exchange_deposit_sigs(
     operators: &mut [OperatorHandle],
     operators_num: usize,
-    scope_hash: sha256::Hash,
+    session_id: SessionId,
 ) -> anyhow::Result<()> {
     for operator in operators.iter() {
         operator
             .handle
-            .send_command(mock_deposit_sigs(&operator.kp, scope_hash))
+            .send_command(mock_deposit_sigs(&operator.kp, session_id))
             .await;
     }
 
     for operator in operators.iter_mut() {
         for _ in 0..operators_num - 1 {
-            let event = operator.handle.next_event().await?;
-            match event {
-                Event::ReceivedMessage(msg)
-                    if matches!(
-                        msg.kind,
-                        GossipsubMsgKind::Deposit {
-                            kind: GossipsubMsgDepositKind::Sigs(_),
-                            ..
-                        },
-                    ) =>
-                {
-                    info!(to=%operator.peer_id, "Got deposit sigs")
-                }
-                _ => bail!("Got event other than 'deposit_sigs' - {:?}", event),
+            let event = operator.handle.next_event().await.unwrap();
+            if !matches!(
+                event,
+                Event::ReceivedMessage(GossipsubMsg {
+                    unsigned: UnsignedGossipsubMsg::Musig2SignaturesExchange { .. },
+                    ..
+                })
+            ) {
+                bail!("Got event other than 'deposit_sigs' - {:?}", event);
             }
+            info!(to=%operator.peer_id, "Got deposit sigs");
         }
         assert!(operator.handle.events_is_empty());
     }
@@ -408,25 +399,22 @@ fn mock_genesis_info(kp: &SecpKeypair) -> Command<()> {
     kind.sign_secp256k1(kp).into()
 }
 
-fn mock_deposit_setup(kp: &SecpKeypair, scope_hash: sha256::Hash) -> Command<()> {
-    let unsigned = UnsignedPublishMessage::DepositSetup {
-        scope: scope_hash,
-        payload: (),
-    };
+fn mock_deposit_setup(kp: &SecpKeypair, scope: Scope) -> Command<()> {
+    let unsigned = UnsignedPublishMessage::DepositSetup { scope, payload: () };
     unsigned.sign_secp256k1(kp).into()
 }
 
-fn mock_deposit_nonces(kp: &SecpKeypair, scope_hash: sha256::Hash) -> Command<()> {
-    let unsigned = UnsignedPublishMessage::DepositNonces {
-        scope: scope_hash,
+fn mock_deposit_nonces(kp: &SecpKeypair, session_id: SessionId) -> Command<()> {
+    let unsigned = UnsignedPublishMessage::Musig2NoncesExchange {
+        session_id,
         pub_nonces: vec![],
     };
     unsigned.sign_secp256k1(kp).into()
 }
 
-fn mock_deposit_sigs(kp: &SecpKeypair, scope_hash: sha256::Hash) -> Command<()> {
-    let unsigned = UnsignedPublishMessage::PartialSignatures {
-        scope: scope_hash,
+fn mock_deposit_sigs(kp: &SecpKeypair, session_id: SessionId) -> Command<()> {
+    let unsigned = UnsignedPublishMessage::Musig2SignaturesExchange {
+        session_id,
         partial_sigs: vec![],
     };
     unsigned.sign_secp256k1(kp).into()

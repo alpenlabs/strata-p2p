@@ -5,19 +5,29 @@ package strata.bitvm2.p2p.v1;
 import "strata/bitvm2/p2p/v1/gossipsub.proto";
 
 message DepositRequestKey {
+  // 32-byte hash
   bytes scope = 1;
+  // Public key of target operator.
+  bytes operator = 2;
+}
+
+message Musig2ExchangeRequestKey {
+  // 32-byte hash
+  bytes session_id = 1;
+  // Public key of target operator.
   bytes operator = 2;
 }
 
 message GenesisRequestKey {
+  // Public key of target operator.
   bytes operator = 1;
 }
 
 message GetMessageRequest {
   oneof body {
     DepositRequestKey deposit_setup = 1;
-    DepositRequestKey deposit_nonce = 2;
-    DepositRequestKey deposit_sigs = 3;
+    Musig2ExchangeRequestKey nonces = 2;
+    Musig2ExchangeRequestKey sigs = 3;
     GenesisRequestKey genesis_info = 4;
   }
 }

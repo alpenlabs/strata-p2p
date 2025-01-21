@@ -24,7 +24,7 @@ use strata_p2p_wire::p2p::{
     v1::{
         proto,
         proto::{gossipsub_msg::Body, GetMessageRequest, GetMessageResponse},
-        GetMessageRequestExchangeKind, GossipsubMsg, GossipsubMsgDepositKind, GossipsubMsgKind,
+        GossipsubMsg,
     },
 };
 use thiserror::Error;
@@ -358,8 +358,8 @@ where
     ///
     /// Returns if the data was already presented or not.
     async fn add_msg_if_not_exists(&mut self, msg: &GossipsubMsg<DSP>) -> DBResult<bool> {
-        match &msg.kind {
-            GossipsubMsgKind::GenesisInfo(info) => {
+        match &msg.unsigned {
+            v1::UnsignedGossipsubMsg::GenesisInfo(info) => {
                 self.db
                     .set_genesis_info_if_not_exists(GenesisInfoEntry {
                         entry: (info.pre_stake_outpoint, info.checkpoint_pubkeys.clone()),
@@ -368,44 +368,45 @@ where
                     })
                     .await
             }
-            GossipsubMsgKind::Deposit { scope, kind } => match kind {
-                GossipsubMsgDepositKind::Setup(dep) => {
-                    self.db
-                        .set_deposit_setup_if_not_exists(
-                            *scope,
-                            DepositSetupEntry {
-                                payload: dep.payload.clone(),
-                                signature: msg.signature.clone(),
-                                key: msg.key.clone(),
-                            },
-                        )
-                        .await
-                }
-                GossipsubMsgDepositKind::Nonces(dep) => {
-                    self.db
-                        .set_pub_nonces_if_not_exist(
-                            *scope,
-                            NoncesEntry {
-                                entry: dep.nonces.clone(),
-                                signature: msg.signature.clone(),
-                                key: msg.key.clone(),
-                            },
-                        )
-                        .await
-                }
-                GossipsubMsgDepositKind::Sigs(dep) => {
-                    self.db
-                        .set_partial_signatures_if_not_exists(
-                            *scope,
-                            PartialSignaturesEntry {
-                                entry: dep.partial_sigs.clone(),
-                                signature: msg.signature.clone(),
-                                key: msg.key.clone(),
-                            },
-                        )
-                        .await
-                }
-            },
+            v1::UnsignedGossipsubMsg::DepositSetup { scope, setup } => {
+                self.db
+                    .set_deposit_setup_if_not_exists(
+                        *scope,
+                        DepositSetupEntry {
+                            payload: setup.payload.clone(),
+                            signature: msg.signature.clone(),
+                            key: msg.key.clone(),
+                        },
+                    )
+                    .await
+            }
+            v1::UnsignedGossipsubMsg::Musig2NoncesExchange { session_id, nonces } => {
+                self.db
+                    .set_pub_nonces_if_not_exist(
+                        *session_id,
+                        NoncesEntry {
+                            entry: nonces.clone(),
+                            signature: msg.signature.clone(),
+                            key: msg.key.clone(),
+                        },
+                    )
+                    .await
+            }
+            v1::UnsignedGossipsubMsg::Musig2SignaturesExchange {
+                session_id,
+                signatures,
+            } => {
+                self.db
+                    .set_partial_signatures_if_not_exists(
+                        *session_id,
+                        PartialSignaturesEntry {
+                            entry: signatures.clone(),
+                            signature: msg.signature.clone(),
+                            key: msg.key.clone(),
+                        },
+                    )
+                    .await
+            }
         }
     }
 
@@ -504,7 +505,7 @@ where
             } => {
                 let empty_response = GetMessageResponse { msg: vec![] };
 
-                let Some(req) = v1::GetMessageRequest::from_msg(request) else {
+                let Ok(req) = v1::GetMessageRequest::from_msg(request) else {
                     debug!(%peer_id, "Peer sent invalid get message request, disconnecting it");
                     let _ = self.swarm.disconnect_peer_id(peer_id);
                     let _ = self
@@ -597,48 +598,51 @@ where
                     key: v.key.into(),
                 })
             }
-            v1::GetMessageRequest::ExchangeSession {
-                scope,
+            v1::GetMessageRequest::DepositSetup { scope, operator_pk } => {
+                let setup = self.db.get_deposit_setup(&operator_pk, scope).await?;
+
+                setup.map(|v| proto::GossipsubMsg {
+                    body: Some(Body::Setup(proto::DepositSetupExchange {
+                        scope: scope.to_vec(),
+                        payload: v.payload.encode_to_vec(),
+                    })),
+                    signature: v.signature,
+                    key: v.key.into(),
+                })
+            }
+            v1::GetMessageRequest::Musig2SignaturesExchange {
+                session_id,
                 operator_pk,
-                kind,
-            } => match kind {
-                GetMessageRequestExchangeKind::Setup => {
-                    let setup = self.db.get_deposit_setup(&operator_pk, scope).await?;
+            } => {
+                let nonces = self.db.get_pub_nonces(&operator_pk, session_id).await?;
 
-                    setup.map(|v| proto::GossipsubMsg {
-                        body: Some(Body::Setup(proto::DepositSetupExchange {
-                            scope: scope.to_byte_array().to_vec(),
-                            payload: v.payload.encode_to_vec(),
-                        })),
-                        signature: v.signature,
-                        key: v.key.into(),
-                    })
-                }
-                GetMessageRequestExchangeKind::Nonces => {
-                    let nonces = self.db.get_pub_nonces(&operator_pk, scope).await?;
+                nonces.map(|v| proto::GossipsubMsg {
+                    body: Some(Body::Nonce(proto::Musig2NoncesExchange {
+                        session_id: session_id.to_vec(),
+                        pub_nonces: v.entry.iter().map(|n| n.serialize().to_vec()).collect(),
+                    })),
+                    signature: v.signature,
+                    key: v.key.into(),
+                })
+            }
+            v1::GetMessageRequest::Musig2NoncesExchange {
+                session_id,
+                operator_pk,
+            } => {
+                let sigs = self
+                    .db
+                    .get_partial_signatures(&operator_pk, session_id)
+                    .await?;
 
-                    nonces.map(|v| proto::GossipsubMsg {
-                        body: Some(Body::Nonce(proto::DepositNoncesExchange {
-                            scope: scope.to_byte_array().to_vec(),
-                            pub_nonces: v.entry.iter().map(|n| n.serialize().to_vec()).collect(),
-                        })),
-                        signature: v.signature,
-                        key: v.key.into(),
-                    })
-                }
-                GetMessageRequestExchangeKind::Signatures => {
-                    let sigs = self.db.get_partial_signatures(&operator_pk, scope).await?;
-
-                    sigs.map(|v| proto::GossipsubMsg {
-                        body: Some(Body::Sigs(proto::DepositSignaturesExchange {
-                            scope: scope.to_byte_array().to_vec(),
-                            partial_sigs: v.entry.iter().map(|n| n.serialize().to_vec()).collect(),
-                        })),
-                        signature: v.signature,
-                        key: v.key.into(),
-                    })
-                }
-            },
+                sigs.map(|v| proto::GossipsubMsg {
+                    body: Some(Body::Sigs(proto::Musig2SignaturesExchange {
+                        session_id: session_id.to_vec(),
+                        partial_sigs: v.entry.iter().map(|n| n.serialize().to_vec()).collect(),
+                    })),
+                    signature: v.signature,
+                    key: v.key.into(),
+                })
+            }
         };
 
         Ok(msg)

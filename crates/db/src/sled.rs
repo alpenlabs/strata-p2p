@@ -94,14 +94,11 @@ impl From<sled::Error> for RepositoryError {
 mod tests {
     use std::sync::Arc;
 
-    use bitcoin::{
-        hashes::{sha256, Hash},
-        OutPoint, XOnlyPublicKey,
-    };
+    use bitcoin::{OutPoint, XOnlyPublicKey};
     use musig2::{sign_partial, AggNonce, KeyAggContext, SecNonce};
     use rand::thread_rng;
     use secp256k1::{All, Keypair, Secp256k1};
-    use strata_p2p_types::OperatorPubKey;
+    use strata_p2p_types::{OperatorPubKey, SessionId};
 
     use crate::{
         sled::AsyncDB, GenesisInfoEntry, NoncesEntry, PartialSignaturesEntry, RepositoryExt,
@@ -128,7 +125,7 @@ mod tests {
             let pub_nonce = sec_nonce.public_nonce();
 
             let operator_pk = OperatorPubKey::from(vec![0x8; 32]);
-            let scope = sha256::Hash::all_zeros();
+            let session_id = SessionId::hash(b"session_id");
 
             let nonces_entry = NoncesEntry {
                 entry: vec![pub_nonce.clone()],
@@ -136,7 +133,7 @@ mod tests {
                 key: operator_pk.clone(),
             };
 
-            db.set_pub_nonces_if_not_exist(scope, nonces_entry)
+            db.set_pub_nonces_if_not_exist(session_id, nonces_entry)
                 .await
                 .unwrap();
 
@@ -152,12 +149,12 @@ mod tests {
                 key: operator_pk.clone(),
             };
 
-            db.set_partial_signatures_if_not_exists(scope, sigs_entry)
+            db.set_partial_signatures_if_not_exists(session_id, sigs_entry)
                 .await
                 .expect("Failed to set signature");
 
             let retrieved_signature = db
-                .get_partial_signatures(&operator_pk, scope)
+                .get_partial_signatures(&operator_pk, session_id)
                 .await
                 .unwrap()
                 .expect("Failed to retrieve signature");
@@ -182,7 +179,7 @@ mod tests {
             assert_eq!(got_keys, checkpoint_pubkeys);
 
             let retrieved_pub_nonces = db
-                .get_pub_nonces(&operator_pk, scope)
+                .get_pub_nonces(&operator_pk, session_id)
                 .await
                 .unwrap()
                 .unwrap();
