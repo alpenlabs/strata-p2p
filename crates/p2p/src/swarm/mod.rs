@@ -471,9 +471,25 @@ where
             error,
         } = event
         {
-            debug!(%peer, %error, %request_id, "Failed to send response");
+            debug!(%peer, %error, %request_id, "Inbound failure");
             return Ok(());
         }
+
+        if let RequestResponseEvent::OutboundFailure {
+            peer,
+            request_id,
+            error,
+        } = event
+        {
+            debug!(%peer, %error, %request_id, "Outbound failure");
+            return Ok(());
+        }
+
+        if let RequestResponseEvent::ResponseSent { peer, request_id } = event {
+            debug!(%peer, %request_id, "Response sent");
+            return Ok(());
+        }
+
         let RequestResponseEvent::Message { peer, message } = event else {
             return Ok(());
         };
@@ -484,14 +500,30 @@ where
                 request,
                 channel,
             } => {
+                let empty_response = GetMessageResponse { msg: vec![] };
+
                 let Some(req) = v1::GetMessageRequest::from_msg(request) else {
                     debug!(%peer, "Peer sent invalid get message request, disconnecting it");
                     let _ = self.swarm.disconnect_peer_id(peer);
+                    let _ = self
+                        .swarm
+                        .behaviour_mut()
+                        .request_response
+                        .send_response(channel, empty_response)
+                        .inspect_err(|_| debug!("Failed to send response"));
+
                     return Ok(());
                 };
 
                 let Some(msg) = self.handle_get_message_request(req).await? else {
                     debug!(%request_id, "Have no needed data");
+                    let _ = self
+                        .swarm
+                        .behaviour_mut()
+                        .request_response
+                        .send_response(channel, empty_response)
+                        .inspect_err(|_| debug!("Failed to send response"));
+
                     return Ok(());
                 };
 
@@ -611,9 +643,9 @@ where
     }
 
     async fn handle_get_message_response(&mut self, msg: GossipsubMsg<DSP>) -> P2PResult<()> {
-        let exists = self.add_msg_if_not_exists(&msg).await?;
+        let new_event = self.add_msg_if_not_exists(&msg).await?;
 
-        if !exists {
+        if new_event {
             let event = Event::from(msg);
 
             self.events
