@@ -465,36 +465,38 @@ where
         &mut self,
         event: RequestResponseEvent<GetMessageRequest, GetMessageResponse>,
     ) -> P2PResult<()> {
-        if let RequestResponseEvent::InboundFailure {
-            peer,
-            request_id,
-            error,
-        } = event
-        {
-            debug!(%peer, %error, %request_id, "Inbound failure");
-            return Ok(());
+        match event {
+            RequestResponseEvent::Message { peer, message } => {
+                self.handle_message_event(peer, message).await?
+            }
+            RequestResponseEvent::OutboundFailure {
+                peer,
+                request_id,
+                error,
+            } => {
+                debug!(%peer, %error, %request_id, "Outbound failure")
+            }
+            RequestResponseEvent::InboundFailure {
+                peer,
+                request_id,
+                error,
+            } => {
+                debug!(%peer, %error, %request_id, "Inbound failure")
+            }
+            RequestResponseEvent::ResponseSent { peer, request_id } => {
+                debug!(%peer, %request_id, "Response sent")
+            }
         }
 
-        if let RequestResponseEvent::OutboundFailure {
-            peer,
-            request_id,
-            error,
-        } = event
-        {
-            debug!(%peer, %error, %request_id, "Outbound failure");
-            return Ok(());
-        }
+        Ok(())
+    }
 
-        if let RequestResponseEvent::ResponseSent { peer, request_id } = event {
-            debug!(%peer, %request_id, "Response sent");
-            return Ok(());
-        }
-
-        let RequestResponseEvent::Message { peer, message } = event else {
-            return Ok(());
-        };
-
-        match message {
+    async fn handle_message_event(
+        &mut self,
+        peer_id: PeerId,
+        msg: request_response::Message<GetMessageRequest, GetMessageResponse, GetMessageResponse>,
+    ) -> P2PResult<()> {
+        match msg {
             request_response::Message::Request {
                 request_id,
                 request,
@@ -503,8 +505,8 @@ where
                 let empty_response = GetMessageResponse { msg: vec![] };
 
                 let Some(req) = v1::GetMessageRequest::from_msg(request) else {
-                    debug!(%peer, "Peer sent invalid get message request, disconnecting it");
-                    let _ = self.swarm.disconnect_peer_id(peer);
+                    debug!(%peer_id, "Peer sent invalid get message request, disconnecting it");
+                    let _ = self.swarm.disconnect_peer_id(peer_id);
                     let _ = self
                         .swarm
                         .behaviour_mut()
@@ -555,12 +557,12 @@ where
                     let msg = match GossipsubMsg::from_proto(msg.clone()) {
                         Ok(msg) => msg,
                         Err(err) => {
-                            debug!(%peer, reason=%err, "Peer sent invalid message");
+                            debug!(%peer_id, reason=%err, "Peer sent invalid message");
                             continue;
                         }
                     };
                     if let Err(err) = self.validate_gossipsub_msg(&msg) {
-                        debug!(%peer, reason=%err, "Message failed validation");
+                        debug!(%peer_id, reason=%err, "Message failed validation");
                         continue;
                     }
 
