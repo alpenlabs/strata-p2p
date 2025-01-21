@@ -33,12 +33,9 @@ use tokio::{
     sync::{broadcast, mpsc},
 };
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, error, info, instrument, warn};
+use tracing::{debug, error, info, instrument};
 
-use crate::{
-    commands::Command,
-    events::{Event, EventKind},
-};
+use crate::{commands::Command, events::Event};
 
 mod behavior;
 mod codec;
@@ -330,7 +327,7 @@ where
         // them something, knowing signer's (operator's) node peer id.
         self.db.set_peer_for_signer_pubkey(&msg.key, source).await?;
 
-        let event = Event::new(source, EventKind::GossipsubMsg(msg));
+        let event = Event::from(msg);
 
         let _ = self
             .swarm
@@ -432,20 +429,32 @@ where
             }
             Command::RequestMessage(request) => {
                 let request_target_pubkey = request.operator_pubkey();
-                let distributor_peer_id = self
+
+                let maybe_distributor = self
                     .db
                     .get_peer_by_signer_pubkey(request_target_pubkey)
                     .await?;
 
-                let Some(distributor_peer_id) = distributor_peer_id else {
-                    warn!("Tried to sent request for operator that has no corresponding peer");
-                    return Ok(());
-                };
+                let request = request.into_msg();
 
-                self.swarm
-                    .behaviour_mut()
-                    .request_response
-                    .send_request(&distributor_peer_id, request.into_msg());
+                if let Some(distributor_peer_id) = maybe_distributor {
+                    if self.swarm.is_connected(&distributor_peer_id) {
+                        self.swarm
+                            .behaviour_mut()
+                            .request_response
+                            .send_request(&distributor_peer_id, request);
+                        return Ok(());
+                    } // TODO: try to establish connection?
+                }
+
+                let connected_peers = self.swarm.connected_peers().cloned().collect::<Vec<_>>();
+                for peer in connected_peers {
+                    self.swarm
+                        .behaviour_mut()
+                        .request_response
+                        .send_request(&peer, request.clone());
+                }
+
                 Ok(())
             }
         }
@@ -456,34 +465,68 @@ where
         &mut self,
         event: RequestResponseEvent<GetMessageRequest, GetMessageResponse>,
     ) -> P2PResult<()> {
-        if let RequestResponseEvent::InboundFailure {
-            peer,
-            request_id,
-            error,
-        } = event
-        {
-            debug!(%peer, %error, %request_id, "Failed to send response");
-            return Ok(());
+        match event {
+            RequestResponseEvent::Message { peer, message } => {
+                self.handle_message_event(peer, message).await?
+            }
+            RequestResponseEvent::OutboundFailure {
+                peer,
+                request_id,
+                error,
+            } => {
+                debug!(%peer, %error, %request_id, "Outbound failure")
+            }
+            RequestResponseEvent::InboundFailure {
+                peer,
+                request_id,
+                error,
+            } => {
+                debug!(%peer, %error, %request_id, "Inbound failure")
+            }
+            RequestResponseEvent::ResponseSent { peer, request_id } => {
+                debug!(%peer, %request_id, "Response sent")
+            }
         }
-        let RequestResponseEvent::Message { peer, message } = event else {
-            return Ok(());
-        };
 
-        match message {
+        Ok(())
+    }
+
+    async fn handle_message_event(
+        &mut self,
+        peer_id: PeerId,
+        msg: request_response::Message<GetMessageRequest, GetMessageResponse, GetMessageResponse>,
+    ) -> P2PResult<()> {
+        match msg {
             request_response::Message::Request {
                 request_id,
                 request,
                 channel,
             } => {
+                let empty_response = GetMessageResponse { msg: vec![] };
+
                 let Some(req) = v1::GetMessageRequest::from_msg(request) else {
-                    debug!(%peer, "Peer sent invalid get message request, disconnecting it");
-                    let _ = self.swarm.disconnect_peer_id(peer);
+                    debug!(%peer_id, "Peer sent invalid get message request, disconnecting it");
+                    let _ = self.swarm.disconnect_peer_id(peer_id);
+                    let _ = self
+                        .swarm
+                        .behaviour_mut()
+                        .request_response
+                        .send_response(channel, empty_response)
+                        .inspect_err(|_| debug!("Failed to send response"));
+
                     return Ok(());
                 };
 
                 let Some(msg) = self.handle_get_message_request(req).await? else {
-                    debug!(%request_id, "Have no needed data, requesting from neighbours");
-                    return Ok(()); // TODO(NikitaMasych): launch recursive request.
+                    debug!(%request_id, "Have no needed data");
+                    let _ = self
+                        .swarm
+                        .behaviour_mut()
+                        .request_response
+                        .send_response(channel, empty_response)
+                        .inspect_err(|_| debug!("Failed to send response"));
+
+                    return Ok(());
                 };
 
                 let response = GetMessageResponse { msg: vec![msg] };
@@ -501,8 +544,8 @@ where
                 response,
             } => {
                 if response.msg.is_empty() {
-                    debug!(%request_id, "Have no needed data, requesting from neighbours");
-                    return Ok(()); // TODO(NikitaMasych): launch recursive request.
+                    debug!(%request_id, "Received empty response");
+                    return Ok(());
                 }
 
                 for msg in response.msg.into_iter() {
@@ -514,12 +557,12 @@ where
                     let msg = match GossipsubMsg::from_proto(msg.clone()) {
                         Ok(msg) => msg,
                         Err(err) => {
-                            debug!(%peer, reason=%err, "Peer sent invalid message");
+                            debug!(%peer_id, reason=%err, "Peer sent invalid message");
                             continue;
                         }
                     };
                     if let Err(err) = self.validate_gossipsub_msg(&msg) {
-                        debug!(%peer, reason=%err, "Message failed validation");
+                        debug!(%peer_id, reason=%err, "Message failed validation");
                         continue;
                     }
 
@@ -602,7 +645,15 @@ where
     }
 
     async fn handle_get_message_response(&mut self, msg: GossipsubMsg<DSP>) -> P2PResult<()> {
-        self.add_msg_if_not_exists(&msg).await?;
+        let new_event = self.add_msg_if_not_exists(&msg).await?;
+
+        if new_event {
+            let event = Event::from(msg);
+
+            self.events
+                .send(event)
+                .map_err(|e| ProtocolError::EventsChannelClosed(e.into()))?;
+        }
 
         Ok(())
     }
