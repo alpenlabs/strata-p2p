@@ -35,10 +35,7 @@ use tokio::{
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, instrument};
 
-use crate::{
-    commands::Command,
-    events::{Event, EventKind},
-};
+use crate::{commands::Command, events::Event};
 
 mod behavior;
 mod codec;
@@ -330,7 +327,7 @@ where
         // them something, knowing signer's (operator's) node peer id.
         self.db.set_peer_for_signer_pubkey(&msg.key, source).await?;
 
-        let event = Event::new(source, EventKind::GossipsubMsg(msg));
+        let event = Event::from(msg);
 
         let _ = self
             .swarm
@@ -614,7 +611,15 @@ where
     }
 
     async fn handle_get_message_response(&mut self, msg: GossipsubMsg<DSP>) -> P2PResult<()> {
-        self.add_msg_if_not_exists(&msg).await?;
+        let exists = self.add_msg_if_not_exists(&msg).await?;
+
+        if !exists {
+            let event = Event::from(msg);
+
+            self.events
+                .send(event)
+                .map_err(|e| ProtocolError::EventsChannelClosed(e.into()))?;
+        }
 
         Ok(())
     }

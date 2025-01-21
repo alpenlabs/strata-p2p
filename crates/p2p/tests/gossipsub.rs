@@ -12,11 +12,11 @@ use libp2p::{
 };
 use strata_p2p::{
     commands::{Command, UnsignedPublishMessage},
-    events::EventKind,
+    events::Event,
     swarm::handle::P2PHandle,
 };
 use strata_p2p_types::OperatorPubKey;
-use strata_p2p_wire::p2p::v1::{GossipsubMsg, GossipsubMsgDepositKind, GossipsubMsgKind};
+use strata_p2p_wire::p2p::v1::{GetMessageRequest, GossipsubMsgDepositKind, GossipsubMsgKind};
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use tracing::info;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
@@ -32,7 +32,7 @@ struct Setup {
 impl Setup {
     /// Spawn N operators that are connected "all-to-all" with handles to them, task tracker
     /// to stop control async tasks they are spawned in.
-    pub async fn all_to_all(number: usize) -> anyhow::Result<Self> {
+    pub async fn all_to_all(number: usize, mocked: usize) -> anyhow::Result<Self> {
         let (keypairs, peer_ids, multiaddresses) =
             Self::setup_keys_ids_addrs_of_n_operators(number);
 
@@ -50,16 +50,30 @@ impl Setup {
             let mut other_peerids = peer_ids.clone();
             other_peerids.remove(idx);
 
-            let operator = Operator::new(
-                keypair.clone(),
-                other_peerids,
-                other_addrs,
-                addr.clone(),
-                cancel.child_token(),
-                signers_allowlist.clone(),
-            )?;
+            if idx < number - mocked {
+                let operator = Operator::new(
+                    keypair.clone(),
+                    other_peerids,
+                    other_addrs,
+                    addr.clone(),
+                    cancel.child_token(),
+                    signers_allowlist.clone(),
+                )?;
 
-            operators.push(operator);
+                operators.push(operator);
+            } else {
+                let operator = Operator::new_with_genesis_info_entry_in_db(
+                    keypair.clone(),
+                    other_peerids,
+                    other_addrs,
+                    addr.clone(),
+                    cancel.child_token(),
+                    signers_allowlist.clone(),
+                )
+                .await?;
+
+                operators.push(operator);
+            }
         }
 
         let (handles, tasks) = Self::start_operators(operators).await;
@@ -128,7 +142,7 @@ async fn test_all_to_all_one_scope() -> anyhow::Result<()> {
         mut operators,
         cancel,
         tasks,
-    } = Setup::all_to_all(OPERATORS_NUM).await?;
+    } = Setup::all_to_all(OPERATORS_NUM, 0).await?;
 
     let scope_hash = sha256::Hash::hash(b"scope");
 
@@ -136,6 +150,51 @@ async fn test_all_to_all_one_scope() -> anyhow::Result<()> {
     exchange_deposit_setup(&mut operators, OPERATORS_NUM, scope_hash).await?;
     exchange_deposit_nonces(&mut operators, OPERATORS_NUM, scope_hash).await?;
     exchange_deposit_sigs(&mut operators, OPERATORS_NUM, scope_hash).await?;
+
+    cancel.cancel();
+
+    tasks.wait().await;
+
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+async fn test_request_response() -> anyhow::Result<()> {
+    const OPERATORS_NUM: usize = 4;
+
+    tracing_subscriber::registry()
+        .with(fmt::layer())
+        .with(EnvFilter::from_default_env())
+        .init();
+
+    let Setup {
+        mut operators,
+        cancel,
+        tasks,
+    } = Setup::all_to_all(OPERATORS_NUM, 1).await?;
+
+    // last operator won't send his info to others
+    exchange_genesis_info(&mut operators[..OPERATORS_NUM - 1], OPERATORS_NUM - 1).await?;
+
+    // create command to request info from the last operator
+    let operator_pk: OperatorPubKey = operators.last().unwrap().2.public().clone().into();
+    let command: Command<()> = Command::RequestMessage(GetMessageRequest::Genesis {
+        operator_pk: operator_pk.clone(),
+    });
+
+    operators[0].0.send_command(command).await;
+
+    let event = operators[0].0.next_event().await?;
+
+    match event {
+        Event::ReceivedMessage(msg)
+            if matches!(msg.kind, GossipsubMsgKind::GenesisInfo(_)) && msg.key == operator_pk =>
+        {
+            info!("Got genesis info from the last operator")
+        }
+
+        _ => bail!("Got event other than 'genesis_info' - {:?}", event),
+    }
 
     cancel.cancel();
 
@@ -157,7 +216,7 @@ async fn test_all_to_all_multiple_scopes() -> anyhow::Result<()> {
         mut operators,
         cancel,
         tasks,
-    } = Setup::all_to_all(OPERATORS_NUM).await?;
+    } = Setup::all_to_all(OPERATORS_NUM, 0).await?;
 
     exchange_genesis_info(&mut operators, OPERATORS_NUM).await?;
 
@@ -192,19 +251,19 @@ async fn exchange_genesis_info(
     for (operator, peer_id, _) in operators.iter_mut() {
         // received genesis info from other n-1 operators
         for _ in 0..operators_num - 1 {
-            let event = operator.next_event().await.unwrap();
+            let event = operator.next_event().await?;
 
-            if !matches!(
-                event.kind,
-                EventKind::GossipsubMsg(GossipsubMsg {
-                    kind: GossipsubMsgKind::GenesisInfo(_),
-                    ..
-                })
-            ) {
-                bail!("Got event other than 'genesis_info' - {:?}", event);
+            match event {
+                Event::ReceivedMessage(msg)
+                    if matches!(msg.kind, GossipsubMsgKind::GenesisInfo(_)) =>
+                {
+                    info!(to=%peer_id, "Got genesis info")
+                }
+
+                _ => bail!("Got event other than 'genesis_info' - {:?}", event),
             }
-            info!(to=%peer_id, from=%event.peer_id, "Got genesis info");
         }
+
         assert!(operator.events_is_empty());
     }
 
@@ -223,24 +282,21 @@ async fn exchange_deposit_setup(
     }
     for (operator, peer_id, _) in operators.iter_mut() {
         for _ in 0..operators_num - 1 {
-            let event = operator.next_event().await.unwrap();
-            // Skip messages from other scopes.
-            if matches!(event.scope(), Some(scope) if scope != scope_hash) {
-                continue;
+            let event = operator.next_event().await?;
+            match event {
+                Event::ReceivedMessage(msg)
+                    if matches!(
+                        msg.kind,
+                        GossipsubMsgKind::Deposit {
+                            kind: GossipsubMsgDepositKind::Setup(_),
+                            ..
+                        },
+                    ) =>
+                {
+                    info!(to=%peer_id, "Got deposit setup")
+                }
+                _ => bail!("Got event other than 'deposit_setup' - {:?}", event),
             }
-            if !matches!(
-                event.kind,
-                EventKind::GossipsubMsg(GossipsubMsg {
-                    kind: GossipsubMsgKind::Deposit {
-                        kind: GossipsubMsgDepositKind::Setup(_),
-                        ..
-                    },
-                    ..
-                })
-            ) {
-                bail!("Got event other than 'deposit_setup' - {:?}", event);
-            }
-            info!(to=%peer_id, from=%event.peer_id, "Got deposit setup");
         }
         assert!(operator.events_is_empty());
     }
@@ -259,24 +315,21 @@ async fn exchange_deposit_nonces(
     }
     for (operator, peer_id, _) in operators.iter_mut() {
         for _ in 0..operators_num - 1 {
-            let event = operator.next_event().await.unwrap();
-            // Skip messages from other scopes.
-            if matches!(event.scope(), Some(scope) if scope != scope_hash) {
-                continue;
+            let event = operator.next_event().await?;
+            match event {
+                Event::ReceivedMessage(msg)
+                    if matches!(
+                        msg.kind,
+                        GossipsubMsgKind::Deposit {
+                            kind: GossipsubMsgDepositKind::Nonces(_),
+                            ..
+                        },
+                    ) =>
+                {
+                    info!(to=%peer_id, "Got deposit nonces")
+                }
+                _ => bail!("Got event other than 'deposit_nonces' - {:?}", event),
             }
-            if !matches!(
-                event.kind,
-                EventKind::GossipsubMsg(GossipsubMsg {
-                    kind: GossipsubMsgKind::Deposit {
-                        kind: GossipsubMsgDepositKind::Nonces(_),
-                        ..
-                    },
-                    ..
-                })
-            ) {
-                bail!("Got event other than 'deposit_nonces' - {:?}", event);
-            }
-            info!(to=%peer_id, from=%event.peer_id, "Got deposit nonces");
         }
         assert!(operator.events_is_empty());
     }
@@ -296,24 +349,21 @@ async fn exchange_deposit_sigs(
 
     for (operator, peer_id, _) in operators.iter_mut() {
         for _ in 0..operators_num - 1 {
-            let event = operator.next_event().await.unwrap();
-            // Skip messages from other scopes.
-            if matches!(event.scope(), Some(scope) if scope != scope_hash) {
-                continue;
+            let event = operator.next_event().await?;
+            match event {
+                Event::ReceivedMessage(msg)
+                    if matches!(
+                        msg.kind,
+                        GossipsubMsgKind::Deposit {
+                            kind: GossipsubMsgDepositKind::Sigs(_),
+                            ..
+                        },
+                    ) =>
+                {
+                    info!(to=%peer_id, "Got deposit sigs")
+                }
+                _ => bail!("Got event other than 'deposit_sigs' - {:?}", event),
             }
-            if !matches!(
-                event.kind,
-                EventKind::GossipsubMsg(GossipsubMsg {
-                    kind: GossipsubMsgKind::Deposit {
-                        kind: GossipsubMsgDepositKind::Sigs(_),
-                        ..
-                    },
-                    ..
-                })
-            ) {
-                bail!("Got event other than 'deposit_sigs' - {:?}", event);
-            }
-            info!(to=%peer_id, from=%event.peer_id, "Got deposit sigs");
         }
         assert!(operator.events_is_empty());
     }
