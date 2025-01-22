@@ -41,6 +41,9 @@ pub trait Repository: Send + Sync + 'static {
     async fn get_raw(&self, key: String) -> DBResult<Option<Vec<u8>>>;
     async fn set_raw(&self, key: String, value: Vec<u8>) -> DBResult<()>;
 
+    /// Delete all values with provided keys.
+    async fn delete_raw(&self, keys: Vec<String>) -> DBResult<()>;
+
     /// Set new value if it wasn't there before. Default implementation is
     /// just `get`+`set`, but some databases may have more optimized
     /// implementation in one go.
@@ -112,6 +115,19 @@ where
         self.set_if_not_exists(key, entry).await
     }
 
+    /// Delete multiple entries of partial signatures from storage by pairs of
+    /// operator pubkey and session ids.
+    async fn delete_partial_signatures(
+        &self,
+        keys: &[(&OperatorPubKey, &SessionId)],
+    ) -> DBResult<()> {
+        let keys = keys
+            .iter()
+            .map(|(key, id)| format!("sigs-{key}_{id}"))
+            .collect::<Vec<_>>();
+        self.delete_raw(keys).await
+    }
+
     async fn get_pub_nonces(
         &self,
         operator_pk: &OperatorPubKey,
@@ -130,6 +146,16 @@ where
         self.set_if_not_exists(key, entry).await
     }
 
+    /// Delete multiple entries of pub nonces from storage by pairs of
+    /// operator pubkey and session ids.
+    async fn delete_pub_nonces(&self, keys: &[(&OperatorPubKey, &SessionId)]) -> DBResult<()> {
+        let keys = keys
+            .iter()
+            .map(|(key, id)| format!("nonces-{key}_{id}"))
+            .collect::<Vec<_>>();
+        self.delete_raw(keys).await
+    }
+
     async fn get_deposit_setup(
         &self,
         operator_pk: &OperatorPubKey,
@@ -146,6 +172,16 @@ where
     ) -> DBResult<bool> {
         let key = format!("setup-{}_{scope}", setup.key);
         self.set_if_not_exists(key, setup).await
+    }
+
+    /// Delete multiple entries of deposit setups from storage by pairs of
+    /// operator pubkey and session ids.
+    async fn delete_deposit_setups(&self, keys: &[(&OperatorPubKey, &Scope)]) -> DBResult<()> {
+        let keys = keys
+            .iter()
+            .map(|(key, scope)| format!("setup-{key}_{scope}"))
+            .collect::<Vec<_>>();
+        self.delete_raw(keys).await
     }
 
     async fn get_genesis_info(

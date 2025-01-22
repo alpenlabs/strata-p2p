@@ -4,6 +4,7 @@ use behavior::{Behaviour, BehaviourEvent};
 use bitcoin::hashes::Hash;
 use futures::StreamExt as _;
 use handle::P2PHandle;
+use itertools::iproduct;
 use libp2p::{
     core::{muxing::StreamMuxerBox, transport::MemoryTransport, ConnectedPoint},
     gossipsub::{Event as GossipsubEvent, Message, MessageAcceptance, MessageId, Sha256Topic},
@@ -454,6 +455,30 @@ where
                         .behaviour_mut()
                         .request_response
                         .send_request(&peer, request.clone());
+                }
+
+                Ok(())
+            }
+            Command::CleanStorage(cmd) => {
+                // Get cartesian product of all provided operators and session ids
+                let operator_session_id_pairs =
+                    iproduct!(&cmd.operators, &cmd.session_ids).collect::<Vec<_>>();
+
+                if !operator_session_id_pairs.is_empty() {
+                    self.db
+                        .delete_partial_signatures(&operator_session_id_pairs)
+                        .await?;
+                    self.db
+                        .delete_pub_nonces(&operator_session_id_pairs)
+                        .await?;
+                }
+
+                // Get cartesian product of all provided operators and scopes
+                let operator_scope_pairs =
+                    iproduct!(&cmd.operators, &cmd.scopes).collect::<Vec<_>>();
+
+                if !operator_scope_pairs.is_empty() {
+                    self.db.delete_deposit_setups(&operator_scope_pairs).await?;
                 }
 
                 Ok(())
