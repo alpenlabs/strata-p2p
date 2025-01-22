@@ -38,13 +38,17 @@ pub enum GetMessageRequest {
 }
 
 impl GetMessageRequest {
+    /// Convert [`ProtoGetMessageRequest`] into [`GetMessageRequest`]
+    /// by parsing raw vec values into specific types.
     pub fn from_msg(msg: ProtoGetMessageRequest) -> Result<GetMessageRequest, DecodeError> {
         let body = msg.body.ok_or(DecodeError::new("Message without body"))?;
 
         let request = match body {
             ProtoGetMessageRequestBody::DepositSetup(DepositRequestKey { scope, operator }) => {
-                let scope =
-                    Scope::from_bytes(&scope).map_err(|err| DecodeError::new(err.to_string()))?;
+                let bytes = scope
+                    .try_into()
+                    .map_err(|_| DecodeError::new("invalid length of bytes in scope"))?;
+                let scope = Scope::from_bytes(bytes);
 
                 Self::DepositSetup {
                     scope,
@@ -55,8 +59,10 @@ impl GetMessageRequest {
                 session_id,
                 operator,
             }) => {
-                let session_id = SessionId::from_bytes(&session_id)
-                    .map_err(|err| DecodeError::new(err.to_string()))?;
+                let bytes = session_id
+                    .try_into()
+                    .map_err(|_| DecodeError::new("invalid length of bytes in session id"))?;
+                let session_id = SessionId::from_bytes(bytes);
 
                 Self::Musig2NoncesExchange {
                     session_id,
@@ -67,8 +73,10 @@ impl GetMessageRequest {
                 session_id,
                 operator,
             }) => {
-                let session_id = SessionId::from_bytes(&session_id)
-                    .map_err(|err| DecodeError::new(err.to_string()))?;
+                let bytes = session_id
+                    .try_into()
+                    .map_err(|_| DecodeError::new("invalid length of bytes in session id"))?;
+                let session_id = SessionId::from_bytes(bytes);
 
                 Self::Musig2SignaturesExchange {
                     session_id,
@@ -85,6 +93,7 @@ impl GetMessageRequest {
         Ok(request)
     }
 
+    /// Convert [`GetMessageRequest`] into raw [`ProtoGetMessageRequest`].
     pub fn into_msg(self) -> ProtoGetMessageRequest {
         let body = match self {
             Self::Genesis { operator_pk } => {
@@ -195,50 +204,63 @@ pub enum UnsignedGossipsubMsg<DepositSetupPayload: Message> {
 }
 
 impl<DSP: Message + Default> UnsignedGossipsubMsg<DSP> {
+    /// Convert [`ProtoGossipsubMsgBody`] into typed [`UnsignedGossipsubMsg`]
+    /// with specific types instead of raw vectors.
     pub fn from_msg_proto(proto: &ProtoGossipsubMsgBody) -> Result<Self, DecodeError> {
-        let unsigned = match proto {
-            ProtoGossipsubMsgBody::GenesisInfo(proto) => {
-                Self::GenesisInfo(GenesisInfo::from_proto_msg(proto)?)
-            }
-            ProtoGossipsubMsgBody::Setup(proto) => {
-                let scope = Scope::from_bytes(&proto.scope)
-                    .map_err(|err| DecodeError::new(err.to_string()))?;
-
-                Self::DepositSetup {
-                    scope,
-                    setup: DepositSetup::from_proto_msg(proto)?,
+        let unsigned =
+            match proto {
+                ProtoGossipsubMsgBody::GenesisInfo(proto) => {
+                    Self::GenesisInfo(GenesisInfo::from_proto_msg(proto)?)
                 }
-            }
-            ProtoGossipsubMsgBody::Nonce(proto) => {
-                let session_id = SessionId::from_bytes(&proto.session_id)
-                    .map_err(|err| DecodeError::new(err.to_string()))?;
+                ProtoGossipsubMsgBody::Setup(proto) => {
+                    let bytes = proto
+                        .scope
+                        .as_slice()
+                        .try_into()
+                        .map_err(|_| DecodeError::new("invalid length of bytes for scope"))?;
+                    let scope = Scope::from_bytes(bytes);
 
-                let nonces = proto
-                    .pub_nonces
-                    .iter()
-                    .map(|bytes| PubNonce::from_bytes(bytes))
-                    .collect::<Result<Vec<_>, _>>()
-                    .map_err(|err| DecodeError::new(err.to_string()))?;
-
-                Self::Musig2NoncesExchange { session_id, nonces }
-            }
-            ProtoGossipsubMsgBody::Sigs(proto) => {
-                let session_id = SessionId::from_bytes(&proto.session_id)
-                    .map_err(|err| DecodeError::new(err.to_string()))?;
-
-                let partial_sigs = proto
-                    .partial_sigs
-                    .iter()
-                    .map(|bytes| PartialSignature::from_slice(bytes))
-                    .collect::<Result<Vec<_>, _>>()
-                    .map_err(|err| DecodeError::new(err.to_string()))?;
-
-                Self::Musig2SignaturesExchange {
-                    session_id,
-                    signatures: partial_sigs,
+                    Self::DepositSetup {
+                        scope,
+                        setup: DepositSetup::from_proto_msg(proto)?,
+                    }
                 }
-            }
-        };
+                ProtoGossipsubMsgBody::Nonce(proto) => {
+                    let bytes =
+                        proto.session_id.as_slice().try_into().map_err(|_| {
+                            DecodeError::new("invalid length of bytes for session id")
+                        })?;
+                    let session_id = SessionId::from_bytes(bytes);
+
+                    let nonces = proto
+                        .pub_nonces
+                        .iter()
+                        .map(|bytes| PubNonce::from_bytes(bytes))
+                        .collect::<Result<Vec<_>, _>>()
+                        .map_err(|err| DecodeError::new(err.to_string()))?;
+
+                    Self::Musig2NoncesExchange { session_id, nonces }
+                }
+                ProtoGossipsubMsgBody::Sigs(proto) => {
+                    let bytes =
+                        proto.session_id.as_slice().try_into().map_err(|_| {
+                            DecodeError::new("invalid length of bytes for session id")
+                        })?;
+                    let session_id = SessionId::from_bytes(bytes);
+
+                    let partial_sigs = proto
+                        .partial_sigs
+                        .iter()
+                        .map(|bytes| PartialSignature::from_slice(bytes))
+                        .collect::<Result<Vec<_>, _>>()
+                        .map_err(|err| DecodeError::new(err.to_string()))?;
+
+                    Self::Musig2SignaturesExchange {
+                        session_id,
+                        signatures: partial_sigs,
+                    }
+                }
+            };
 
         Ok(unsigned)
     }
