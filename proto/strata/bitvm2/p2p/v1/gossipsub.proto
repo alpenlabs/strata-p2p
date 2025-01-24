@@ -18,16 +18,16 @@ message DepositSetupExchange {
   bytes payload = 2;
 }
 
-message DepositNoncesExchange {
+message Musig2NoncesExchange {
   // 32-byte hash of some unique to deposit data
-  bytes scope = 1;
+  bytes session_id = 1;
   // Public nonces for each transaction
   repeated bytes pub_nonces = 2;
 }
 
-message DepositSignaturesExchange {
+message Musig2SignaturesExchange {
   // 32-byte hash of some unique to deposit data
-  bytes scope = 1;
+  bytes session_id = 1;
   // Partial signatures for each transaction
   repeated bytes partial_sigs = 2;
 }
@@ -36,8 +36,8 @@ message GossipsubMsg {
   oneof body {
     GenesisInfo genesis_info = 1;
     DepositSetupExchange setup = 2;
-    DepositNoncesExchange nonce = 3;
-    DepositSignaturesExchange sigs = 4;
+    Musig2NoncesExchange nonce = 3;
+    Musig2SignaturesExchange sigs = 4;
   }
   // Public key of the operator used for P2P message signing only.
   bytes key = 10;

@@ -1,104 +1,126 @@
-use bitcoin::{
-    consensus::Decodable,
-    hashes::{sha256, Hash},
-    io::Cursor,
-    OutPoint, XOnlyPublicKey,
-};
+use bitcoin::{consensus::Decodable, hashes::Hash, io::Cursor, OutPoint, XOnlyPublicKey};
 use musig2::{PartialSignature, PubNonce};
 use prost::{DecodeError, Message};
-use strata_p2p_types::OperatorPubKey;
+use strata_p2p_types::{OperatorPubKey, Scope, SessionId};
 
 use super::proto::{
     get_message_request::Body as ProtoGetMessageRequestBody,
-    gossipsub_msg::Body as ProtoGossipsubMsgBody, DepositNoncesExchange as ProtoDepositNonces,
-    DepositRequestKey, DepositSetupExchange as ProtoDepositSetup,
-    DepositSignaturesExchange as ProtoDepositSigs, GenesisInfo as ProtoGenesisInfo,
-    GenesisRequestKey, GetMessageRequest as ProtoGetMessageRequest, GossipsubMsg as ProtoGossipMsg,
+    gossipsub_msg::Body as ProtoGossipsubMsgBody, DepositRequestKey,
+    DepositSetupExchange as ProtoDepositSetup, GenesisInfo as ProtoGenesisInfo, GenesisRequestKey,
+    GetMessageRequest as ProtoGetMessageRequest, GossipsubMsg as ProtoGossipMsg,
+    Musig2ExchangeRequestKey, Musig2NoncesExchange as ProtoMusig2NoncesExchange,
+    Musig2SignaturesExchange as ProtoMusig2SignaturesExchange,
 };
-
-#[derive(Clone, Debug)]
-pub enum GetMessageRequestExchangeKind {
-    Setup,
-    Nonces,
-    Signatures,
-}
 
 /// Typed version of "get_message_request::GetMessageRequest".
 #[derive(Clone, Debug)]
 pub enum GetMessageRequest {
-    Genesis {
+    /// Request genesis info for this operator.
+    Genesis { operator_pk: OperatorPubKey },
+
+    /// Request deposit setup info for scope and operator.
+    DepositSetup {
+        scope: Scope,
         operator_pk: OperatorPubKey,
     },
-    ExchangeSession {
-        scope: sha256::Hash,
+
+    /// Request musig2 signatures from operator and for session ID.
+    Musig2SignaturesExchange {
+        session_id: SessionId,
         operator_pk: OperatorPubKey,
-        kind: GetMessageRequestExchangeKind,
+    },
+
+    /// Request musig2 nonces from operator and for session ID.
+    Musig2NoncesExchange {
+        session_id: SessionId,
+        operator_pk: OperatorPubKey,
     },
 }
 
 impl GetMessageRequest {
-    pub fn from_msg(msg: ProtoGetMessageRequest) -> Option<GetMessageRequest> {
-        let body = msg.body?;
+    /// Convert [`ProtoGetMessageRequest`] into [`GetMessageRequest`]
+    /// by parsing raw vec values into specific types.
+    pub fn from_msg(msg: ProtoGetMessageRequest) -> Result<GetMessageRequest, DecodeError> {
+        let body = msg.body.ok_or(DecodeError::new("Message without body"))?;
 
-        let (operator_pk, deposit_txid, kind) = match body {
+        let request = match body {
             ProtoGetMessageRequestBody::DepositSetup(DepositRequestKey { scope, operator }) => {
-                (scope, operator, GetMessageRequestExchangeKind::Setup)
+                let bytes = scope
+                    .try_into()
+                    .map_err(|_| DecodeError::new("invalid length of bytes in scope"))?;
+                let scope = Scope::from_bytes(bytes);
+
+                Self::DepositSetup {
+                    scope,
+                    operator_pk: operator.into(),
+                }
             }
-            ProtoGetMessageRequestBody::DepositNonce(DepositRequestKey { scope, operator }) => {
-                (scope, operator, GetMessageRequestExchangeKind::Nonces)
+            ProtoGetMessageRequestBody::Nonces(Musig2ExchangeRequestKey {
+                session_id,
+                operator,
+            }) => {
+                let bytes = session_id
+                    .try_into()
+                    .map_err(|_| DecodeError::new("invalid length of bytes in session id"))?;
+                let session_id = SessionId::from_bytes(bytes);
+
+                Self::Musig2NoncesExchange {
+                    session_id,
+                    operator_pk: operator.into(),
+                }
             }
-            ProtoGetMessageRequestBody::DepositSigs(DepositRequestKey { scope, operator }) => {
-                (scope, operator, GetMessageRequestExchangeKind::Signatures)
+            ProtoGetMessageRequestBody::Sigs(Musig2ExchangeRequestKey {
+                session_id,
+                operator,
+            }) => {
+                let bytes = session_id
+                    .try_into()
+                    .map_err(|_| DecodeError::new("invalid length of bytes in session id"))?;
+                let session_id = SessionId::from_bytes(bytes);
+
+                Self::Musig2SignaturesExchange {
+                    session_id,
+                    operator_pk: operator.into(),
+                }
             }
             ProtoGetMessageRequestBody::GenesisInfo(GenesisRequestKey { operator }) => {
-                return Some(Self::Genesis {
-                    operator_pk: OperatorPubKey::from(operator),
-                });
+                Self::Genesis {
+                    operator_pk: operator.into(),
+                }
             }
         };
 
-        let operator_pk = OperatorPubKey::from(operator_pk);
-        let mut cur = Cursor::new(deposit_txid);
-        let scope = Decodable::consensus_decode(&mut cur).ok()?;
-
-        Some(Self::ExchangeSession {
-            scope,
-            operator_pk,
-            kind,
-        })
+        Ok(request)
     }
 
+    /// Convert [`GetMessageRequest`] into raw [`ProtoGetMessageRequest`].
     pub fn into_msg(self) -> ProtoGetMessageRequest {
         let body = match self {
-            GetMessageRequest::Genesis { operator_pk } => {
+            Self::Genesis { operator_pk } => {
                 ProtoGetMessageRequestBody::GenesisInfo(GenesisRequestKey {
                     operator: operator_pk.into(),
                 })
             }
-            GetMessageRequest::ExchangeSession {
-                scope,
+            Self::DepositSetup { scope, operator_pk } => {
+                ProtoGetMessageRequestBody::DepositSetup(DepositRequestKey {
+                    scope: scope.to_vec(),
+                    operator: operator_pk.into(),
+                })
+            }
+            Self::Musig2SignaturesExchange {
+                session_id,
                 operator_pk,
-                kind,
-            } => match kind {
-                GetMessageRequestExchangeKind::Setup => {
-                    ProtoGetMessageRequestBody::DepositSetup(DepositRequestKey {
-                        scope: scope.to_byte_array().to_vec(),
-                        operator: operator_pk.into(),
-                    })
-                }
-                GetMessageRequestExchangeKind::Nonces => {
-                    ProtoGetMessageRequestBody::DepositNonce(DepositRequestKey {
-                        scope: scope.to_byte_array().to_vec(),
-                        operator: operator_pk.into(),
-                    })
-                }
-                GetMessageRequestExchangeKind::Signatures => {
-                    ProtoGetMessageRequestBody::DepositSigs(DepositRequestKey {
-                        scope: scope.to_byte_array().to_vec(),
-                        operator: operator_pk.into(),
-                    })
-                }
-            },
+            } => ProtoGetMessageRequestBody::Nonces(Musig2ExchangeRequestKey {
+                session_id: session_id.to_vec(),
+                operator: operator_pk.into(),
+            }),
+            Self::Musig2NoncesExchange {
+                session_id,
+                operator_pk,
+            } => ProtoGetMessageRequestBody::Sigs(Musig2ExchangeRequestKey {
+                session_id: session_id.to_vec(),
+                operator: operator_pk.into(),
+            }),
         };
 
         ProtoGetMessageRequest { body: Some(body) }
@@ -106,9 +128,10 @@ impl GetMessageRequest {
 
     pub fn operator_pubkey(&self) -> &OperatorPubKey {
         match self {
-            Self::Genesis { operator_pk } | Self::ExchangeSession { operator_pk, .. } => {
-                operator_pk
-            }
+            Self::Genesis { operator_pk }
+            | Self::DepositSetup { operator_pk, .. }
+            | Self::Musig2NoncesExchange { operator_pk, .. }
+            | Self::Musig2SignaturesExchange { operator_pk, .. } => operator_pk,
         }
     }
 }
@@ -126,44 +149,6 @@ impl<DSP: Message + Default> DepositSetup<DSP> {
         let payload: DSP = Message::decode(proto.payload.as_ref())?;
 
         Ok(Self { payload })
-    }
-}
-
-/// Operators exchange nonces before signing.
-#[derive(Debug, Clone)]
-pub struct DepositNonces {
-    pub nonces: Vec<PubNonce>,
-}
-
-impl DepositNonces {
-    pub fn from_proto_msg(proto: &ProtoDepositNonces) -> Result<Self, DecodeError> {
-        let pub_nonces = proto
-            .pub_nonces
-            .iter()
-            .map(|bytes| PubNonce::from_bytes(bytes))
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|err| DecodeError::new(err.to_string()))?;
-
-        Ok(Self { nonces: pub_nonces })
-    }
-}
-
-/// Operators exchange signatures for transaction graph.
-#[derive(Debug, Clone)]
-pub struct DepositSigs {
-    pub partial_sigs: Vec<PartialSignature>,
-}
-
-impl DepositSigs {
-    pub fn from_proto_msg(proto: &ProtoDepositSigs) -> Result<Self, DecodeError> {
-        let partial_sigs = proto
-            .partial_sigs
-            .iter()
-            .map(|bytes| PartialSignature::from_slice(bytes))
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|err| DecodeError::new(err.to_string()))?;
-
-        Ok(Self { partial_sigs })
     }
 }
 
@@ -197,72 +182,87 @@ impl GenesisInfo {
 }
 
 #[derive(Clone, Debug)]
-pub enum GossipsubMsgDepositKind<DepositSetupPayload: Message> {
-    /// New deposit request appeared, and operators
-    /// exchanging setup data.
-    Setup(DepositSetup<DepositSetupPayload>),
-    /// Operators exchange nonces before signing.
-    Nonces(DepositNonces),
-    /// Operators exchange signatures for transaction graph.
-    Sigs(DepositSigs),
-}
-
-impl<DepositSetupPayload: Message> From<DepositSigs>
-    for GossipsubMsgDepositKind<DepositSetupPayload>
-{
-    fn from(v: DepositSigs) -> Self {
-        Self::Sigs(v)
-    }
-}
-
-impl<DepositSetupPayload: Message> From<DepositNonces>
-    for GossipsubMsgDepositKind<DepositSetupPayload>
-{
-    fn from(v: DepositNonces) -> Self {
-        Self::Nonces(v)
-    }
-}
-
-impl<DepositSetupPayload: Message> From<DepositSetup<DepositSetupPayload>>
-    for GossipsubMsgDepositKind<DepositSetupPayload>
-{
-    fn from(v: DepositSetup<DepositSetupPayload>) -> Self {
-        Self::Setup(v)
-    }
-}
-
-#[derive(Clone, Debug)]
-pub enum GossipsubMsgKind<DepositSetupPayload: Message> {
+pub enum UnsignedGossipsubMsg<DepositSetupPayload: Message> {
     /// Operators exchange
     GenesisInfo(GenesisInfo),
-    Deposit {
-        scope: sha256::Hash,
-        kind: GossipsubMsgDepositKind<DepositSetupPayload>,
+    /// New deposit request appeared, and operators
+    /// exchanging setup data.
+    DepositSetup {
+        scope: Scope,
+        setup: DepositSetup<DepositSetupPayload>,
+    },
+    /// Operators exchange nonces before signing.
+    Musig2NoncesExchange {
+        session_id: SessionId,
+        nonces: Vec<PubNonce>,
+    },
+    /// Operators exchange signatures for transaction graph.
+    Musig2SignaturesExchange {
+        session_id: SessionId,
+        signatures: Vec<PartialSignature>,
     },
 }
 
-impl<DSP: Message + Default> GossipsubMsgKind<DSP> {
+impl<DSP: Message + Default> UnsignedGossipsubMsg<DSP> {
+    /// Convert [`ProtoGossipsubMsgBody`] into typed [`UnsignedGossipsubMsg`]
+    /// with specific types instead of raw vectors.
     pub fn from_msg_proto(proto: &ProtoGossipsubMsgBody) -> Result<Self, DecodeError> {
-        let (scope, kind) = match proto {
-            ProtoGossipsubMsgBody::GenesisInfo(proto) => {
-                return Ok(Self::GenesisInfo(GenesisInfo::from_proto_msg(proto)?));
-            }
-            ProtoGossipsubMsgBody::Setup(proto) => {
-                (&proto.scope, DepositSetup::from_proto_msg(proto)?.into())
-            }
-            ProtoGossipsubMsgBody::Nonce(proto) => {
-                (&proto.scope, DepositNonces::from_proto_msg(proto)?.into())
-            }
-            ProtoGossipsubMsgBody::Sigs(proto) => {
-                (&proto.scope, DepositSigs::from_proto_msg(proto)?.into())
-            }
-        };
+        let unsigned =
+            match proto {
+                ProtoGossipsubMsgBody::GenesisInfo(proto) => {
+                    Self::GenesisInfo(GenesisInfo::from_proto_msg(proto)?)
+                }
+                ProtoGossipsubMsgBody::Setup(proto) => {
+                    let bytes = proto
+                        .scope
+                        .as_slice()
+                        .try_into()
+                        .map_err(|_| DecodeError::new("invalid length of bytes for scope"))?;
+                    let scope = Scope::from_bytes(bytes);
 
-        let mut curr = Cursor::new(scope);
-        let scope = Decodable::consensus_decode(&mut curr)
-            .map_err(|err| DecodeError::new(err.to_string()))?;
+                    Self::DepositSetup {
+                        scope,
+                        setup: DepositSetup::from_proto_msg(proto)?,
+                    }
+                }
+                ProtoGossipsubMsgBody::Nonce(proto) => {
+                    let bytes =
+                        proto.session_id.as_slice().try_into().map_err(|_| {
+                            DecodeError::new("invalid length of bytes for session id")
+                        })?;
+                    let session_id = SessionId::from_bytes(bytes);
 
-        Ok(Self::Deposit { scope, kind })
+                    let nonces = proto
+                        .pub_nonces
+                        .iter()
+                        .map(|bytes| PubNonce::from_bytes(bytes))
+                        .collect::<Result<Vec<_>, _>>()
+                        .map_err(|err| DecodeError::new(err.to_string()))?;
+
+                    Self::Musig2NoncesExchange { session_id, nonces }
+                }
+                ProtoGossipsubMsgBody::Sigs(proto) => {
+                    let bytes =
+                        proto.session_id.as_slice().try_into().map_err(|_| {
+                            DecodeError::new("invalid length of bytes for session id")
+                        })?;
+                    let session_id = SessionId::from_bytes(bytes);
+
+                    let partial_sigs = proto
+                        .partial_sigs
+                        .iter()
+                        .map(|bytes| PartialSignature::from_slice(bytes))
+                        .collect::<Result<Vec<_>, _>>()
+                        .map_err(|err| DecodeError::new(err.to_string()))?;
+
+                    Self::Musig2SignaturesExchange {
+                        session_id,
+                        signatures: partial_sigs,
+                    }
+                }
+            };
+
+        Ok(unsigned)
     }
 
     /// Return content of the message for signing.
@@ -273,7 +273,7 @@ impl<DSP: Message + Default> GossipsubMsgKind<DSP> {
         let mut content = Vec::new();
 
         match &self {
-            GossipsubMsgKind::GenesisInfo(GenesisInfo {
+            Self::GenesisInfo(GenesisInfo {
                 pre_stake_outpoint,
                 checkpoint_pubkeys,
             }) => {
@@ -283,24 +283,24 @@ impl<DSP: Message + Default> GossipsubMsgKind<DSP> {
                     content.extend(key.serialize());
                 });
             }
-            GossipsubMsgKind::Deposit { scope, kind } => {
-                content.extend(scope.to_byte_array());
-
-                match kind {
-                    GossipsubMsgDepositKind::Setup(DepositSetup { payload }) => {
-                        content.extend(payload.encode_to_vec());
-                    }
-                    GossipsubMsgDepositKind::Nonces(DepositNonces { nonces }) => {
-                        for nonce in nonces {
-                            content.extend(nonce.serialize());
-                        }
-                    }
-                    GossipsubMsgDepositKind::Sigs(DepositSigs { partial_sigs }) => {
-                        for sig in partial_sigs {
-                            content.extend(sig.serialize());
-                        }
-                    }
-                };
+            Self::DepositSetup { scope, setup } => {
+                content.extend(scope.as_ref());
+                content.extend(setup.payload.encode_to_vec());
+            }
+            Self::Musig2NoncesExchange { session_id, nonces } => {
+                content.extend(session_id.as_ref());
+                for nonce in nonces {
+                    content.extend(nonce.serialize());
+                }
+            }
+            Self::Musig2SignaturesExchange {
+                session_id,
+                signatures,
+            } => {
+                content.extend(session_id.as_ref());
+                for sig in signatures {
+                    content.extend(sig.serialize());
+                }
             }
         };
 
@@ -309,44 +309,34 @@ impl<DSP: Message + Default> GossipsubMsgKind<DSP> {
 
     fn to_raw(&self) -> ProtoGossipsubMsgBody {
         match self {
-            GossipsubMsgKind::GenesisInfo(info) => {
-                ProtoGossipsubMsgBody::GenesisInfo(ProtoGenesisInfo {
-                    pre_stake_vout: info.pre_stake_outpoint.vout,
-                    pre_stake_txid: info.pre_stake_outpoint.txid.to_byte_array().to_vec(),
-                    checkpoint_pubkeys: info
-                        .checkpoint_pubkeys
-                        .iter()
-                        .map(|k| k.serialize().to_vec())
-                        .collect(),
+            Self::GenesisInfo(info) => ProtoGossipsubMsgBody::GenesisInfo(ProtoGenesisInfo {
+                pre_stake_vout: info.pre_stake_outpoint.vout,
+                pre_stake_txid: info.pre_stake_outpoint.txid.to_byte_array().to_vec(),
+                checkpoint_pubkeys: info
+                    .checkpoint_pubkeys
+                    .iter()
+                    .map(|k| k.serialize().to_vec())
+                    .collect(),
+            }),
+            Self::DepositSetup { scope, setup } => {
+                ProtoGossipsubMsgBody::Setup(ProtoDepositSetup {
+                    scope: scope.to_vec(),
+                    payload: setup.payload.encode_to_vec(),
                 })
             }
-            GossipsubMsgKind::Deposit { scope, kind } => {
-                let scope = scope.to_byte_array().to_vec();
-                match kind {
-                    GossipsubMsgDepositKind::Setup(setup) => {
-                        ProtoGossipsubMsgBody::Setup(ProtoDepositSetup {
-                            scope,
-                            payload: setup.payload.encode_to_vec(),
-                        })
-                    }
-                    GossipsubMsgDepositKind::Nonces(dep) => {
-                        ProtoGossipsubMsgBody::Nonce(ProtoDepositNonces {
-                            scope,
-                            pub_nonces: dep.nonces.iter().map(|n| n.serialize().to_vec()).collect(),
-                        })
-                    }
-                    GossipsubMsgDepositKind::Sigs(dep) => {
-                        ProtoGossipsubMsgBody::Sigs(ProtoDepositSigs {
-                            scope,
-                            partial_sigs: dep
-                                .partial_sigs
-                                .iter()
-                                .map(|s| s.serialize().to_vec())
-                                .collect(),
-                        })
-                    }
-                }
+            Self::Musig2NoncesExchange { session_id, nonces } => {
+                ProtoGossipsubMsgBody::Nonce(ProtoMusig2NoncesExchange {
+                    session_id: session_id.to_vec(),
+                    pub_nonces: nonces.iter().map(|n| n.serialize().to_vec()).collect(),
+                })
             }
+            Self::Musig2SignaturesExchange {
+                session_id,
+                signatures,
+            } => ProtoGossipsubMsgBody::Sigs(ProtoMusig2SignaturesExchange {
+                session_id: session_id.to_vec(),
+                partial_sigs: signatures.iter().map(|s| s.serialize().to_vec()).collect(),
+            }),
         }
     }
 }
@@ -355,7 +345,7 @@ impl<DSP: Message + Default> GossipsubMsgKind<DSP> {
 pub struct GossipsubMsg<DepositSetupPayload: Message + Clone> {
     pub signature: Vec<u8>,
     pub key: OperatorPubKey,
-    pub kind: GossipsubMsgKind<DepositSetupPayload>,
+    pub unsigned: UnsignedGossipsubMsg<DepositSetupPayload>,
 }
 
 impl<DepositSetupPayload> GossipsubMsg<DepositSetupPayload>
@@ -368,13 +358,13 @@ where
             return Err(DecodeError::new("Message with empty body"));
         };
 
-        let kind = GossipsubMsgKind::<DepositSetupPayload>::from_msg_proto(&body)?;
+        let kind = UnsignedGossipsubMsg::<DepositSetupPayload>::from_msg_proto(&body)?;
         let key = msg.key.into();
 
         Ok(Self {
             signature: msg.signature,
             key,
-            kind,
+            unsigned: kind,
         })
     }
 
@@ -382,7 +372,7 @@ where
         Ok(Self {
             signature: msg.signature,
             key: msg.key.into(),
-            kind: GossipsubMsgKind::from_msg_proto(&msg.body.unwrap())?,
+            unsigned: UnsignedGossipsubMsg::from_msg_proto(&msg.body.unwrap())?,
         })
     }
 
@@ -390,11 +380,11 @@ where
         ProtoGossipMsg {
             key: self.key.into(),
             signature: self.signature,
-            body: Some(self.kind.to_raw()),
+            body: Some(self.unsigned.to_raw()),
         }
     }
 
     pub fn content(&self) -> Vec<u8> {
-        self.kind.content()
+        self.unsigned.content()
     }
 }

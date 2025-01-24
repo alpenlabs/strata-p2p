@@ -3195,6 +3195,7 @@ dependencies = [
 name = "strata-p2p-types"
 version = "0.1.0"
 dependencies = [
+ "bitcoin",
  "hex",
  "libp2p-identity",
  "serde",
