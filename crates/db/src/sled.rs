@@ -52,6 +52,21 @@ impl Repository for AsyncDB {
         rx.await?.map_err(Into::into)
     }
 
+    async fn delete_raw(&self, keys: Vec<String>) -> DBResult<()> {
+        let (tx, rx) = oneshot::channel();
+
+        let db = self.db.clone();
+        self.pool.execute(move || {
+            let result = delete_all_by_key(db, keys);
+
+            if tx.send(result).is_err() {
+                warn!("Receiver channel hanged up or dropped");
+            }
+        });
+
+        rx.await?.map_err(Into::into)
+    }
+
     async fn set_raw_if_not_exists(&self, key: String, value: Vec<u8>) -> DBResult<bool> {
         let (tx, rx) = oneshot::channel();
 
@@ -82,6 +97,14 @@ fn set_if_not_exist(db: Arc<sled::Db>, key: String, value: Vec<u8>) -> Result<bo
     db.insert(key, value)?;
 
     Ok(true)
+}
+
+fn delete_all_by_key(db: Arc<sled::Db>, keys: Vec<String>) -> Result<(), sled::Error> {
+    for key in keys {
+        db.remove(key)?;
+    }
+
+    Ok(())
 }
 
 impl From<sled::Error> for RepositoryError {

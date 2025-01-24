@@ -31,8 +31,8 @@ where
     }
 
     /// Send command to P2P.
-    pub async fn send_command(&self, command: Command<DSP>) {
-        let _ = self.commands.send(command).await;
+    pub async fn send_command(&self, command: impl Into<Command<DSP>>) {
+        let _ = self.commands.send(command.into()).await;
     }
 
     /// Get next event from P2P from events channel.

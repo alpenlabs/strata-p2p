@@ -17,6 +17,9 @@ pub enum Command<DepositSetupPayload> {
 
     /// Request some message directly from other operator by peer id.
     RequestMessage(GetMessageRequest),
+
+    /// Clean session, scopes from internal DB.
+    CleanStorage(CleanStorageCommand),
 }
 
 #[derive(Debug, Clone)]
@@ -111,5 +114,55 @@ impl<DepositSetupPayload> From<PublishMessage<DepositSetupPayload>>
 {
     fn from(v: PublishMessage<DepositSetupPayload>) -> Self {
         Self::PublishMessage(v)
+    }
+}
+
+/// Command P2P to clean entries from internal key-value storage by
+/// session IDs, scopes and operator pubkeys.
+#[derive(Debug, Clone)]
+pub struct CleanStorageCommand {
+    pub scopes: Vec<Scope>,
+    pub session_ids: Vec<SessionId>,
+    pub operators: Vec<OperatorPubKey>,
+}
+
+impl CleanStorageCommand {
+    pub const fn new(
+        scopes: Vec<Scope>,
+        session_ids: Vec<SessionId>,
+        operators: Vec<OperatorPubKey>,
+    ) -> Self {
+        Self {
+            scopes,
+            session_ids,
+            operators,
+        }
+    }
+
+    /// Clean entries only by scope and operators from storage.
+    pub const fn with_scopes(scopes: Vec<Scope>, operators: Vec<OperatorPubKey>) -> Self {
+        Self {
+            scopes,
+            session_ids: Vec::new(),
+            operators,
+        }
+    }
+
+    /// Clean entries only by session IDs and operators from storage.
+    pub const fn with_session_ids(
+        session_ids: Vec<SessionId>,
+        operators: Vec<OperatorPubKey>,
+    ) -> Self {
+        Self {
+            scopes: Vec::new(),
+            session_ids,
+            operators,
+        }
+    }
+}
+
+impl<DSP> From<CleanStorageCommand> for Command<DSP> {
+    fn from(v: CleanStorageCommand) -> Self {
+        Self::CleanStorage(v)
     }
 }
