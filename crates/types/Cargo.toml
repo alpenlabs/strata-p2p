@@ -1,0 +1,10 @@
+[package]
+name = "strata-p2p-types"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+bitcoin.workspace = true
+hex.workspace = true
+libp2p-identity.workspace = true
+serde.workspace = true

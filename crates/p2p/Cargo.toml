@@ -1,0 +1,40 @@
+[package]
+name = "strata-p2p"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+libp2p = { version = "0.54.1", features = [
+  "noise",
+  "gossipsub",
+  "tcp",
+  "request-response",
+  "tokio",
+  "secp256k1",
+  "macros",
+  "yamux",
+  "identify",
+] }
+
+async-trait.workspace = true
+bitcoin = { workspace = true, features = ["serde"] }
+futures.workspace = true
+musig2 = { workspace = true, features = ["serde"] }
+prost.workspace = true
+thiserror.workspace = true
+threadpool.workspace = true
+tokio = { workspace = true, features = ["macros", "time"] }
+tokio-util.workspace = true
+tracing.workspace = true
+
+itertools = "0.14.0"
+strata-p2p-db.path = "../db"
+strata-p2p-types.path = "../types"
+strata-p2p-wire.path = "../wire"
+
+[dev-dependencies]
+sled = "0.34.7"
+tokio = { workspace = true, features = ["rt", "rt-multi-thread"] }
+tokio-util.workspace = true
+tracing-subscriber.workspace = true
+anyhow = "1.0.95"

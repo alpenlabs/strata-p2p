@@ -21,6 +21,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@clippy
       - name: Install Protoc
         uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
       - uses: Swatinem/rust-cache@v2
         with:
           cache-on-failure: true
@@ -45,6 +47,8 @@ jobs:
           toolchain: nightly-2024-07-27
       - name: Install Protoc
         uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
       - uses: taiki-e/install-action@cargo-hack
       - uses: Swatinem/rust-cache@v2
         with:
