@@ -32,12 +32,42 @@ message Musig2SignaturesExchange {
   repeated bytes partial_sigs = 2;
 }
 
+message Wots32KeysExchange {
+  // 32-byte has of some unique to deposit data
+  bytes session_id = 1;
+  // Secondary identifier.
+  uint32 wots_id = 2;
+  // Public keys for each deposit
+  repeated bytes keys = 3;
+}
+
+message Wots160KeysExchange {
+  // 32-byte has of some unique to deposit data
+  bytes session_id = 1;
+  // Secondary identifier.
+  uint32 wots_id = 2;
+  // Public keys for each deposit
+  repeated bytes keys = 3;
+}
+
+message Wots256KeysExchange {
+  // 32-byte has of some unique to deposit data
+  bytes session_id = 1;
+  // Secondary identifier.
+  uint32 wots_id = 2;
+  // Public keys for each deposit
+  repeated bytes keys = 3;
+}
+
 message GossipsubMsg {
   oneof body {
     GenesisInfo genesis_info = 1;
     DepositSetupExchange setup = 2;
     Musig2NoncesExchange nonce = 3;
     Musig2SignaturesExchange sigs = 4;
+    Wots32KeysExchange wots_32_keys = 5;
+    Wots160KeysExchange wots_160_keys = 6;
+    Wots256KeysExchange wots_256_keys = 7;
   }
   // Public key of the operator used for P2P message signing only.
   bytes key = 10;
