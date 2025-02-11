@@ -23,8 +23,8 @@ jobs:
         with:
           cache-on-failure: true
 
-      - name: Install cargo-audit v0.20.0
-        run: cargo install cargo-audit
+      - name: Install latest cargo-audit
+        run: cargo install cargo-audit --locked --force
 
       - name: Check for vulnerabilities
         run: cargo audit
