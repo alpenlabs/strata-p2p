@@ -3,7 +3,9 @@ use bitcoin::{OutPoint, XOnlyPublicKey};
 use libp2p_identity::PeerId;
 use musig2::{PartialSignature, PubNonce};
 use serde::{de::DeserializeOwned, Serialize};
-use strata_p2p_types::{OperatorPubKey, Scope, SessionId};
+use strata_p2p_types::{
+    OperatorPubKey, Scope, SessionId, Wots160Key, Wots256Key, Wots32Key, WotsId,
+};
 use thiserror::Error;
 
 mod prost_serde;
@@ -35,6 +37,9 @@ pub struct AuthenticatedEntry<T> {
 pub type PartialSignaturesEntry = AuthenticatedEntry<Vec<PartialSignature>>;
 pub type NoncesEntry = AuthenticatedEntry<Vec<PubNonce>>;
 pub type GenesisInfoEntry = AuthenticatedEntry<(OutPoint, Vec<XOnlyPublicKey>)>;
+pub type Wots32KeysEntry = AuthenticatedEntry<Vec<Wots32Key>>;
+pub type Wots160KeysEntry = AuthenticatedEntry<Vec<Wots160Key>>;
+pub type Wots256KeysEntry = AuthenticatedEntry<Vec<Wots256Key>>;
 
 #[async_trait]
 pub trait Repository: Send + Sync + 'static {
@@ -152,6 +157,105 @@ where
         let keys = keys
             .iter()
             .map(|(key, id)| format!("nonces-{key}_{id}"))
+            .collect::<Vec<_>>();
+        self.delete_raw(keys).await
+    }
+
+    async fn get_wots32_keys(
+        &self,
+        operator_pk: &OperatorPubKey,
+        session_id: SessionId,
+        wots_id: WotsId,
+    ) -> DBResult<Option<Wots32KeysEntry>> {
+        let key = format!("wots32-{operator_pk}_{session_id}_{wots_id}");
+        self.get(key).await
+    }
+
+    async fn set_wots32_keys_if_not_exist(
+        &self,
+        session_id: SessionId,
+        wots_id: WotsId,
+        entry: Wots32KeysEntry,
+    ) -> DBResult<bool> {
+        let key = format!("wots32-{}_{session_id}_{wots_id}", entry.key);
+        self.set_if_not_exists(key, entry).await
+    }
+
+    /// Delete multiple entries of wots 32 keys from storage by tuples of
+    /// operator pubkey, session ids, and wots ids.
+    async fn delete_wots32_keys(
+        &self,
+        keys: &[(&OperatorPubKey, &SessionId, &WotsId)],
+    ) -> DBResult<()> {
+        let keys = keys
+            .iter()
+            .map(|(key, id, wots_id)| format!("wots32-{key}_{id}_{wots_id}"))
+            .collect::<Vec<_>>();
+        self.delete_raw(keys).await
+    }
+
+    async fn get_wots160_keys(
+        &self,
+        operator_pk: &OperatorPubKey,
+        session_id: SessionId,
+        wots_id: WotsId,
+    ) -> DBResult<Option<Wots160KeysEntry>> {
+        let key = format!("wots160-{operator_pk}_{session_id}_{wots_id}");
+        self.get(key).await
+    }
+
+    async fn set_wots160_keys_if_not_exist(
+        &self,
+        session_id: SessionId,
+        wots_id: WotsId,
+        entry: Wots160KeysEntry,
+    ) -> DBResult<bool> {
+        let key = format!("wots160-{}_{session_id}_{wots_id}", entry.key);
+        self.set_if_not_exists(key, entry).await
+    }
+
+    /// Delete multiple entries of wots 160 keys from storage by tuples of
+    /// operator pubkey, session ids, and wots ids.
+    async fn delete_wots160_keys(
+        &self,
+        keys: &[(&OperatorPubKey, &SessionId, &WotsId)],
+    ) -> DBResult<()> {
+        let keys = keys
+            .iter()
+            .map(|(key, id, wots_id)| format!("wots160-{key}_{id}_{wots_id}"))
+            .collect::<Vec<_>>();
+        self.delete_raw(keys).await
+    }
+
+    async fn get_wots256_keys(
+        &self,
+        operator_pk: &OperatorPubKey,
+        session_id: SessionId,
+        wots_id: WotsId,
+    ) -> DBResult<Option<Wots256KeysEntry>> {
+        let key = format!("wots256-{operator_pk}_{session_id}_{wots_id}");
+        self.get(key).await
+    }
+
+    async fn set_wots256_keys_if_not_exist(
+        &self,
+        session_id: SessionId,
+        wots_id: WotsId,
+        entry: Wots256KeysEntry,
+    ) -> DBResult<bool> {
+        let key = format!("wots256-{}_{session_id}_{wots_id}", entry.key);
+        self.set_if_not_exists(key, entry).await
+    }
+
+    /// Delete multiple entries of wots 256 keys from storage by tuples of
+    /// operator pubkey, session ids, and wots ids.
+    async fn delete_wots256_keys(
+        &self,
+        keys: &[(&OperatorPubKey, &SessionId, &WotsId)],
+    ) -> DBResult<()> {
+        let keys = keys
+            .iter()
+            .map(|(key, id, wots_id)| format!("wots256-{key}_{id}_{wots_id}"))
             .collect::<Vec<_>>();
         self.delete_raw(keys).await
     }
