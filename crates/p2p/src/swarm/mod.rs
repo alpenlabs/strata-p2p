@@ -17,7 +17,7 @@ use libp2p::{
 use prost::Message as ProtoMsg;
 use strata_p2p_db::{
     DBResult, DepositSetupEntry, GenesisInfoEntry, NoncesEntry, PartialSignaturesEntry,
-    RepositoryError, RepositoryExt,
+    RepositoryError, RepositoryExt, Wots160KeysEntry, Wots256KeysEntry, Wots32KeysEntry,
 };
 use strata_p2p_types::OperatorPubKey;
 use strata_p2p_wire::p2p::{
@@ -408,6 +408,57 @@ where
                     )
                     .await
             }
+            v1::UnsignedGossipsubMsg::Wots32KeysExchange {
+                session_id,
+                wots_id,
+                keys,
+            } => {
+                self.db
+                    .set_wots32_keys_if_not_exist(
+                        *session_id,
+                        *wots_id,
+                        Wots32KeysEntry {
+                            entry: keys.clone(),
+                            signature: msg.signature.clone(),
+                            key: msg.key.clone(),
+                        },
+                    )
+                    .await
+            }
+            v1::UnsignedGossipsubMsg::Wots160KeysExchange {
+                session_id,
+                wots_id,
+                keys,
+            } => {
+                self.db
+                    .set_wots160_keys_if_not_exist(
+                        *session_id,
+                        *wots_id,
+                        Wots160KeysEntry {
+                            entry: keys.clone(),
+                            signature: msg.signature.clone(),
+                            key: msg.key.clone(),
+                        },
+                    )
+                    .await
+            }
+            v1::UnsignedGossipsubMsg::Wots256KeysExchange {
+                session_id,
+                wots_id,
+                keys,
+            } => {
+                self.db
+                    .set_wots256_keys_if_not_exist(
+                        *session_id,
+                        *wots_id,
+                        Wots256KeysEntry {
+                            entry: keys.clone(),
+                            signature: msg.signature.clone(),
+                            key: msg.key.clone(),
+                        },
+                    )
+                    .await
+            }
         }
     }
 
@@ -663,6 +714,66 @@ where
                     body: Some(Body::Sigs(proto::Musig2SignaturesExchange {
                         session_id: session_id.to_vec(),
                         partial_sigs: v.entry.iter().map(|n| n.serialize().to_vec()).collect(),
+                    })),
+                    signature: v.signature,
+                    key: v.key.into(),
+                })
+            }
+            v1::GetMessageRequest::Wots32KeyExchange {
+                session_id,
+                operator_pk,
+                wots_id,
+            } => {
+                let keys = self
+                    .db
+                    .get_wots32_keys(&operator_pk, session_id, wots_id)
+                    .await?;
+
+                keys.map(|v| proto::GossipsubMsg {
+                    body: Some(Body::Wots32Keys(proto::Wots32KeysExchange {
+                        session_id: session_id.to_vec(),
+                        wots_id,
+                        keys: v.entry.iter().map(|k| k.serialize().to_vec()).collect(),
+                    })),
+                    signature: v.signature,
+                    key: v.key.into(),
+                })
+            }
+            v1::GetMessageRequest::Wots160KeyExchange {
+                session_id,
+                operator_pk,
+                wots_id,
+            } => {
+                let keys = self
+                    .db
+                    .get_wots160_keys(&operator_pk, session_id, wots_id)
+                    .await?;
+
+                keys.map(|v| proto::GossipsubMsg {
+                    body: Some(Body::Wots160Keys(proto::Wots160KeysExchange {
+                        session_id: session_id.to_vec(),
+                        wots_id,
+                        keys: v.entry.iter().map(|k| k.serialize().to_vec()).collect(),
+                    })),
+                    signature: v.signature,
+                    key: v.key.into(),
+                })
+            }
+            v1::GetMessageRequest::Wots256KeyExchange {
+                session_id,
+                operator_pk,
+                wots_id,
+            } => {
+                let keys = self
+                    .db
+                    .get_wots256_keys(&operator_pk, session_id, wots_id)
+                    .await?;
+
+                keys.map(|v| proto::GossipsubMsg {
+                    body: Some(Body::Wots256Keys(proto::Wots256KeysExchange {
+                        session_id: session_id.to_vec(),
+                        wots_id,
+                        keys: v.entry.iter().map(|k| k.serialize().to_vec()).collect(),
                     })),
                     signature: v.signature,
                     key: v.key.into(),
