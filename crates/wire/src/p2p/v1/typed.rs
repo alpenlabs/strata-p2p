@@ -1,7 +1,9 @@
 use bitcoin::{consensus::Decodable, hashes::Hash, io::Cursor, OutPoint, XOnlyPublicKey};
 use musig2::{PartialSignature, PubNonce};
 use prost::{DecodeError, Message};
-use strata_p2p_types::{OperatorPubKey, Scope, SessionId};
+use strata_p2p_types::{
+    OperatorPubKey, Scope, SessionId, Wots160Key, Wots256Key, Wots32Key, WotsId,
+};
 
 use super::proto::{
     get_message_request::Body as ProtoGetMessageRequestBody,
@@ -10,6 +12,9 @@ use super::proto::{
     GetMessageRequest as ProtoGetMessageRequest, GossipsubMsg as ProtoGossipMsg,
     Musig2ExchangeRequestKey, Musig2NoncesExchange as ProtoMusig2NoncesExchange,
     Musig2SignaturesExchange as ProtoMusig2SignaturesExchange,
+    Wots160KeysExchange as ProtoWots160KeysExchange, Wots160RequestKey,
+    Wots256KeysExchange as ProtoWots256KeysExchange, Wots256RequestKey,
+    Wots32KeysExchange as ProtoWots32KeysExchange, Wots32RequestKey,
 };
 
 /// Typed version of "get_message_request::GetMessageRequest".
@@ -34,6 +39,27 @@ pub enum GetMessageRequest {
     Musig2NoncesExchange {
         session_id: SessionId,
         operator_pk: OperatorPubKey,
+    },
+
+    /// Request WOTS32 keys from operator and for session ID.
+    Wots32KeyExchange {
+        session_id: SessionId,
+        operator_pk: OperatorPubKey,
+        wots_id: WotsId,
+    },
+
+    /// Request WOTS160 keys from operator and for session ID.
+    Wots160KeyExchange {
+        session_id: SessionId,
+        operator_pk: OperatorPubKey,
+        wots_id: WotsId,
+    },
+
+    /// Request WOTS160 keys from operator and for session ID.
+    Wots256KeyExchange {
+        session_id: SessionId,
+        operator_pk: OperatorPubKey,
+        wots_id: WotsId,
     },
 }
 
@@ -88,6 +114,54 @@ impl GetMessageRequest {
                     operator_pk: operator.into(),
                 }
             }
+            ProtoGetMessageRequestBody::Wots32Key(Wots32RequestKey {
+                session_id,
+                operator,
+                wots_id,
+                ..
+            }) => {
+                let bytes = session_id
+                    .try_into()
+                    .map_err(|_| DecodeError::new("invalid length of bytes in session id"))?;
+                let session_id = SessionId::from_bytes(bytes);
+                Self::Wots32KeyExchange {
+                    session_id,
+                    operator_pk: operator.into(),
+                    wots_id,
+                }
+            }
+            ProtoGetMessageRequestBody::Wots160Key(Wots160RequestKey {
+                session_id,
+                operator,
+                wots_id,
+                ..
+            }) => {
+                let bytes = session_id
+                    .try_into()
+                    .map_err(|_| DecodeError::new("invalid length of bytes in session id"))?;
+                let session_id = SessionId::from_bytes(bytes);
+                Self::Wots160KeyExchange {
+                    session_id,
+                    operator_pk: operator.into(),
+                    wots_id,
+                }
+            }
+            ProtoGetMessageRequestBody::Wots256Key(Wots256RequestKey {
+                session_id,
+                operator,
+                wots_id,
+                ..
+            }) => {
+                let bytes = session_id
+                    .try_into()
+                    .map_err(|_| DecodeError::new("invalid length of bytes in session id"))?;
+                let session_id = SessionId::from_bytes(bytes);
+                Self::Wots256KeyExchange {
+                    session_id,
+                    operator_pk: operator.into(),
+                    wots_id,
+                }
+            }
         };
 
         Ok(request)
@@ -121,6 +195,33 @@ impl GetMessageRequest {
                 session_id: session_id.to_vec(),
                 operator: operator_pk.into(),
             }),
+            GetMessageRequest::Wots32KeyExchange {
+                session_id,
+                operator_pk,
+                wots_id,
+            } => ProtoGetMessageRequestBody::Wots32Key(Wots32RequestKey {
+                session_id: session_id.to_vec(),
+                operator: operator_pk.into(),
+                wots_id,
+            }),
+            GetMessageRequest::Wots160KeyExchange {
+                session_id,
+                operator_pk,
+                wots_id,
+            } => ProtoGetMessageRequestBody::Wots160Key(Wots160RequestKey {
+                session_id: session_id.to_vec(),
+                operator: operator_pk.into(),
+                wots_id,
+            }),
+            GetMessageRequest::Wots256KeyExchange {
+                session_id,
+                operator_pk,
+                wots_id,
+            } => ProtoGetMessageRequestBody::Wots256Key(Wots256RequestKey {
+                session_id: session_id.to_vec(),
+                operator: operator_pk.into(),
+                wots_id,
+            }),
         };
 
         ProtoGetMessageRequest { body: Some(body) }
@@ -131,7 +232,10 @@ impl GetMessageRequest {
             Self::Genesis { operator_pk }
             | Self::DepositSetup { operator_pk, .. }
             | Self::Musig2NoncesExchange { operator_pk, .. }
-            | Self::Musig2SignaturesExchange { operator_pk, .. } => operator_pk,
+            | Self::Musig2SignaturesExchange { operator_pk, .. }
+            | Self::Wots32KeyExchange { operator_pk, .. }
+            | Self::Wots160KeyExchange { operator_pk, .. }
+            | Self::Wots256KeyExchange { operator_pk, .. } => operator_pk,
         }
     }
 }
@@ -185,21 +289,45 @@ impl GenesisInfo {
 pub enum UnsignedGossipsubMsg<DepositSetupPayload: Message> {
     /// Operators exchange
     GenesisInfo(GenesisInfo),
+
     /// New deposit request appeared, and operators
     /// exchanging setup data.
     DepositSetup {
         scope: Scope,
         setup: DepositSetup<DepositSetupPayload>,
     },
+
     /// Operators exchange nonces before signing.
     Musig2NoncesExchange {
         session_id: SessionId,
         nonces: Vec<PubNonce>,
     },
+
     /// Operators exchange signatures for transaction graph.
     Musig2SignaturesExchange {
         session_id: SessionId,
         signatures: Vec<PartialSignature>,
+    },
+
+    /// Operators exchange WOTS32 keys.
+    Wots32KeysExchange {
+        session_id: SessionId,
+        wots_id: WotsId,
+        keys: Vec<Wots32Key>,
+    },
+
+    /// Operators exchange WOTS160 keys.
+    Wots160KeysExchange {
+        session_id: SessionId,
+        wots_id: WotsId,
+        keys: Vec<Wots160Key>,
+    },
+
+    /// Operators exchange WOTS256 keys.
+    Wots256KeysExchange {
+        session_id: SessionId,
+        wots_id: WotsId,
+        keys: Vec<Wots256Key>,
     },
 }
 
@@ -260,6 +388,72 @@ impl<DSP: Message + Default> UnsignedGossipsubMsg<DSP> {
                         signatures: partial_sigs,
                     }
                 }
+                ProtoGossipsubMsgBody::Wots32Keys(proto) => {
+                    let bytes =
+                        proto.session_id.as_slice().try_into().map_err(|_| {
+                            DecodeError::new("invalid length of bytes for session id")
+                        })?;
+                    let session_id = SessionId::from_bytes(bytes);
+
+                    let wots_id = proto.wots_id;
+
+                    let keys = proto
+                        .keys
+                        .iter()
+                        .map(|bytes| Wots32Key::from_slice(bytes))
+                        .collect::<Result<Vec<_>, _>>()
+                        .map_err(|err| DecodeError::new(err.to_string()))?;
+
+                    Self::Wots32KeysExchange {
+                        session_id,
+                        wots_id,
+                        keys,
+                    }
+                }
+                ProtoGossipsubMsgBody::Wots160Keys(proto) => {
+                    let bytes =
+                        proto.session_id.as_slice().try_into().map_err(|_| {
+                            DecodeError::new("invalid length of bytes for session id")
+                        })?;
+                    let session_id = SessionId::from_bytes(bytes);
+
+                    let wots_id = proto.wots_id;
+
+                    let keys = proto
+                        .keys
+                        .iter()
+                        .map(|bytes| Wots160Key::from_slice(bytes))
+                        .collect::<Result<Vec<_>, _>>()
+                        .map_err(|err| DecodeError::new(err.to_string()))?;
+
+                    Self::Wots160KeysExchange {
+                        session_id,
+                        wots_id,
+                        keys,
+                    }
+                }
+                ProtoGossipsubMsgBody::Wots256Keys(proto) => {
+                    let bytes =
+                        proto.session_id.as_slice().try_into().map_err(|_| {
+                            DecodeError::new("invalid length of bytes for session id")
+                        })?;
+                    let session_id = SessionId::from_bytes(bytes);
+
+                    let wots_id = proto.wots_id;
+
+                    let keys = proto
+                        .keys
+                        .iter()
+                        .map(|bytes| Wots256Key::from_slice(bytes))
+                        .collect::<Result<Vec<_>, _>>()
+                        .map_err(|err| DecodeError::new(err.to_string()))?;
+
+                    Self::Wots256KeysExchange {
+                        session_id,
+                        wots_id,
+                        keys,
+                    }
+                }
             };
 
         Ok(unsigned)
@@ -302,6 +496,39 @@ impl<DSP: Message + Default> UnsignedGossipsubMsg<DSP> {
                     content.extend(sig.serialize());
                 }
             }
+            Self::Wots32KeysExchange {
+                session_id,
+                wots_id,
+                keys,
+            } => {
+                content.extend(session_id.as_ref());
+                content.extend(wots_id.to_le_bytes());
+                for key in keys {
+                    content.extend(key.serialize());
+                }
+            }
+            Self::Wots160KeysExchange {
+                session_id,
+                wots_id,
+                keys,
+            } => {
+                content.extend(session_id.as_ref());
+                content.extend(wots_id.to_le_bytes());
+                for key in keys {
+                    content.extend(key.serialize());
+                }
+            }
+            Self::Wots256KeysExchange {
+                session_id,
+                wots_id,
+                keys,
+            } => {
+                content.extend(session_id.as_ref());
+                content.extend(wots_id.to_le_bytes());
+                for key in keys {
+                    content.extend(key.serialize());
+                }
+            }
         };
 
         content
@@ -336,6 +563,33 @@ impl<DSP: Message + Default> UnsignedGossipsubMsg<DSP> {
             } => ProtoGossipsubMsgBody::Sigs(ProtoMusig2SignaturesExchange {
                 session_id: session_id.to_vec(),
                 partial_sigs: signatures.iter().map(|s| s.serialize().to_vec()).collect(),
+            }),
+            Self::Wots32KeysExchange {
+                session_id,
+                wots_id,
+                keys,
+            } => ProtoGossipsubMsgBody::Wots32Keys(ProtoWots32KeysExchange {
+                session_id: session_id.to_vec(),
+                wots_id: *wots_id,
+                keys: keys.iter().map(|k| k.serialize().to_vec()).collect(),
+            }),
+            Self::Wots160KeysExchange {
+                session_id,
+                wots_id,
+                keys,
+            } => ProtoGossipsubMsgBody::Wots160Keys(ProtoWots160KeysExchange {
+                session_id: session_id.to_vec(),
+                wots_id: *wots_id,
+                keys: keys.iter().map(|k| k.serialize().to_vec()).collect(),
+            }),
+            Self::Wots256KeysExchange {
+                session_id,
+                wots_id,
+                keys,
+            } => ProtoGossipsubMsgBody::Wots256Keys(ProtoWots256KeysExchange {
+                session_id: session_id.to_vec(),
+                wots_id: *wots_id,
+                keys: keys.iter().map(|k| k.serialize().to_vec()).collect(),
             }),
         }
     }
