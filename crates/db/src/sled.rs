@@ -1,3 +1,4 @@
+//! [`Repository`] implementation using [`sled`] as a backend.
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -8,13 +9,18 @@ use tracing::warn;
 
 use super::{DBResult, Repository, RepositoryError};
 
+/// Thread-safe wrapper for [`Db`] with a [`ThreadPool`] for async operations.
 #[derive(Clone)]
 pub struct AsyncDB {
+    /// Thread pool used for async operations.
     pool: ThreadPool,
+
+    /// Thread-safe [`Db`] instance.
     db: Arc<Db>,
 }
 
 impl AsyncDB {
+    /// Creates a new [`AsyncDB`] instance.
     pub fn new(pool: ThreadPool, db: Arc<Db>) -> Self {
         Self { pool, db }
     }
@@ -89,6 +95,7 @@ impl From<RecvError> for RepositoryError {
     }
 }
 
+/// Helper function to set a value in a [`sled::Db`] if it doesn't exist.
 fn set_if_not_exist(db: Arc<sled::Db>, key: String, value: Vec<u8>) -> Result<bool, sled::Error> {
     if db.get(key.clone())?.is_some() {
         return Ok(false);
@@ -99,6 +106,7 @@ fn set_if_not_exist(db: Arc<sled::Db>, key: String, value: Vec<u8>) -> Result<bo
     Ok(true)
 }
 
+/// Helper function to delete all values in a [`sled::Db`] with a given key.
 fn delete_all_by_key(db: Arc<sled::Db>, keys: Vec<String>) -> Result<(), sled::Error> {
     for key in keys {
         db.remove(key)?;
