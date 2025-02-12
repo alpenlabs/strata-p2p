@@ -1,3 +1,4 @@
+//! Serialized data storage for the P2P protocol.
 use async_trait::async_trait;
 use bitcoin::{OutPoint, XOnlyPublicKey};
 use libp2p_identity::PeerId;
@@ -36,6 +37,7 @@ pub type PartialSignaturesEntry = AuthenticatedEntry<Vec<PartialSignature>>;
 pub type NoncesEntry = AuthenticatedEntry<Vec<PubNonce>>;
 pub type GenesisInfoEntry = AuthenticatedEntry<(OutPoint, Vec<XOnlyPublicKey>)>;
 
+/// Basic functionality to get, set, and delete values from a Database.
 #[async_trait]
 pub trait Repository: Send + Sync + 'static {
     async fn get_raw(&self, key: String) -> DBResult<Option<Vec<u8>>>;
@@ -92,11 +94,14 @@ pub trait Repository: Send + Sync + 'static {
     }
 }
 
+/// Additional functionality that extends [`Repository`] to the specific needs of Deposit Setups,
+/// Musig2 nonces and signatures; and peer id storage.
 #[async_trait]
 pub trait RepositoryExt<DepositSetupPayload>: Repository
 where
     DepositSetupPayload: prost::Message + Default + Send + Sync + 'static,
 {
+    /// Gets partial signatures for a given [`OperatorPubKey`] and [`SessionId`].
     async fn get_partial_signatures(
         &self,
         operator_pk: &OperatorPubKey,
@@ -106,6 +111,7 @@ where
         self.get(key).await
     }
 
+    /// Sets partial signatures for a given [`SessionId`] if they weren't there before.
     async fn set_partial_signatures_if_not_exists(
         &self,
         session_id: SessionId,
@@ -115,8 +121,8 @@ where
         self.set_if_not_exists(key, entry).await
     }
 
-    /// Delete multiple entries of partial signatures from storage by pairs of
-    /// operator pubkey and session ids.
+    /// Deletes multiple entries of partial signatures from storage by pairs of
+    /// [`OperatorPubKey`]s and [`SessionId`]s.
     async fn delete_partial_signatures(
         &self,
         keys: &[(&OperatorPubKey, &SessionId)],
@@ -128,6 +134,7 @@ where
         self.delete_raw(keys).await
     }
 
+    /// Gets public nonces for a given [`OperatorPubKey`] and [`SessionId`].
     async fn get_pub_nonces(
         &self,
         operator_pk: &OperatorPubKey,
@@ -137,6 +144,7 @@ where
         self.get(key).await
     }
 
+    /// Sets public nonces for a given [`SessionId`] if they weren't there before.
     async fn set_pub_nonces_if_not_exist(
         &self,
         session_id: SessionId,
@@ -147,7 +155,7 @@ where
     }
 
     /// Delete multiple entries of pub nonces from storage by pairs of
-    /// operator pubkey and session ids.
+    /// [`OperatorPubKey`]s and [`SessionId`]s.
     async fn delete_pub_nonces(&self, keys: &[(&OperatorPubKey, &SessionId)]) -> DBResult<()> {
         let keys = keys
             .iter()
@@ -156,6 +164,9 @@ where
         self.delete_raw(keys).await
     }
 
+    /// Gets deposit setup for a given [`OperatorPubKey`] and [`Scope`].
+    ///
+    /// This is primarily used for the WOTS PKs.
     async fn get_deposit_setup(
         &self,
         operator_pk: &OperatorPubKey,
@@ -165,6 +176,9 @@ where
         self.get(key).await
     }
 
+    /// Sets deposit setup for a given [`Scope`] if it wasn't there before.
+    ///
+    /// This is primarily used for the WOTS PKs.
     async fn set_deposit_setup_if_not_exists(
         &self,
         scope: Scope,
@@ -175,7 +189,9 @@ where
     }
 
     /// Delete multiple entries of deposit setups from storage by pairs of
-    /// operator pubkey and session ids.
+    /// [`OperatorPubKey`]s and [`Scope`]s.
+    ///
+    /// This is primarily used for the WOTS PKs.
     async fn delete_deposit_setups(&self, keys: &[(&OperatorPubKey, &Scope)]) -> DBResult<()> {
         let keys = keys
             .iter()
@@ -184,6 +200,9 @@ where
         self.delete_raw(keys).await
     }
 
+    /// Gets genesis info for a given [`OperatorPubKey`].
+    ///
+    /// This is primarily used for the Stake Chain setup.
     async fn get_genesis_info(
         &self,
         operator_pk: &OperatorPubKey,
@@ -192,6 +211,9 @@ where
         self.get(key).await
     }
 
+    /// Sets genesis info for a given [`OperatorPubKey`] if it wasn't there before.
+    ///
+    /// This is primarily used for the Stake Chain setup.
     async fn set_genesis_info_if_not_exists(&self, info: GenesisInfoEntry) -> DBResult<bool> {
         let key = format!("genesis-{}", info.key);
         self.set_if_not_exists(key, info).await
@@ -201,8 +223,7 @@ where
     id that publishes messages. These methods store and retrieve this
     mapping:  */
 
-    /// Get peer id of node, that distributed message signed by operator
-    /// pubkey.
+    /// Get peer id of node, that distributed message signed by an [`OperatorPubKey`].
     async fn get_peer_by_signer_pubkey(
         &self,
         operator_pk: &OperatorPubKey,
