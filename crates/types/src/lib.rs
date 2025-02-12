@@ -1,3 +1,5 @@
+//! Types for the Strata P2P messaging protocol.
+
 mod operator;
 mod scope;
 mod sessionid;
