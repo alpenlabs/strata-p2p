@@ -30,13 +30,13 @@ pub enum GetMessageRequest {
         operator_pk: OperatorPubKey,
     },
 
-    /// Request MuSig2 partial signatures from operator and for [`SessionId`].
+    /// Request MuSig2 (partial) signatures from operator and for [`SessionId`].
     Musig2SignaturesExchange {
         session_id: SessionId,
         operator_pk: OperatorPubKey,
     },
 
-    /// Request MuSig2 public nonces from operator and for [`SessionId`].
+    /// Request MuSig2 (public) nonces from operator and for [`SessionId`].
     Musig2NoncesExchange {
         session_id: SessionId,
         operator_pk: OperatorPubKey,
@@ -219,12 +219,12 @@ pub enum UnsignedGossipsubMsg<DepositSetupPayload: Message> {
         setup: DepositSetup<DepositSetupPayload>,
     },
 
-    /// Operators exchange nonces before signing.
+    /// Operators exchange (public) nonces before signing.
     Musig2NoncesExchange {
         /// [`SessionId`] of the deposit data.
         session_id: SessionId,
 
-        /// Public nonces for each transaction.
+        /// (Public) Nonces for each transaction.
         nonces: Vec<PubNonce>,
     },
 

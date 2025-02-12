@@ -12,7 +12,7 @@ message DepositRequestKey {
   bytes operator = 2;
 }
 
-// Request for Musig2 nonces or signatures.
+// Request for Musig2 (public) nonces or (partial) signatures.
 message Musig2ExchangeRequestKey {
   // 32-byte hash of the deposit data.
   bytes session_id = 1;

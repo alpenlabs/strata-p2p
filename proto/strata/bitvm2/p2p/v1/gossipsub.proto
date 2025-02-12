@@ -20,19 +20,19 @@ message DepositSetupExchange {
   bytes payload = 2;
 }
 
-// Musig2 first-round nonces exchange.
+// Musig2 first-round (public) nonces exchange.
 message Musig2NoncesExchange {
-  // 32-byte hash of some unique to deposit data
+  // 32-byte hash of some unique to deposit data.
   bytes session_id = 1;
-  // Public nonces for each transaction
+  // (Public) Nonces for each transaction.
   repeated bytes pub_nonces = 2;
 }
 
-// Musig2 second-round signatures exchange.
+// Musig2 second-round (partial) signatures exchange.
 message Musig2SignaturesExchange {
-  // 32-byte hash of some unique to deposit data
+  // 32-byte hash of some unique to deposit data.
   bytes session_id = 1;
-  // Partial signatures for each transaction
+  // (Partial) Signatures for each transaction.
   repeated bytes partial_sigs = 2;
 }
 

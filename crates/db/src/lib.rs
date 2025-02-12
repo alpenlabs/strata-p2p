@@ -95,13 +95,13 @@ pub trait Repository: Send + Sync + 'static {
 }
 
 /// Additional functionality that extends [`Repository`] to the specific needs of Deposit Setups,
-/// Musig2 nonces and signatures; and peer id storage.
+/// Musig2 (public) nonces and (partial) signatures; and peer id storage.
 #[async_trait]
 pub trait RepositoryExt<DepositSetupPayload>: Repository
 where
     DepositSetupPayload: prost::Message + Default + Send + Sync + 'static,
 {
-    /// Gets partial signatures for a given [`OperatorPubKey`] and [`SessionId`].
+    /// Gets (partial) signatures for a given [`OperatorPubKey`] and [`SessionId`].
     async fn get_partial_signatures(
         &self,
         operator_pk: &OperatorPubKey,
@@ -134,7 +134,7 @@ where
         self.delete_raw(keys).await
     }
 
-    /// Gets public nonces for a given [`OperatorPubKey`] and [`SessionId`].
+    /// Gets (public) nonces for a given [`OperatorPubKey`] and [`SessionId`].
     async fn get_pub_nonces(
         &self,
         operator_pk: &OperatorPubKey,
@@ -154,7 +154,7 @@ where
         self.set_if_not_exists(key, entry).await
     }
 
-    /// Delete multiple entries of pub nonces from storage by pairs of
+    /// Delete multiple entries of (public) nonces from storage by pairs of
     /// [`OperatorPubKey`]s and [`SessionId`]s.
     async fn delete_pub_nonces(&self, keys: &[(&OperatorPubKey, &SessionId)]) -> DBResult<()> {
         let keys = keys
