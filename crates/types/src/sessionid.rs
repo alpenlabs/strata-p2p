@@ -1,5 +1,6 @@
 //! Every deposit needs a unique identifier to exchange (partial) signatures and (public) nonces.
 //! This is the role of [`SessionId`].
+
 use core::fmt;
 
 use bitcoin::hashes::{sha256, Hash};

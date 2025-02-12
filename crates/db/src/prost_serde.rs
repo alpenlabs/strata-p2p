@@ -1,4 +1,5 @@
 //! Custom [`serde`] serializers and deserializers for [`prost`] messages.
+
 use serde::{de::Error, Deserialize, Deserializer, Serializer};
 
 /// Serializes a [`prost`] message into a byte array.

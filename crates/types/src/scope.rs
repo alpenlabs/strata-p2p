@@ -1,6 +1,7 @@
 //! Every deposit needs a unique identifier to deposit setup information,
 //! which is primarily WOTS PKs.
 //! This is the role of [`Scope`].
+
 use core::fmt;
 
 use bitcoin::hashes::{sha256, Hash};

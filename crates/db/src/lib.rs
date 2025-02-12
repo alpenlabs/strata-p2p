@@ -1,4 +1,5 @@
 //! Serialized data storage for the P2P protocol.
+
 use async_trait::async_trait;
 use bitcoin::{OutPoint, XOnlyPublicKey};
 use libp2p_identity::PeerId;

@@ -1,4 +1,5 @@
 //! [`Repository`] implementation using [`sled`] as a backend.
+
 use std::sync::Arc;
 
 use async_trait::async_trait;
