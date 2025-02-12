@@ -23,6 +23,6 @@ tokio = { workspace = true, features = ["sync"] }
 libp2p-identity = { workspace = true, features = ["serde"] }
 
 [dev-dependencies]
+secp256k1 = { workspace = true, features = ["rand"] }
 tokio = { workspace = true, features = ["rt"] }
 rand = "0.8.5"
-secp256k1 = { version = "0.29.0", features = ["rand"] }
