@@ -10,14 +10,19 @@ use async_trait::async_trait;
 use futures::prelude::*;
 use libp2p::swarm::StreamProtocol;
 
+/// Max request size in bytes.
 // NOTE(Velnbur): commit f096394 in rust-libp2p repo made this one
 // configurable recently, so we way want too.
-/// Max request size in bytes
 const REQUEST_SIZE_MAXIMUM: u64 = 1024 * 1024;
-/// Max response size in bytes
+
+/// Max response size in bytes.
 const RESPONSE_SIZE_MAXIMUM: u64 = 10 * 1024 * 1024;
 
+/// A [`Codec`] defines the request and response types
+/// for a request-response [`Behaviour`](super::Behaviour) protocol or
+/// protocol family and how they are encoded/decoded on an I/O stream.
 pub struct Codec<Req, Resp> {
+    /// Phatom data for the tuple request-response.
     phantom: PhantomData<(Req, Resp)>,
 }
 

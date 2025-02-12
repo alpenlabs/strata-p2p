@@ -1,3 +1,5 @@
+//! Helper functions for the P2P tests.
+
 use std::{sync::Arc, time::Duration};
 
 use libp2p::{identity::secp256k1::Keypair as SecpKeypair, Multiaddr, PeerId};

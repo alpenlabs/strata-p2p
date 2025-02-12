@@ -1,7 +1,10 @@
-use std::{collections::HashSet, fmt::Debug, io, sync::LazyLock, time::Duration};
+//! Swarm implementation for P2P.
+
+use std::{collections::HashSet, sync::LazyLock, time::Duration};
 
 use behavior::{Behaviour, BehaviourEvent};
 use bitcoin::hashes::Hash;
+use errors::{P2PResult, ProtocolError, ValidationError};
 use futures::StreamExt as _;
 use handle::P2PHandle;
 use itertools::iproduct;
@@ -9,15 +12,15 @@ use libp2p::{
     core::{muxing::StreamMuxerBox, transport::MemoryTransport, ConnectedPoint},
     gossipsub::{Event as GossipsubEvent, Message, MessageAcceptance, MessageId, Sha256Topic},
     identity::secp256k1::Keypair,
-    noise, request_response,
-    request_response::Event as RequestResponseEvent,
+    noise,
+    request_response::{self, Event as RequestResponseEvent},
     swarm::SwarmEvent,
-    yamux, Multiaddr, PeerId, Swarm, SwarmBuilder, Transport, TransportError,
+    yamux, Multiaddr, PeerId, Swarm, SwarmBuilder, Transport,
 };
 use prost::Message as ProtoMsg;
 use strata_p2p_db::{
     DBResult, DepositSetupEntry, GenesisInfoEntry, NoncesEntry, PartialSignaturesEntry,
-    RepositoryError, RepositoryExt,
+    RepositoryExt,
 };
 use strata_p2p_types::OperatorPubKey;
 use strata_p2p_wire::p2p::{
@@ -28,7 +31,6 @@ use strata_p2p_wire::p2p::{
         GossipsubMsg,
     },
 };
-use thiserror::Error;
 use tokio::{
     select,
     sync::{broadcast, mpsc},
@@ -40,91 +42,75 @@ use crate::{commands::Command, events::Event};
 
 mod behavior;
 mod codec;
+pub mod errors;
 pub mod handle;
 
-// TODO(Velnbur): make this configurable later
 /// Global topic name for gossipsub messages.
+// TODO(Velnbur): make this configurable later
 static TOPIC: LazyLock<Sha256Topic> = LazyLock::new(|| Sha256Topic::new("bitvm2"));
 
-// TODO(Velnbur): make this configurable later
 /// Global name of the protocol
+// TODO(Velnbur): make this configurable later
 const PROTOCOL_NAME: &str = "/strata-bitvm2";
-
-#[derive(Debug, Error)]
-pub enum Error {
-    #[error("Database error")]
-    Repository(#[from] RepositoryError),
-    #[error("Validation error")]
-    Validation(#[from] ValidationError),
-    #[error("Protocol error")]
-    Protocol(#[from] ProtocolError),
-}
-
-#[derive(Debug, Error)]
-pub enum ValidationError {
-    #[error("Invalid signature")]
-    InvalidSignature,
-    #[error("Not in signers allowlist")]
-    NotInSignersAllowlist,
-}
-
-#[derive(Debug, Error)]
-pub enum ProtocolError {
-    #[error("Failed to listen: {0}")]
-    Listen(#[from] TransportError<io::Error>),
-    #[error("Events channel closed: {0}")]
-    EventsChannelClosed(Box<dyn std::error::Error + Sync + Send>),
-    #[error("Failed to initialize transport: {0}")]
-    TransportInitialization(Box<dyn std::error::Error + Sync + Send>),
-    #[error("Failed to initialize behaviour: {0}")]
-    BehaviourInitialization(Box<dyn std::error::Error + Sync + Send>),
-}
-
-pub type P2PResult<T> = Result<T, Error>;
 
 /// Configuration options for [`P2P`].
 pub struct P2PConfig {
-    /// Pair of keys used as PeerId.
+    /// [`Keypair`] used as [`PeerId`].
     pub keypair: Keypair,
 
     /// Idle connection timeout.
     pub idle_connection_timeout: Duration,
 
+    /// The node's address.
     pub listening_addr: Multiaddr,
 
-    /// List of peers node is allowed to connect to.
+    /// List of [`PeerId`]s that the node is allowed to connect to.
     pub allowlist: Vec<PeerId>,
 
     /// Initial list of nodes to connect to at startup.
     pub connect_to: Vec<Multiaddr>,
 
-    /// List of signers' public keys, whose messages node accepts.
+    /// List of signers' public keys, whose messages the node is allowed to accept.
     pub signers_allowlist: Vec<OperatorPubKey>,
 }
 
 /// Implementation of p2p protocol for BitVM2 data exchange.
 pub struct P2P<DepositSetupPayload: ProtoMsg + Clone, Repository> {
+    /// The swarm that handles the networking.
     swarm: Swarm<Behaviour>,
 
+    /// Event channel for the swarm.
     events: broadcast::Sender<Event<DepositSetupPayload>>,
+
+    /// Command channel for the swarm.
     commands: mpsc::Receiver<Command<DepositSetupPayload>>,
 
-    // We need this one to create new handles, as only sender is clonable.
+    /// ([`Clone`]able) Command channel for the swarm.
+    ///
+    /// # Implementation details
+    ///
+    /// This is needed because we can't create new handles from the receiver, as
+    /// only sender is [`Clone`]able.
     commands_sender: mpsc::Sender<Command<DepositSetupPayload>>,
 
+    /// The database instance.
     db: Repository,
 
+    /// Cancellation token for the swarm.
     cancellation_token: CancellationToken,
+
+    /// Underlying configuration.
     config: P2PConfig,
 }
 
-/// Alias for P2P and P2PHandle tuple returned by `from_config`.
+/// Alias for P2P and P2PHandle tuple.
 pub type P2PWithHandle<DSP, Repository> = (P2P<DSP, Repository>, P2PHandle<DSP>);
 
 impl<DSP, DB: RepositoryExt<DSP>> P2P<DSP, DB>
 where
     DSP: ProtoMsg + Clone + Default + 'static,
 {
+    /// Creates a new P2P instance from the given configuration.
     pub fn from_config(
         cfg: P2PConfig,
         cancel: CancellationToken,
@@ -153,16 +139,17 @@ where
         ))
     }
 
+    /// Returns the [`PeerId`] of the local node.
     pub fn local_peer_id(&self) -> PeerId {
         *self.swarm.local_peer_id()
     }
 
-    /// Create and return a new subscribed handler.
+    /// Creates a new subscribed handler.
     pub fn new_handle(&self) -> P2PHandle<DSP> {
         P2PHandle::new(self.events.subscribe(), self.commands_sender.clone())
     }
 
-    /// Wait until all connections are established and all peers are subscribed to
+    /// Waits until all connections are established and all peers are subscribed to
     /// current one.
     pub async fn establish_connections(&mut self) {
         let mut is_not_connected = HashSet::new();
@@ -214,10 +201,12 @@ where
         info!("Established all connections and subscriptions");
     }
 
-    /// Start listening and handling events from the network and commands from
+    /// Starts listening and handling events from the network and commands from
     /// handles.
     ///
-    /// This method should be spawned in separate async task or polled periodicly
+    /// # Implementation details
+    ///
+    /// This method should be spawned in separate async task or polled periodically
     /// to advance handling of new messages, event or commands.
     pub async fn listen(mut self) {
         loop {
@@ -241,6 +230,7 @@ where
         }
     }
 
+    /// Handles a [`SwarmEvent`] from the swarm.
     async fn handle_swarm_event(&mut self, event: SwarmEvent<BehaviourEvent>) -> P2PResult<()> {
         match event {
             SwarmEvent::Behaviour(event) => self.handle_behaviour_event(event).await,
@@ -248,6 +238,7 @@ where
         }
     }
 
+    /// Handles a [`BehaviourEvent`] from the swarm.
     async fn handle_behaviour_event(&mut self, event: BehaviourEvent) -> P2PResult<()> {
         match event {
             BehaviourEvent::Gossipsub(event) => self.handle_gossip_event(event).await,
@@ -258,6 +249,7 @@ where
         }
     }
 
+    /// Handles a [`GossipsubEvent`] from the swarm.
     async fn handle_gossip_event(&mut self, event: GossipsubEvent) -> P2PResult<()> {
         match event {
             GossipsubEvent::Message {
@@ -272,11 +264,11 @@ where
         }
     }
 
-    /// Handle new message from gossipsub network.
+    /// Handles new message from gossipsub network.
     ///
     /// If message is not [`GossipsubMsg`] or is not signed, the message will
-    /// be rejected without propagation, otherwise if we didn't handled it
-    /// before, send an [`Event`] to handles, store it and reset timeout.
+    /// be rejected without propagation, otherwise if wasn't handled before, send an [`Event`] to
+    /// handles, store it and reset timeout.
     #[instrument(skip(self, message), fields(sender = %message.source.unwrap()))]
     async fn handle_gossip_msg(
         &mut self,
@@ -355,9 +347,9 @@ where
         Ok(())
     }
 
-    /// Add data received from external source to DB if it wasn't there before.
+    /// Adds data received from external source to DB if it wasn't there before.
     ///
-    /// Returns if the data was already presented or not.
+    /// Returns a `bool` indicating if the data was already presented or not.
     async fn add_msg_if_not_exists(&mut self, msg: &GossipsubMsg<DSP>) -> DBResult<bool> {
         match &msg.unsigned {
             v1::UnsignedGossipsubMsg::GenesisInfo(info) => {
@@ -411,7 +403,7 @@ where
         }
     }
 
-    /// Handle command sent through channel by P2P implementation user.
+    /// Handles command sent through channel by P2P implementation user.
     async fn handle_command(&mut self, cmd: Command<DSP>) -> P2PResult<()> {
         match cmd {
             Command::PublishMessage(send_message) => {
@@ -486,6 +478,7 @@ where
         }
     }
 
+    /// Handles [`RequestResponseEvent`] from the swarm.
     #[instrument(skip(self, event))]
     async fn handle_request_response_event(
         &mut self,
@@ -517,6 +510,7 @@ where
         Ok(())
     }
 
+    /// Handles [`MessageEvent`] from the swarm.
     async fn handle_message_event(
         &mut self,
         peer_id: PeerId,
@@ -600,6 +594,7 @@ where
         Ok(())
     }
 
+    /// Handles [`v1::GetMessageRequest`] from the swarm.
     async fn handle_get_message_request(
         &mut self,
         request: v1::GetMessageRequest,
@@ -673,6 +668,7 @@ where
         Ok(msg)
     }
 
+    /// Handles [`v1::GetMessageResponse`] from the swarm.
     async fn handle_get_message_response(&mut self, msg: GossipsubMsg<DSP>) -> P2PResult<()> {
         let new_event = self.add_msg_if_not_exists(&msg).await?;
 
@@ -704,20 +700,22 @@ where
 
 /// Constructs swarm builder with existing identity.
 ///
-/// Macro is used here, as `libp2p` doesn't expose internal generic types
-/// of [`SwarmBuilder`] to actually specify return type of function. So we
-/// use macro for now.
+/// # Implementation details
+///
+/// Macro is used here, as `libp2p` doesn't expose internal generic types of [`SwarmBuilder`] to
+/// actually specify return type of function. So we use macro for now.
 macro_rules! init_swarm {
     ($cfg:expr) => {
         SwarmBuilder::with_existing_identity($cfg.keypair.clone().into()).with_tokio()
     };
 }
 
-/// Finish builder of swarm with parameters from config.
+/// Finishes builder of swarm with parameters from config.
 ///
-/// Again, macro is used as there is no way to specify this behaviour in
-/// function, because `with_tcp` and `with_other_transport` return
-/// completely different types that can't be generalized.
+/// # Implementation details
+///
+/// Macro is used as there is no way to specify this behaviour in function, because `with_tcp` and
+/// `with_other_transport` return completely different types that can't be generalized.
 macro_rules! finish_swarm {
     ($builder:expr, $cfg:expr) => {
         $builder
@@ -729,7 +727,7 @@ macro_rules! finish_swarm {
     };
 }
 
-/// Construct swarm from P2P config with inmemory transport. Uses
+/// Constructs swarm from P2P config with inmemory transport. Uses
 /// `/memory/{n}` addresses.
 pub fn with_inmemory_transport(config: &P2PConfig) -> P2PResult<Swarm<Behaviour>> {
     let builder = init_swarm!(config);
@@ -747,7 +745,7 @@ pub fn with_inmemory_transport(config: &P2PConfig) -> P2PResult<Swarm<Behaviour>
     Ok(swarm)
 }
 
-/// Construct swarm from P2P config with TCP transport. Uses
+/// Constructs swarm from P2P config with TCP transport. Uses
 /// `/ip4/{addr}/tcp/{port}` addresses.
 pub fn with_tcp_transport(config: &P2PConfig) -> P2PResult<Swarm<Behaviour>> {
     let builder = init_swarm!(config);

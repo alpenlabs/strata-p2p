@@ -1,3 +1,5 @@
+//! Gossipsub tests.
+
 use anyhow::bail;
 use bitcoin::OutPoint;
 use common::Operator;

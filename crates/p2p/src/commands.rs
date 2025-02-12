@@ -12,44 +12,71 @@ use strata_p2p_wire::p2p::v1::{
 /// Ask P2P implementation to distribute some data across network.
 #[derive(Debug, Clone)]
 pub enum Command<DepositSetupPayload> {
-    /// Publish message through gossip sub network of peers.
+    /// Publishes message through gossip sub network of peers.
     PublishMessage(PublishMessage<DepositSetupPayload>),
 
-    /// Request some message directly from other operator by peer id.
+    /// Requests some message directly from other operator by peer id.
     RequestMessage(GetMessageRequest),
 
-    /// Clean session, scopes from internal DB.
+    /// Cleans session, scopes from internal DB.
     CleanStorage(CleanStorageCommand),
 }
 
 #[derive(Debug, Clone)]
 pub struct PublishMessage<DepositSetupPayload> {
+    /// Operator's public key.
     pub key: OperatorPubKey,
+
+    /// Operator's signature over the message.
     pub signature: Vec<u8>,
+
+    /// Unsigned message.
     pub msg: UnsignedPublishMessage<DepositSetupPayload>,
 }
 
+/// Types of unsigned messages.
 #[derive(Debug, Clone)]
 pub enum UnsignedPublishMessage<DepositSetupPayload> {
+    /// Genesis information.
+    ///
+    /// Primarily used for the Stake Chain setup.
     GenesisInfo {
         pre_stake_outpoint: OutPoint,
         checkpoint_pubkeys: Vec<XOnlyPublicKey>,
     },
+
+    /// Deposit setup.
+    ///
+    /// Primarily used for the WOTS PKs.
     DepositSetup {
+        /// The deposit [`Scope`].
         scope: Scope,
+
+        /// Payload, WOTS PKs.
         payload: DepositSetupPayload,
     },
+
+    /// MuSig2 (public) nonces exchange.
     Musig2NoncesExchange {
+        /// The [`SessionId`].
         session_id: SessionId,
+
+        /// Payload, (public) nonces.
         pub_nonces: Vec<PubNonce>,
     },
+
+    /// MuSig2 (partial) signatures exchange.
     Musig2SignaturesExchange {
+        /// The [`SessionId`].
         session_id: SessionId,
+
+        /// Payload, (partial) signatures.
         partial_sigs: Vec<PartialSignature>,
     },
 }
 
 impl<DSP: Message + Clone> From<PublishMessage<DSP>> for GossipsubMsg<DSP> {
+    /// Converts [`PublishMessage`] into [`GossipsubMsg`].
     fn from(value: PublishMessage<DSP>) -> Self {
         GossipsubMsg {
             signature: value.signature,
@@ -60,8 +87,8 @@ impl<DSP: Message + Clone> From<PublishMessage<DSP>> for GossipsubMsg<DSP> {
 }
 
 impl<DSP: Message + Default + Clone> UnsignedPublishMessage<DSP> {
-    /// Sign `self` using supplied `keypair`. Returns a `Command`
-    /// with resulting signature and public key from `keypair`.
+    /// Signs `self` using supplied [`secp256k1::Keypair`]. Returns a `Command`
+    /// with resulting signature and public key from [`secp256k1::Keypair`].
     pub fn sign_secp256k1(&self, keypair: &secp256k1::Keypair) -> PublishMessage<DSP> {
         let kind: UnsignedGossipsubMsg<DSP> = self.clone().into();
         let msg = kind.content();
@@ -76,6 +103,7 @@ impl<DSP: Message + Default + Clone> UnsignedPublishMessage<DSP> {
 }
 
 impl<DSP: Message + Clone> From<UnsignedPublishMessage<DSP>> for UnsignedGossipsubMsg<DSP> {
+    /// Converts [`UnsignedPublishMessage`] into [`UnsignedGossipsubMsg`].
     fn from(value: UnsignedPublishMessage<DSP>) -> Self {
         match value {
             UnsignedPublishMessage::GenesisInfo {
@@ -85,12 +113,14 @@ impl<DSP: Message + Clone> From<UnsignedPublishMessage<DSP>> for UnsignedGossips
                 checkpoint_pubkeys,
                 pre_stake_outpoint,
             }),
+
             UnsignedPublishMessage::DepositSetup { scope, payload } => {
                 UnsignedGossipsubMsg::DepositSetup {
                     scope,
                     setup: DepositSetup { payload },
                 }
             }
+
             UnsignedPublishMessage::Musig2NoncesExchange {
                 session_id,
                 pub_nonces,
@@ -98,6 +128,7 @@ impl<DSP: Message + Clone> From<UnsignedPublishMessage<DSP>> for UnsignedGossips
                 session_id,
                 nonces: pub_nonces,
             },
+
             UnsignedPublishMessage::Musig2SignaturesExchange {
                 session_id,
                 partial_sigs,
@@ -117,16 +148,22 @@ impl<DepositSetupPayload> From<PublishMessage<DepositSetupPayload>>
     }
 }
 
-/// Command P2P to clean entries from internal key-value storage by
+/// Commands P2P to clean entries from internal key-value storage by
 /// session IDs, scopes and operator pubkeys.
 #[derive(Debug, Clone)]
 pub struct CleanStorageCommand {
+    /// [`Scope`]s to clean.
     pub scopes: Vec<Scope>,
+
+    /// [`SessionId`]s to clean.
     pub session_ids: Vec<SessionId>,
+
+    /// [`OperatorPubKey`]s to clean.
     pub operators: Vec<OperatorPubKey>,
 }
 
 impl CleanStorageCommand {
+    /// Creates a new [`CleanStorageCommand`].
     pub const fn new(
         scopes: Vec<Scope>,
         session_ids: Vec<SessionId>,
@@ -139,7 +176,7 @@ impl CleanStorageCommand {
         }
     }
 
-    /// Clean entries only by scope and operators from storage.
+    /// Clean entries only by [`Scope`] and [`OperatorPubKey`]s from storage.
     pub const fn with_scopes(scopes: Vec<Scope>, operators: Vec<OperatorPubKey>) -> Self {
         Self {
             scopes,
@@ -148,7 +185,7 @@ impl CleanStorageCommand {
         }
     }
 
-    /// Clean entries only by session IDs and operators from storage.
+    /// Clean entries only by [`SessionId`]s and [`OperatorPubKey`]s from storage.
     pub const fn with_session_ids(
         session_ids: Vec<SessionId>,
         operators: Vec<OperatorPubKey>,
