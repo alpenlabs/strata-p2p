@@ -1,9 +1,15 @@
+//! Every deposit needs a unique identifier to deposit setup information,
+//! which is primarily WOTS PKs.
+//! This is the role of [`Scope`].
+
 use core::fmt;
 
 use bitcoin::hashes::{sha256, Hash};
 use serde::{Deserialize, Serialize};
 
-/// A unique identifier of deposit setup made by hashing unique data related to it
+/// A unique identifier of deposit setup made by hashing unique data related to it.
+///
+/// This is primarily used for WOTS PKs.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Deserialize, Serialize)]
 pub struct Scope([u8; Scope::SIZE]);
 
@@ -14,18 +20,22 @@ impl fmt::Display for Scope {
 }
 
 impl Scope {
+    /// Size in bytes.
     const SIZE: usize = 32;
 
-    /// Construct scope from preimage by hashing it.
+    /// Constructs a [`Scope`] from `data` by hashing it.
     pub fn hash(data: &[u8]) -> Self {
         Self(sha256::Hash::hash(data).to_byte_array())
     }
 
-    /// Construct scope from array of bytes.
+    /// Constructs a [`Scope`] from raw bytes.
+    ///
+    /// Note that the `bytes` should represent a hash.
     pub fn from_bytes(bytes: [u8; Self::SIZE]) -> Self {
         Self(bytes)
     }
 
+    /// Outputs the [`Scope`] as a vector of raw bytes.
     pub fn to_vec(&self) -> Vec<u8> {
         self.0.to_vec()
     }

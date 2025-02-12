@@ -2,36 +2,41 @@ syntax = "proto3";
 
 package strata.bitvm2.p2p.v1;
 
+// Used for the Stake Chain setup.
 message GenesisInfo {
-  // output number of pre stake tx
+  // output number of pre stake tx.
   uint32 pre_stake_vout = 1;
-  // transaction hash of pre stake tx
+  // transaction hash of pre stake tx.
   bytes pre_stake_txid = 2;
-  // keys Y_{i, j}
+  // keys Y_{i, j}.
   repeated bytes checkpoint_pubkeys = 3;
 }
 
+// Primarily used for the WOTS PKs.
 message DepositSetupExchange {
-  // 32-byte hash of some unique to deposit data
+  // 32-byte hash of some unique to deposit data.
   bytes scope = 1;
   // Some arbitrary payload which depends on the implementation.
   bytes payload = 2;
 }
 
+// Musig2 first-round (public) nonces exchange.
 message Musig2NoncesExchange {
-  // 32-byte hash of some unique to deposit data
+  // 32-byte hash of some unique to deposit data.
   bytes session_id = 1;
-  // Public nonces for each transaction
+  // (Public) Nonces for each transaction.
   repeated bytes pub_nonces = 2;
 }
 
+// Musig2 second-round (partial) signatures exchange.
 message Musig2SignaturesExchange {
-  // 32-byte hash of some unique to deposit data
+  // 32-byte hash of some unique to deposit data.
   bytes session_id = 1;
-  // Partial signatures for each transaction
+  // (Partial) Signatures for each transaction.
   repeated bytes partial_sigs = 2;
 }
 
+// Catch-all message type for all messages.
 message GossipsubMsg {
   oneof body {
     GenesisInfo genesis_info = 1;

@@ -1,10 +1,13 @@
+//! Operators need to exchange (authenticated) messages which are signed with [`OperatorPubKey`].
+
 use std::fmt;
 
 use hex::ToHex;
 use libp2p_identity::secp256k1::PublicKey;
 
-/// OperatorPubKey serves as an identifier of protocol entity.
-/// De facto this is a wrapper over `secp256k1::PublicKey`.
+/// [`OperatorPubKey`] serves as an identifier of protocol entity.
+///
+/// De facto this is a wrapper over [`bitcoin::secp256k1::PublicKey`].
 #[derive(
     serde::Serialize, serde::Deserialize, Debug, Clone, Eq, PartialEq, Hash, Ord, PartialOrd,
 )]
@@ -41,9 +44,10 @@ impl From<PublicKey> for OperatorPubKey {
 }
 
 impl OperatorPubKey {
-    pub fn verify(&self, msg: &[u8], sig: &[u8]) -> bool {
+    /// Verifies the `message` using the `signature` against this [`OperatorPubKey`].
+    pub fn verify(&self, message: &[u8], signature: &[u8]) -> bool {
         match PublicKey::try_from_bytes(&self.0) {
-            Ok(key) => key.verify(msg, sig),
+            Ok(key) => key.verify(message, signature),
             Err(_) => false,
         }
     }

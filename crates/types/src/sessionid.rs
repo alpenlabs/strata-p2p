@@ -1,25 +1,33 @@
+//! Every deposit needs a unique identifier to exchange (partial) signatures and (public) nonces.
+//! This is the role of [`SessionId`].
+
 use core::fmt;
 
 use bitcoin::hashes::{sha256, Hash};
 use serde::{Deserialize, Serialize};
 
-/// A unique identifier of signatures and nonces exchange session made by
+/// A unique identifier of (partial) signatures and (public) nonces exchange session made by
 /// hashing unique data related to it.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Deserialize, Serialize)]
 pub struct SessionId([u8; SessionId::SIZE]);
 
 impl SessionId {
+    /// Size in bytes.
     const SIZE: usize = 32;
 
-    /// Construct session ID from preimage by hashing it.
+    /// Constructs a [`SessionId`] from `data` by hashing it.
     pub fn hash(data: &[u8]) -> Self {
         Self(sha256::Hash::const_hash(data).to_byte_array())
     }
 
+    /// Constructs a [`SessionId`] from raw bytes.
+    ///
+    /// Note that the `bytes` should represent a hash.
     pub fn from_bytes(bytes: [u8; Self::SIZE]) -> Self {
         Self(bytes)
     }
 
+    /// Outputs the [`SessionId`] as a vector of raw bytes.
     pub fn to_vec(&self) -> Vec<u8> {
         self.0.to_vec()
     }

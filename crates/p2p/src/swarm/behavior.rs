@@ -1,3 +1,5 @@
+//! Request-Response [`Behaviour`] and [`NetworkBehaviour`] for the P2P protocol.
+
 use std::collections::HashSet;
 
 use libp2p::{
@@ -19,7 +21,7 @@ use strata_p2p_wire::p2p::v1::proto::{GetMessageRequest, GetMessageResponse};
 use super::{codec, TOPIC};
 
 /// Alias for request-response behaviour with messages serialized by using
-/// our codec implementation.
+/// homebrewed codec implementation.
 pub type RequestResponseProtoBehaviour<Req, Resp> = RequestResponse<codec::Codec<Req, Resp>>;
 
 /// Composite behaviour which consists of other ones used by swarm in P2P
@@ -28,15 +30,20 @@ pub type RequestResponseProtoBehaviour<Req, Resp> = RequestResponse<codec::Codec
 pub struct Behaviour {
     /// Gossipsub - pub/sub model for messages distribution.
     pub gossipsub: Gossipsub<IdentityTransform, WhitelistSubscriptionFilter>,
+
     /// Identification of peers, address to connect to, public keys, etc.
     pub identify: Identify,
+
     /// Request-response model for recursive discovery of lost or skipped info.
     pub request_response: RequestResponseProtoBehaviour<GetMessageRequest, GetMessageResponse>,
+
     /// Connect only allowed peers by peer id.
     pub allow_list: AllowListBehaviour<AllowedPeers>,
 }
 
 impl Behaviour {
+    /// Creates a new [`Behaviour`] given a `protocol_name`, [`Keypair`], and an allow list of
+    /// [`PeerId`]s.
     pub fn new(protocol_name: &'static str, keypair: &Keypair, allowlist: &[PeerId]) -> Self {
         let mut allow_list = AllowListBehaviour::default();
         for peer in allowlist {
