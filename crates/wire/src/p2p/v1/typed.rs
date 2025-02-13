@@ -8,7 +8,7 @@ use bitcoin::{
 };
 use musig2::{PartialSignature, PubNonce};
 use prost::{DecodeError, Message};
-use strata_p2p_types::{OperatorPubKey, Scope, SessionId, Wots256PublicKey};
+use strata_p2p_types::{OperatorPubKey, Scope, SessionId, StakeChainId, Wots256PublicKey};
 
 use super::proto::{
     get_message_request::Body as ProtoGetMessageRequestBody,
@@ -24,7 +24,10 @@ use super::proto::{
 #[derive(Clone, Debug)]
 pub enum GetMessageRequest {
     /// Request Stake Chain info for this operator.
-    StakeChainExchange { operator_pk: OperatorPubKey },
+    StakeChainExchange {
+        stake_chain_id: StakeChainId,
+        operator_pk: OperatorPubKey,
+    },
 
     /// Request deposit setup info for [`Scope`] and operator.
     ///
@@ -93,8 +96,16 @@ impl GetMessageRequest {
                     operator_pk: operator.into(),
                 }
             }
-            ProtoGetMessageRequestBody::StakeChain(StakeChainRequestKey { operator }) => {
+            ProtoGetMessageRequestBody::StakeChain(StakeChainRequestKey {
+                stake_chain_id,
+                operator,
+            }) => {
+                let bytes = stake_chain_id
+                    .try_into()
+                    .map_err(|_| DecodeError::new("invalid length of bytes in stake chain id"))?;
+                let stake_chain_id = StakeChainId::from_bytes(bytes);
                 Self::StakeChainExchange {
+                    stake_chain_id,
                     operator_pk: operator.into(),
                 }
             }
@@ -106,11 +117,13 @@ impl GetMessageRequest {
     /// Converts [`GetMessageRequest`] into raw [`ProtoGetMessageRequest`].
     pub fn into_msg(self) -> ProtoGetMessageRequest {
         let body = match self {
-            Self::StakeChainExchange { operator_pk } => {
-                ProtoGetMessageRequestBody::StakeChain(StakeChainRequestKey {
-                    operator: operator_pk.into(),
-                })
-            }
+            Self::StakeChainExchange {
+                stake_chain_id,
+                operator_pk,
+            } => ProtoGetMessageRequestBody::StakeChain(StakeChainRequestKey {
+                stake_chain_id: stake_chain_id.to_vec(),
+                operator: operator_pk.into(),
+            }),
             Self::DepositSetup { scope, operator_pk } => {
                 ProtoGetMessageRequestBody::DepositSetup(DepositRequestKey {
                     scope: scope.to_vec(),
@@ -139,7 +152,7 @@ impl GetMessageRequest {
     /// Returns the [`OperatorPubKey`] with respect to this [`GetMessageRequest`].
     pub fn operator_pubkey(&self) -> &OperatorPubKey {
         match self {
-            Self::StakeChainExchange { operator_pk }
+            Self::StakeChainExchange { operator_pk, .. }
             | Self::DepositSetup { operator_pk, .. }
             | Self::Musig2NoncesExchange { operator_pk, .. }
             | Self::Musig2SignaturesExchange { operator_pk, .. } => operator_pk,
@@ -257,7 +270,13 @@ impl StakeChainExchange {
 #[derive(Clone, Debug)]
 pub enum UnsignedGossipsubMsg<DepositSetupPayload: Message> {
     /// Operators exchange stake chain info.
-    StakeChainExchange(StakeChainExchange),
+    StakeChainExchange {
+        /// 32-byte hash of some unique to stake chain data.
+        stake_chain_id: StakeChainId,
+
+        /// All the necessary information to setup the stake chain.
+        info: StakeChainExchange,
+    },
 
     /// New deposit request appeared, and operators
     /// exchanging setup data.
@@ -297,7 +316,14 @@ impl<DSP: Message + Default> UnsignedGossipsubMsg<DSP> {
         let unsigned =
             match proto {
                 ProtoGossipsubMsgBody::StakeChain(proto) => {
-                    Self::StakeChainExchange(StakeChainExchange::from_proto_msg(proto)?)
+                    let bytes = proto.stake_chain_id.as_slice().try_into().map_err(|_| {
+                        DecodeError::new("invalid length of bytes for stake chain id")
+                    })?;
+                    let stake_chain_id = StakeChainId::from_bytes(bytes);
+                    Self::StakeChainExchange {
+                        stake_chain_id,
+                        info: StakeChainExchange::from_proto_msg(proto)?,
+                    }
                 }
                 ProtoGossipsubMsgBody::Setup(proto) => {
                     let bytes = proto
@@ -360,25 +386,23 @@ impl<DSP: Message + Default> UnsignedGossipsubMsg<DSP> {
         let mut content = Vec::new();
 
         match &self {
-            Self::StakeChainExchange(StakeChainExchange {
-                pre_stake_outpoint,
-                checkpoint_pubkeys,
-                stake_wots,
-                stake_hashes,
-                operator_funds,
-            }) => {
-                content.extend(pre_stake_outpoint.vout.to_le_bytes());
-                content.extend(pre_stake_outpoint.txid.to_byte_array());
-                checkpoint_pubkeys.iter().for_each(|key| {
+            Self::StakeChainExchange {
+                stake_chain_id,
+                info,
+            } => {
+                content.extend(stake_chain_id.as_ref());
+                content.extend(info.pre_stake_outpoint.vout.to_le_bytes());
+                content.extend(info.pre_stake_outpoint.txid.to_byte_array());
+                info.checkpoint_pubkeys.iter().for_each(|key| {
                     content.extend(key.serialize());
                 });
-                stake_wots.iter().for_each(|wots| {
+                info.stake_wots.iter().for_each(|wots| {
                     content.extend(wots.iter().copied().flatten().collect::<Vec<u8>>());
                 });
-                stake_hashes.iter().for_each(|hash| {
+                info.stake_hashes.iter().for_each(|hash| {
                     content.extend(hash.to_byte_array());
                 });
-                operator_funds.iter().for_each(|outpoint| {
+                info.operator_funds.iter().for_each(|outpoint| {
                     content.extend(outpoint.txid.to_byte_array());
                     content.extend(outpoint.vout.to_le_bytes());
                 });
@@ -410,32 +434,34 @@ impl<DSP: Message + Default> UnsignedGossipsubMsg<DSP> {
     /// Helper function to convert [`UnsignedGossipsubMsg`] into raw [`ProtoGossipsubMsgBody`].
     fn to_raw(&self) -> ProtoGossipsubMsgBody {
         match self {
-            Self::StakeChainExchange(info) => {
-                ProtoGossipsubMsgBody::StakeChain(ProtoStakeChainExchange {
-                    pre_stake_vout: info.pre_stake_outpoint.vout,
-                    pre_stake_txid: info.pre_stake_outpoint.txid.to_byte_array().to_vec(),
-                    checkpoint_pubkeys: info
-                        .checkpoint_pubkeys
-                        .iter()
-                        .map(|k| k.serialize().to_vec())
-                        .collect(),
-                    stake_wots: info
-                        .stake_wots
-                        .iter()
-                        .map(|w| w.iter().copied().flatten().collect::<Vec<u8>>())
-                        .collect(),
-                    stake_hashes: info
-                        .stake_hashes
-                        .iter()
-                        .map(|h| h.to_byte_array().to_vec())
-                        .collect(),
-                    operator_funds: info
-                        .operator_funds
-                        .iter()
-                        .map(|op| op.to_string().as_bytes().to_vec())
-                        .collect(),
-                })
-            }
+            Self::StakeChainExchange {
+                stake_chain_id,
+                info,
+            } => ProtoGossipsubMsgBody::StakeChain(ProtoStakeChainExchange {
+                stake_chain_id: stake_chain_id.to_vec(),
+                pre_stake_vout: info.pre_stake_outpoint.vout,
+                pre_stake_txid: info.pre_stake_outpoint.txid.to_byte_array().to_vec(),
+                checkpoint_pubkeys: info
+                    .checkpoint_pubkeys
+                    .iter()
+                    .map(|k| k.serialize().to_vec())
+                    .collect(),
+                stake_wots: info
+                    .stake_wots
+                    .iter()
+                    .map(|w| w.iter().copied().flatten().collect::<Vec<u8>>())
+                    .collect(),
+                stake_hashes: info
+                    .stake_hashes
+                    .iter()
+                    .map(|h| h.to_byte_array().to_vec())
+                    .collect(),
+                operator_funds: info
+                    .operator_funds
+                    .iter()
+                    .map(|op| op.to_string().as_bytes().to_vec())
+                    .collect(),
+            }),
             Self::DepositSetup { scope, setup } => {
                 ProtoGossipsubMsgBody::Setup(ProtoDepositSetup {
                     scope: scope.to_vec(),
