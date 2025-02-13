@@ -4,7 +4,7 @@ use bitcoin::{hashes::sha256, OutPoint, XOnlyPublicKey};
 use libp2p::identity::secp256k1;
 use musig2::{PartialSignature, PubNonce};
 use prost::Message;
-use strata_p2p_types::{OperatorPubKey, Scope, SessionId, Wots256PublicKey};
+use strata_p2p_types::{OperatorPubKey, Scope, SessionId, StakeChainId, Wots256PublicKey};
 use strata_p2p_wire::p2p::v1::{
     DepositSetup, GetMessageRequest, GossipsubMsg, StakeChainExchange, UnsignedGossipsubMsg,
 };
@@ -39,6 +39,9 @@ pub struct PublishMessage<DepositSetupPayload> {
 pub enum UnsignedPublishMessage<DepositSetupPayload> {
     /// Stake Chain information.
     StakeChainExchange {
+        /// 32-byte hash of some unique to stake chain data.
+        stake_chain_id: StakeChainId,
+
         /// [`OutPoint`] of the pre-stake transaction.
         pre_stake_outpoint: OutPoint,
 
@@ -121,18 +124,22 @@ impl<DSP: Message + Clone> From<UnsignedPublishMessage<DSP>> for UnsignedGossips
     fn from(value: UnsignedPublishMessage<DSP>) -> Self {
         match value {
             UnsignedPublishMessage::StakeChainExchange {
+                stake_chain_id,
                 pre_stake_outpoint,
                 checkpoint_pubkeys,
                 stake_wots,
                 stake_hashes,
                 operator_funds,
-            } => UnsignedGossipsubMsg::StakeChainExchange(StakeChainExchange {
-                checkpoint_pubkeys,
-                pre_stake_outpoint,
-                stake_wots,
-                stake_hashes,
-                operator_funds,
-            }),
+            } => UnsignedGossipsubMsg::StakeChainExchange {
+                stake_chain_id,
+                info: StakeChainExchange {
+                    checkpoint_pubkeys,
+                    pre_stake_outpoint,
+                    stake_wots,
+                    stake_hashes,
+                    operator_funds,
+                },
+            },
 
             UnsignedPublishMessage::DepositSetup { scope, payload } => {
                 UnsignedGossipsubMsg::DepositSetup {
