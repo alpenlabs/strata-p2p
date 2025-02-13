@@ -188,9 +188,18 @@ async fn test_request_response() -> anyhow::Result<()> {
             UnsignedPublishMessage::GenesisInfo {
                 pre_stake_outpoint,
                 checkpoint_pubkeys,
+                stake_wots,
+                stake_hashes,
+                operator_funds,
             } => {
                 let entry = GenesisInfoEntry {
-                    entry: (pre_stake_outpoint, checkpoint_pubkeys),
+                    entry: (
+                        pre_stake_outpoint,
+                        checkpoint_pubkeys,
+                        stake_wots,
+                        stake_hashes,
+                        operator_funds,
+                    ),
                     signature: msg.signature,
                     key: msg.key,
                 };
@@ -462,6 +471,9 @@ fn mock_genesis_info(kp: &SecpKeypair) -> Command<()> {
     let kind = UnsignedPublishMessage::GenesisInfo {
         pre_stake_outpoint: OutPoint::null(),
         checkpoint_pubkeys: vec![],
+        stake_wots: vec![],
+        stake_hashes: vec![],
+        operator_funds: vec![],
     };
     kind.sign_secp256k1(kp).into()
 }

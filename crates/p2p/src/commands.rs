@@ -1,10 +1,10 @@
 //! Commands for P2P implementation from operator implementation.
 
-use bitcoin::{OutPoint, XOnlyPublicKey};
+use bitcoin::{hashes::sha256, OutPoint, XOnlyPublicKey};
 use libp2p::identity::secp256k1;
 use musig2::{PartialSignature, PubNonce};
 use prost::Message;
-use strata_p2p_types::{OperatorPubKey, Scope, SessionId};
+use strata_p2p_types::{OperatorPubKey, Scope, SessionId, Wots256PublicKey};
 use strata_p2p_wire::p2p::v1::{
     DepositSetup, GenesisInfo, GetMessageRequest, GossipsubMsg, UnsignedGossipsubMsg,
 };
@@ -41,8 +41,24 @@ pub enum UnsignedPublishMessage<DepositSetupPayload> {
     ///
     /// Primarily used for the Stake Chain setup.
     GenesisInfo {
+        /// [`OutPoint`] of the pre-stake transaction.
         pre_stake_outpoint: OutPoint,
+
+        /// Each operator `i = 0..N` sends a message with his Schnorr verification keys `Y_{i,j}`
+        /// for blocks `j = 0..M`.
         checkpoint_pubkeys: Vec<XOnlyPublicKey>,
+
+        /// WOTS public keys for each stake transaction.
+        stake_wots: Vec<Wots256PublicKey>,
+
+        /// Hashes for each stake transaction.
+        stake_hashes: Vec<sha256::Hash>,
+
+        /// Operator's funds prevouts for each stake transaction.
+        ///
+        /// There are to cover the dust outputs in each withdrawal request.
+        /// Composed of `txid:vout` ([`OutPoint`]) as a flattened byte array.
+        operator_funds: Vec<OutPoint>,
     },
 
     /// Deposit setup.
@@ -109,9 +125,15 @@ impl<DSP: Message + Clone> From<UnsignedPublishMessage<DSP>> for UnsignedGossips
             UnsignedPublishMessage::GenesisInfo {
                 pre_stake_outpoint,
                 checkpoint_pubkeys,
+                stake_wots,
+                stake_hashes,
+                operator_funds,
             } => UnsignedGossipsubMsg::GenesisInfo(GenesisInfo {
                 checkpoint_pubkeys,
                 pre_stake_outpoint,
+                stake_wots,
+                stake_hashes,
+                operator_funds,
             }),
 
             UnsignedPublishMessage::DepositSetup { scope, payload } => {

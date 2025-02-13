@@ -355,7 +355,13 @@ where
             v1::UnsignedGossipsubMsg::GenesisInfo(info) => {
                 self.db
                     .set_genesis_info_if_not_exists(GenesisInfoEntry {
-                        entry: (info.pre_stake_outpoint, info.checkpoint_pubkeys.clone()),
+                        entry: (
+                            info.pre_stake_outpoint,
+                            info.checkpoint_pubkeys.clone(),
+                            info.stake_wots.clone(),
+                            info.stake_hashes.clone(),
+                            info.operator_funds.clone(),
+                        ),
                         signature: msg.signature.clone(),
                         key: msg.key.clone(),
                     })
@@ -612,6 +618,24 @@ where
                             .1
                             .iter()
                             .map(|k| k.serialize().to_vec())
+                            .collect(),
+                        stake_wots: v
+                            .entry
+                            .2
+                            .iter()
+                            .map(|w| w.iter().copied().flatten().collect::<Vec<u8>>())
+                            .collect(),
+                        stake_hashes: v
+                            .entry
+                            .3
+                            .iter()
+                            .map(|h| h.to_byte_array().to_vec())
+                            .collect(),
+                        operator_funds: v
+                            .entry
+                            .4
+                            .iter()
+                            .map(|op| op.to_string().as_bytes().to_vec())
                             .collect(),
                     })),
                     signature: v.signature,
