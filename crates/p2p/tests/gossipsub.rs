@@ -14,7 +14,7 @@ use strata_p2p::{
     events::Event,
     swarm::handle::P2PHandle,
 };
-use strata_p2p_db::{sled::AsyncDB, GenesisInfoEntry, RepositoryExt};
+use strata_p2p_db::{sled::AsyncDB, RepositoryExt, StakeChainEntry};
 use strata_p2p_types::{OperatorPubKey, Scope, SessionId};
 use strata_p2p_wire::p2p::v1::{GetMessageRequest, GossipsubMsg, UnsignedGossipsubMsg};
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
@@ -146,7 +146,7 @@ async fn test_all_to_all_one_scope() -> anyhow::Result<()> {
     let scope = Scope::hash(b"scope");
     let session_id = SessionId::hash(b"session_id");
 
-    exchange_genesis_info(&mut operators, OPERATORS_NUM).await?;
+    exchange_stake_chain_info(&mut operators, OPERATORS_NUM).await?;
     exchange_deposit_setup(&mut operators, OPERATORS_NUM, scope).await?;
     exchange_deposit_nonces(&mut operators, OPERATORS_NUM, session_id).await?;
     exchange_deposit_sigs(&mut operators, OPERATORS_NUM, session_id).await?;
@@ -174,25 +174,25 @@ async fn test_request_response() -> anyhow::Result<()> {
     } = Setup::all_to_all(OPERATORS_NUM).await?;
 
     // last operator won't send his info to others
-    exchange_genesis_info(&mut operators[..OPERATORS_NUM - 1], OPERATORS_NUM - 1).await?;
+    exchange_stake_chain_info(&mut operators[..OPERATORS_NUM - 1], OPERATORS_NUM - 1).await?;
 
     // create command to request info from the last operator
     let operator_pk: OperatorPubKey = operators[OPERATORS_NUM - 1].kp.public().clone().into();
-    let command = Command::<()>::RequestMessage(GetMessageRequest::Genesis {
+    let command = Command::<()>::RequestMessage(GetMessageRequest::StakeChainExchange {
         operator_pk: operator_pk.clone(),
     });
 
     // put data in the last operator, so that he can respond it
-    match mock_genesis_info(&operators[OPERATORS_NUM - 1].kp.clone()) {
+    match mock_stake_chain_info(&operators[OPERATORS_NUM - 1].kp.clone()) {
         Command::PublishMessage(msg) => match msg.msg {
-            UnsignedPublishMessage::GenesisInfo {
+            UnsignedPublishMessage::StakeChainExchange {
                 pre_stake_outpoint,
                 checkpoint_pubkeys,
                 stake_wots,
                 stake_hashes,
                 operator_funds,
             } => {
-                let entry = GenesisInfoEntry {
+                let entry = StakeChainEntry {
                     entry: (
                         pre_stake_outpoint,
                         checkpoint_pubkeys,
@@ -203,7 +203,7 @@ async fn test_request_response() -> anyhow::Result<()> {
                     signature: msg.signature,
                     key: msg.key,
                 };
-                <AsyncDB as RepositoryExt<()>>::set_genesis_info_if_not_exists::<'_, '_>(
+                <AsyncDB as RepositoryExt<()>>::set_stake_chain_info_if_not_exists::<'_, '_>(
                     &operators[OPERATORS_NUM - 1].db,
                     entry,
                 )
@@ -220,13 +220,13 @@ async fn test_request_response() -> anyhow::Result<()> {
 
     match event {
         Event::ReceivedMessage(msg)
-            if matches!(msg.unsigned, UnsignedGossipsubMsg::GenesisInfo(_))
+            if matches!(msg.unsigned, UnsignedGossipsubMsg::StakeChainExchange(_))
                 && msg.key == operator_pk =>
         {
-            info!("Got genesis info from the last operator")
+            info!("Got stake chain info from the last operator")
         }
 
-        _ => bail!("Got event other than 'genesis_info' - {:?}", event),
+        _ => bail!("Got event other than 'stake_chain_info' - {:?}", event),
     }
 
     cancel.cancel();
@@ -251,7 +251,7 @@ async fn test_all_to_all_multiple_scopes() -> anyhow::Result<()> {
         tasks,
     } = Setup::all_to_all(OPERATORS_NUM).await?;
 
-    exchange_genesis_info(&mut operators, OPERATORS_NUM).await?;
+    exchange_stake_chain_info(&mut operators, OPERATORS_NUM).await?;
 
     let scopes = (0..10)
         .map(|i| Scope::hash(format!("scope{}", i).as_bytes()))
@@ -296,7 +296,7 @@ async fn test_operator_cleans_entries_correctly_at_command() -> anyhow::Result<(
     let scope = Scope::hash(b"scope");
     let session_id = SessionId::hash(b"session_id");
 
-    exchange_genesis_info(&mut operators, OPERATORS_NUM).await?;
+    exchange_stake_chain_info(&mut operators, OPERATORS_NUM).await?;
     exchange_deposit_setup(&mut operators, OPERATORS_NUM, scope).await?;
     exchange_deposit_nonces(&mut operators, OPERATORS_NUM, session_id).await?;
     exchange_deposit_sigs(&mut operators, OPERATORS_NUM, session_id).await?;
@@ -343,29 +343,29 @@ async fn test_operator_cleans_entries_correctly_at_command() -> anyhow::Result<(
     Ok(())
 }
 
-async fn exchange_genesis_info(
+async fn exchange_stake_chain_info(
     operators: &mut [OperatorHandle],
     operators_num: usize,
 ) -> anyhow::Result<()> {
     for operator in operators.iter() {
         operator
             .handle
-            .send_command(mock_genesis_info(&operator.kp))
+            .send_command(mock_stake_chain_info(&operator.kp))
             .await;
     }
     for operator in operators.iter_mut() {
-        // received genesis info from other n-1 operators
+        // received stake chain info from other n-1 operators
         for _ in 0..operators_num - 1 {
             let event = operator.handle.next_event().await?;
 
             if !matches!(
                 event,
                 Event::ReceivedMessage(GossipsubMsg {
-                    unsigned: UnsignedGossipsubMsg::GenesisInfo(_),
+                    unsigned: UnsignedGossipsubMsg::StakeChainExchange(_),
                     ..
                 })
             ) {
-                bail!("Got event other than 'genesis_info' - {:?}", event);
+                bail!("Got event other than 'stake_chain_info' - {:?}", event);
             }
         }
 
@@ -467,8 +467,8 @@ async fn exchange_deposit_sigs(
     Ok(())
 }
 
-fn mock_genesis_info(kp: &SecpKeypair) -> Command<()> {
-    let kind = UnsignedPublishMessage::GenesisInfo {
+fn mock_stake_chain_info(kp: &SecpKeypair) -> Command<()> {
+    let kind = UnsignedPublishMessage::StakeChainExchange {
         pre_stake_outpoint: OutPoint::null(),
         checkpoint_pubkeys: vec![],
         stake_wots: vec![],

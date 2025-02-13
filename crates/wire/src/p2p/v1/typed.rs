@@ -13,19 +13,18 @@ use strata_p2p_types::{OperatorPubKey, Scope, SessionId, Wots256PublicKey};
 use super::proto::{
     get_message_request::Body as ProtoGetMessageRequestBody,
     gossipsub_msg::Body as ProtoGossipsubMsgBody, DepositRequestKey,
-    DepositSetupExchange as ProtoDepositSetup, GenesisInfo as ProtoGenesisInfo, GenesisRequestKey,
-    GetMessageRequest as ProtoGetMessageRequest, GossipsubMsg as ProtoGossipMsg,
-    Musig2ExchangeRequestKey, Musig2NoncesExchange as ProtoMusig2NoncesExchange,
+    DepositSetupExchange as ProtoDepositSetup, GetMessageRequest as ProtoGetMessageRequest,
+    GossipsubMsg as ProtoGossipMsg, Musig2ExchangeRequestKey,
+    Musig2NoncesExchange as ProtoMusig2NoncesExchange,
     Musig2SignaturesExchange as ProtoMusig2SignaturesExchange,
+    StakeChainExchange as ProtoStakeChainExchange, StakeChainRequestKey,
 };
 
 /// Typed version of "get_message_request::GetMessageRequest".
 #[derive(Clone, Debug)]
 pub enum GetMessageRequest {
-    /// Request genesis info for this operator.
-    ///
-    /// This is primarily used for the Stake Chain setup.
-    Genesis { operator_pk: OperatorPubKey },
+    /// Request Stake Chain info for this operator.
+    StakeChainExchange { operator_pk: OperatorPubKey },
 
     /// Request deposit setup info for [`Scope`] and operator.
     ///
@@ -94,8 +93,8 @@ impl GetMessageRequest {
                     operator_pk: operator.into(),
                 }
             }
-            ProtoGetMessageRequestBody::GenesisInfo(GenesisRequestKey { operator }) => {
-                Self::Genesis {
+            ProtoGetMessageRequestBody::StakeChain(StakeChainRequestKey { operator }) => {
+                Self::StakeChainExchange {
                     operator_pk: operator.into(),
                 }
             }
@@ -107,8 +106,8 @@ impl GetMessageRequest {
     /// Converts [`GetMessageRequest`] into raw [`ProtoGetMessageRequest`].
     pub fn into_msg(self) -> ProtoGetMessageRequest {
         let body = match self {
-            Self::Genesis { operator_pk } => {
-                ProtoGetMessageRequestBody::GenesisInfo(GenesisRequestKey {
+            Self::StakeChainExchange { operator_pk } => {
+                ProtoGetMessageRequestBody::StakeChain(StakeChainRequestKey {
                     operator: operator_pk.into(),
                 })
             }
@@ -140,7 +139,7 @@ impl GetMessageRequest {
     /// Returns the [`OperatorPubKey`] with respect to this [`GetMessageRequest`].
     pub fn operator_pubkey(&self) -> &OperatorPubKey {
         match self {
-            Self::Genesis { operator_pk }
+            Self::StakeChainExchange { operator_pk }
             | Self::DepositSetup { operator_pk, .. }
             | Self::Musig2NoncesExchange { operator_pk, .. }
             | Self::Musig2SignaturesExchange { operator_pk, .. } => operator_pk,
@@ -172,7 +171,7 @@ impl<DSP: Message + Default> DepositSetup<DSP> {
 ///
 /// This is primarily used for the Stake Chain setup.
 #[derive(Debug, Clone)]
-pub struct GenesisInfo {
+pub struct StakeChainExchange {
     /// [`OutPoint`] of the pre-stake transaction.
     pub pre_stake_outpoint: OutPoint,
 
@@ -193,9 +192,9 @@ pub struct GenesisInfo {
     pub operator_funds: Vec<OutPoint>,
 }
 
-impl GenesisInfo {
-    /// Tries to convert a [`ProtoGenesisInfo`] into [`GenesisInfo`].
-    pub fn from_proto_msg(proto: &ProtoGenesisInfo) -> Result<Self, DecodeError> {
+impl StakeChainExchange {
+    /// Tries to convert a [`ProtoStakeChainExchange`] into [`StakeChainExchange`].
+    pub fn from_proto_msg(proto: &ProtoStakeChainExchange) -> Result<Self, DecodeError> {
         let mut curr = Cursor::new(&proto.pre_stake_txid);
         let txid = Decodable::consensus_decode(&mut curr)
             .map_err(|err| DecodeError::new(err.to_string()))?;
@@ -257,10 +256,8 @@ impl GenesisInfo {
 /// Unsigned messages exchanged between operators.
 #[derive(Clone, Debug)]
 pub enum UnsignedGossipsubMsg<DepositSetupPayload: Message> {
-    /// Operators exchange during genesis setup.
-    ///
-    /// Primarily used for the Stake Chain setup.
-    GenesisInfo(GenesisInfo),
+    /// Operators exchange stake chain info.
+    StakeChainExchange(StakeChainExchange),
 
     /// New deposit request appeared, and operators
     /// exchanging setup data.
@@ -299,8 +296,8 @@ impl<DSP: Message + Default> UnsignedGossipsubMsg<DSP> {
     pub fn from_msg_proto(proto: &ProtoGossipsubMsgBody) -> Result<Self, DecodeError> {
         let unsigned =
             match proto {
-                ProtoGossipsubMsgBody::GenesisInfo(proto) => {
-                    Self::GenesisInfo(GenesisInfo::from_proto_msg(proto)?)
+                ProtoGossipsubMsgBody::StakeChain(proto) => {
+                    Self::StakeChainExchange(StakeChainExchange::from_proto_msg(proto)?)
                 }
                 ProtoGossipsubMsgBody::Setup(proto) => {
                     let bytes = proto
@@ -363,7 +360,7 @@ impl<DSP: Message + Default> UnsignedGossipsubMsg<DSP> {
         let mut content = Vec::new();
 
         match &self {
-            Self::GenesisInfo(GenesisInfo {
+            Self::StakeChainExchange(StakeChainExchange {
                 pre_stake_outpoint,
                 checkpoint_pubkeys,
                 stake_wots,
@@ -413,30 +410,32 @@ impl<DSP: Message + Default> UnsignedGossipsubMsg<DSP> {
     /// Helper function to convert [`UnsignedGossipsubMsg`] into raw [`ProtoGossipsubMsgBody`].
     fn to_raw(&self) -> ProtoGossipsubMsgBody {
         match self {
-            Self::GenesisInfo(info) => ProtoGossipsubMsgBody::GenesisInfo(ProtoGenesisInfo {
-                pre_stake_vout: info.pre_stake_outpoint.vout,
-                pre_stake_txid: info.pre_stake_outpoint.txid.to_byte_array().to_vec(),
-                checkpoint_pubkeys: info
-                    .checkpoint_pubkeys
-                    .iter()
-                    .map(|k| k.serialize().to_vec())
-                    .collect(),
-                stake_wots: info
-                    .stake_wots
-                    .iter()
-                    .map(|w| w.iter().copied().flatten().collect::<Vec<u8>>())
-                    .collect(),
-                stake_hashes: info
-                    .stake_hashes
-                    .iter()
-                    .map(|h| h.to_byte_array().to_vec())
-                    .collect(),
-                operator_funds: info
-                    .operator_funds
-                    .iter()
-                    .map(|op| op.to_string().as_bytes().to_vec())
-                    .collect(),
-            }),
+            Self::StakeChainExchange(info) => {
+                ProtoGossipsubMsgBody::StakeChain(ProtoStakeChainExchange {
+                    pre_stake_vout: info.pre_stake_outpoint.vout,
+                    pre_stake_txid: info.pre_stake_outpoint.txid.to_byte_array().to_vec(),
+                    checkpoint_pubkeys: info
+                        .checkpoint_pubkeys
+                        .iter()
+                        .map(|k| k.serialize().to_vec())
+                        .collect(),
+                    stake_wots: info
+                        .stake_wots
+                        .iter()
+                        .map(|w| w.iter().copied().flatten().collect::<Vec<u8>>())
+                        .collect(),
+                    stake_hashes: info
+                        .stake_hashes
+                        .iter()
+                        .map(|h| h.to_byte_array().to_vec())
+                        .collect(),
+                    operator_funds: info
+                        .operator_funds
+                        .iter()
+                        .map(|op| op.to_string().as_bytes().to_vec())
+                        .collect(),
+                })
+            }
             Self::DepositSetup { scope, setup } => {
                 ProtoGossipsubMsgBody::Setup(ProtoDepositSetup {
                     scope: scope.to_vec(),

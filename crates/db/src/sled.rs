@@ -136,7 +136,7 @@ mod tests {
     use strata_p2p_types::{OperatorPubKey, SessionId};
 
     use crate::{
-        sled::AsyncDB, GenesisInfoEntry, NoncesEntry, PartialSignaturesEntry, RepositoryExt,
+        sled::AsyncDB, NoncesEntry, PartialSignaturesEntry, RepositoryExt, StakeChainEntry,
         Wots256PublicKey,
     };
 
@@ -202,7 +202,7 @@ mod tests {
             let stake_wots = vec![generate_random_wots(); 10_000];
             let stake_hashes = vec![generate_random_hash(); 10_000];
             let operator_funds = vec![OutPoint::null(); 10_000];
-            let entry = GenesisInfoEntry {
+            let entry = StakeChainEntry {
                 entry: (
                     outpoint,
                     checkpoint_pubkeys.clone(),
@@ -214,12 +214,16 @@ mod tests {
                 key: operator_pk.clone(),
             };
 
-            db.set_genesis_info_if_not_exists(entry).await.unwrap();
+            db.set_stake_chain_info_if_not_exists(entry).await.unwrap();
 
-            let GenesisInfoEntry {
+            let StakeChainEntry {
                 entry: (got_op, got_keys, got_wots, got_hashes, got_operator_funds),
                 ..
-            } = db.get_genesis_info(&operator_pk).await.unwrap().unwrap();
+            } = db
+                .get_stake_chain_info(&operator_pk)
+                .await
+                .unwrap()
+                .unwrap();
             assert_eq!(got_op, outpoint);
             assert_eq!(got_keys, checkpoint_pubkeys);
             assert_eq!(got_wots, stake_wots);

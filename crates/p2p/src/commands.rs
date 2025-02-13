@@ -6,7 +6,7 @@ use musig2::{PartialSignature, PubNonce};
 use prost::Message;
 use strata_p2p_types::{OperatorPubKey, Scope, SessionId, Wots256PublicKey};
 use strata_p2p_wire::p2p::v1::{
-    DepositSetup, GenesisInfo, GetMessageRequest, GossipsubMsg, UnsignedGossipsubMsg,
+    DepositSetup, GetMessageRequest, GossipsubMsg, StakeChainExchange, UnsignedGossipsubMsg,
 };
 
 /// Ask P2P implementation to distribute some data across network.
@@ -37,10 +37,8 @@ pub struct PublishMessage<DepositSetupPayload> {
 /// Types of unsigned messages.
 #[derive(Debug, Clone)]
 pub enum UnsignedPublishMessage<DepositSetupPayload> {
-    /// Genesis information.
-    ///
-    /// Primarily used for the Stake Chain setup.
-    GenesisInfo {
+    /// Stake Chain information.
+    StakeChainExchange {
         /// [`OutPoint`] of the pre-stake transaction.
         pre_stake_outpoint: OutPoint,
 
@@ -122,13 +120,13 @@ impl<DSP: Message + Clone> From<UnsignedPublishMessage<DSP>> for UnsignedGossips
     /// Converts [`UnsignedPublishMessage`] into [`UnsignedGossipsubMsg`].
     fn from(value: UnsignedPublishMessage<DSP>) -> Self {
         match value {
-            UnsignedPublishMessage::GenesisInfo {
+            UnsignedPublishMessage::StakeChainExchange {
                 pre_stake_outpoint,
                 checkpoint_pubkeys,
                 stake_wots,
                 stake_hashes,
                 operator_funds,
-            } => UnsignedGossipsubMsg::GenesisInfo(GenesisInfo {
+            } => UnsignedGossipsubMsg::StakeChainExchange(StakeChainExchange {
                 checkpoint_pubkeys,
                 pre_stake_outpoint,
                 stake_wots,

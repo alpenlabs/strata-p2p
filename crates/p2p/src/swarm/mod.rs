@@ -19,8 +19,8 @@ use libp2p::{
 };
 use prost::Message as ProtoMsg;
 use strata_p2p_db::{
-    DBResult, DepositSetupEntry, GenesisInfoEntry, NoncesEntry, PartialSignaturesEntry,
-    RepositoryExt,
+    DBResult, DepositSetupEntry, NoncesEntry, PartialSignaturesEntry, RepositoryExt,
+    StakeChainEntry,
 };
 use strata_p2p_types::OperatorPubKey;
 use strata_p2p_wire::p2p::{
@@ -352,9 +352,9 @@ where
     /// Returns a `bool` indicating if the data was already presented or not.
     async fn add_msg_if_not_exists(&mut self, msg: &GossipsubMsg<DSP>) -> DBResult<bool> {
         match &msg.unsigned {
-            v1::UnsignedGossipsubMsg::GenesisInfo(info) => {
+            v1::UnsignedGossipsubMsg::StakeChainExchange(info) => {
                 self.db
-                    .set_genesis_info_if_not_exists(GenesisInfoEntry {
+                    .set_stake_chain_info_if_not_exists(StakeChainEntry {
                         entry: (
                             info.pre_stake_outpoint,
                             info.checkpoint_pubkeys.clone(),
@@ -606,11 +606,11 @@ where
         request: v1::GetMessageRequest,
     ) -> P2PResult<Option<proto::GossipsubMsg>> {
         let msg = match request {
-            v1::GetMessageRequest::Genesis { operator_pk } => {
-                let info = self.db.get_genesis_info(&operator_pk).await?;
+            v1::GetMessageRequest::StakeChainExchange { operator_pk } => {
+                let info = self.db.get_stake_chain_info(&operator_pk).await?;
 
                 info.map(|v| proto::GossipsubMsg {
-                    body: Some(Body::GenesisInfo(proto::GenesisInfo {
+                    body: Some(Body::StakeChain(proto::StakeChainExchange {
                         pre_stake_vout: v.entry.0.vout,
                         pre_stake_txid: v.entry.0.txid.to_byte_array().to_vec(),
                         checkpoint_pubkeys: v

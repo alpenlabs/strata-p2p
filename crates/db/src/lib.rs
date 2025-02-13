@@ -47,7 +47,7 @@ pub type NoncesEntry = AuthenticatedEntry<Vec<PubNonce>>;
 /// 3. [`Vec`] of WOTS public keys for each stake transaction.
 /// 4. [`Vec`] of hashes for each stake transaction.
 /// 5. [`Vec`] of operator's funds prevouts for each stake transaction.
-pub type GenesisInfoEntry = AuthenticatedEntry<(
+pub type StakeChainEntry = AuthenticatedEntry<(
     OutPoint,
     Vec<XOnlyPublicKey>,
     Vec<Wots256PublicKey>,
@@ -218,22 +218,18 @@ where
         self.delete_raw(keys).await
     }
 
-    /// Gets genesis info for a given [`OperatorPubKey`].
-    ///
-    /// This is primarily used for the Stake Chain setup.
-    async fn get_genesis_info(
+    /// Gets stake chain info for a given [`OperatorPubKey`].
+    async fn get_stake_chain_info(
         &self,
         operator_pk: &OperatorPubKey,
-    ) -> DBResult<Option<GenesisInfoEntry>> {
-        let key = format!("genesis-{operator_pk}");
+    ) -> DBResult<Option<StakeChainEntry>> {
+        let key = format!("stake-chain-{operator_pk}");
         self.get(key).await
     }
 
-    /// Sets genesis info for a given [`OperatorPubKey`] if it wasn't there before.
-    ///
-    /// This is primarily used for the Stake Chain setup.
-    async fn set_genesis_info_if_not_exists(&self, info: GenesisInfoEntry) -> DBResult<bool> {
-        let key = format!("genesis-{}", info.key);
+    /// Sets stake chain info for a given [`OperatorPubKey`] if it wasn't there before.
+    async fn set_stake_chain_info_if_not_exists(&self, info: StakeChainEntry) -> DBResult<bool> {
+        let key = format!("stake-chain-{}", info.key);
         self.set_if_not_exists(key, info).await
     }
 

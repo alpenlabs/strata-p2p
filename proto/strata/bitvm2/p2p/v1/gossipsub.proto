@@ -3,7 +3,7 @@ syntax = "proto3";
 package strata.bitvm2.p2p.v1;
 
 // Used for the Stake Chain setup.
-message GenesisInfo {
+message StakeChainExchange {
   // Output number of pre stake tx.
   uint32 pre_stake_vout = 1;
   // Transaction hash of pre stake tx.
@@ -47,7 +47,7 @@ message Musig2SignaturesExchange {
 // Catch-all message type for all messages.
 message GossipsubMsg {
   oneof body {
-    GenesisInfo genesis_info = 1;
+    StakeChainExchange stake_chain = 1;
     DepositSetupExchange setup = 2;
     Musig2NoncesExchange nonce = 3;
     Musig2SignaturesExchange sigs = 4;
