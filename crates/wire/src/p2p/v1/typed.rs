@@ -1,9 +1,14 @@
 //! Types derived from the `.proto` files.
 
-use bitcoin::{consensus::Decodable, hashes::Hash, io::Cursor, OutPoint, XOnlyPublicKey};
+use bitcoin::{
+    consensus::Decodable,
+    hashes::{sha256, Hash},
+    io::{Cursor, Read},
+    OutPoint, XOnlyPublicKey,
+};
 use musig2::{PartialSignature, PubNonce};
 use prost::{DecodeError, Message};
-use strata_p2p_types::{OperatorPubKey, Scope, SessionId};
+use strata_p2p_types::{OperatorPubKey, Scope, SessionId, Wots256PublicKey};
 
 use super::proto::{
     get_message_request::Body as ProtoGetMessageRequestBody,
@@ -174,6 +179,18 @@ pub struct GenesisInfo {
     /// Each operator `i = 0..N` sends a message with his Schnorr verification keys `Y_{i,j}` for
     /// blocks `j = 0..M`.
     pub checkpoint_pubkeys: Vec<XOnlyPublicKey>,
+
+    /// WOTS public keys for each stake transaction.
+    pub stake_wots: Vec<Wots256PublicKey>,
+
+    /// Hashes for each stake transaction.
+    pub stake_hashes: Vec<sha256::Hash>,
+
+    /// Operator's funds prevouts for each stake transaction.
+    ///
+    /// There are to cover the dust outputs in each withdrawal request.
+    /// Composed of `txid:vout` ([`OutPoint`]) as a flattened byte array.
+    pub operator_funds: Vec<OutPoint>,
 }
 
 impl GenesisInfo {
@@ -192,9 +209,47 @@ impl GenesisInfo {
             .collect::<Result<Vec<_>, _>>()
             .map_err(|err| DecodeError::new(err.to_string()))?;
 
+        let stake_wots = proto
+            .stake_wots
+            .iter()
+            .map(|bytes| {
+                let mut curr = Cursor::new(bytes);
+                // Read exactly [[u8; 20]; 256] bytes.
+                let mut wots = [[0; 20]; 256]; // Wots256PublicKey
+                for bytes in wots.iter_mut() {
+                    curr.read_exact(bytes)
+                        .map_err(|err| DecodeError::new(err.to_string()))?;
+                }
+                Ok(Wots256PublicKey::new(wots))
+            })
+            .collect::<Result<Vec<Wots256PublicKey>, DecodeError>>()
+            .map_err(|err| DecodeError::new(err.to_string()))?;
+
+        let stake_hashes = proto
+            .stake_hashes
+            .iter()
+            .map(|bytes| sha256::Hash::from_slice(bytes))
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|err| DecodeError::new(err.to_string()))?;
+
+        let operator_funds = proto
+            .operator_funds
+            .iter()
+            .map(|bytes| {
+                let mut curr = Cursor::new(bytes);
+                let outpoint = Decodable::consensus_decode(&mut curr)
+                    .map_err(|err| DecodeError::new(err.to_string()))?;
+                Ok(outpoint)
+            })
+            .collect::<Result<Vec<OutPoint>, DecodeError>>()
+            .map_err(|err| DecodeError::new(err.to_string()))?;
+
         Ok(Self {
             pre_stake_outpoint: outpoint,
             checkpoint_pubkeys: pubkeys,
+            stake_wots,
+            stake_hashes,
+            operator_funds,
         })
     }
 }
@@ -311,11 +366,24 @@ impl<DSP: Message + Default> UnsignedGossipsubMsg<DSP> {
             Self::GenesisInfo(GenesisInfo {
                 pre_stake_outpoint,
                 checkpoint_pubkeys,
+                stake_wots,
+                stake_hashes,
+                operator_funds,
             }) => {
                 content.extend(pre_stake_outpoint.vout.to_le_bytes());
                 content.extend(pre_stake_outpoint.txid.to_byte_array());
                 checkpoint_pubkeys.iter().for_each(|key| {
                     content.extend(key.serialize());
+                });
+                stake_wots.iter().for_each(|wots| {
+                    content.extend(wots.iter().copied().flatten().collect::<Vec<u8>>());
+                });
+                stake_hashes.iter().for_each(|hash| {
+                    content.extend(hash.to_byte_array());
+                });
+                operator_funds.iter().for_each(|outpoint| {
+                    content.extend(outpoint.txid.to_byte_array());
+                    content.extend(outpoint.vout.to_le_bytes());
                 });
             }
             Self::DepositSetup { scope, setup } => {
@@ -352,6 +420,21 @@ impl<DSP: Message + Default> UnsignedGossipsubMsg<DSP> {
                     .checkpoint_pubkeys
                     .iter()
                     .map(|k| k.serialize().to_vec())
+                    .collect(),
+                stake_wots: info
+                    .stake_wots
+                    .iter()
+                    .map(|w| w.iter().copied().flatten().collect::<Vec<u8>>())
+                    .collect(),
+                stake_hashes: info
+                    .stake_hashes
+                    .iter()
+                    .map(|h| h.to_byte_array().to_vec())
+                    .collect(),
+                operator_funds: info
+                    .operator_funds
+                    .iter()
+                    .map(|op| op.to_string().as_bytes().to_vec())
                     .collect(),
             }),
             Self::DepositSetup { scope, setup } => {
