@@ -15,7 +15,7 @@ use strata_p2p::{
     swarm::handle::P2PHandle,
 };
 use strata_p2p_db::{sled::AsyncDB, RepositoryExt, StakeChainEntry};
-use strata_p2p_types::{OperatorPubKey, Scope, SessionId};
+use strata_p2p_types::{OperatorPubKey, Scope, SessionId, StakeChainId};
 use strata_p2p_wire::p2p::v1::{GetMessageRequest, GossipsubMsg, UnsignedGossipsubMsg};
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use tracing::info;
@@ -178,7 +178,9 @@ async fn test_request_response() -> anyhow::Result<()> {
 
     // create command to request info from the last operator
     let operator_pk: OperatorPubKey = operators[OPERATORS_NUM - 1].kp.public().clone().into();
+    let stake_chain_id = StakeChainId::hash(b"stake_chain_id");
     let command = Command::<()>::RequestMessage(GetMessageRequest::StakeChainExchange {
+        stake_chain_id,
         operator_pk: operator_pk.clone(),
     });
 
@@ -186,6 +188,7 @@ async fn test_request_response() -> anyhow::Result<()> {
     match mock_stake_chain_info(&operators[OPERATORS_NUM - 1].kp.clone()) {
         Command::PublishMessage(msg) => match msg.msg {
             UnsignedPublishMessage::StakeChainExchange {
+                stake_chain_id,
                 pre_stake_outpoint,
                 checkpoint_pubkeys,
                 stake_wots,
@@ -205,6 +208,7 @@ async fn test_request_response() -> anyhow::Result<()> {
                 };
                 <AsyncDB as RepositoryExt<()>>::set_stake_chain_info_if_not_exists::<'_, '_>(
                     &operators[OPERATORS_NUM - 1].db,
+                    stake_chain_id,
                     entry,
                 )
                 .await?;
@@ -220,8 +224,10 @@ async fn test_request_response() -> anyhow::Result<()> {
 
     match event {
         Event::ReceivedMessage(msg)
-            if matches!(msg.unsigned, UnsignedGossipsubMsg::StakeChainExchange(_))
-                && msg.key == operator_pk =>
+            if matches!(
+                msg.unsigned,
+                UnsignedGossipsubMsg::StakeChainExchange { .. }
+            ) && msg.key == operator_pk =>
         {
             info!("Got stake chain info from the last operator")
         }
@@ -361,7 +367,7 @@ async fn exchange_stake_chain_info(
             if !matches!(
                 event,
                 Event::ReceivedMessage(GossipsubMsg {
-                    unsigned: UnsignedGossipsubMsg::StakeChainExchange(_),
+                    unsigned: UnsignedGossipsubMsg::StakeChainExchange { .. },
                     ..
                 })
             ) {
@@ -469,6 +475,7 @@ async fn exchange_deposit_sigs(
 
 fn mock_stake_chain_info(kp: &SecpKeypair) -> Command<()> {
     let kind = UnsignedPublishMessage::StakeChainExchange {
+        stake_chain_id: StakeChainId::hash(b"stake_chain_id"),
         pre_stake_outpoint: OutPoint::null(),
         checkpoint_pubkeys: vec![],
         stake_wots: vec![],
