@@ -22,8 +22,10 @@ message Musig2ExchangeRequestKey {
 
 // Request for Stake Chain information.
 message StakeChainRequestKey {
+  // 32-byte hash of the stake chain data.
+  bytes stake_chain_id = 1;
   // Public key of target operator.
-  bytes operator = 1;
+  bytes operator = 2;
 }
 
 // Catch-all message type for all messages.
@@ -32,7 +34,7 @@ message GetMessageRequest {
     DepositRequestKey deposit_setup = 1;
     Musig2ExchangeRequestKey nonces = 2;
     Musig2ExchangeRequestKey sigs = 3;
-    StakeChainRequestKey stake_chain= 4;
+    StakeChainRequestKey stake_chain = 4;
   }
 }
 
