@@ -4,15 +4,23 @@ package strata.bitvm2.p2p.v1;
 
 // Used for the Stake Chain setup.
 message GenesisInfo {
-  // output number of pre stake tx.
+  // Output number of pre stake tx.
   uint32 pre_stake_vout = 1;
-  // transaction hash of pre stake tx.
+  // Transaction hash of pre stake tx.
   bytes pre_stake_txid = 2;
-  // keys Y_{i, j}.
+  // Keys `Y_{i, j}`.
   repeated bytes checkpoint_pubkeys = 3;
+  // WOTS PKs for each stake tx.
+  repeated bytes stake_wots = 4;
+  // Hashes for each stake tx.
+  repeated bytes stake_hashes = 5;
+  // Operator's funds prevouts for each stake tx.
+  // There are to cover the dust outputs in each withdrawal request.
+  // Composed of txid:vout as a flattened byte array.
+  repeated bytes operator_funds = 6;
 }
 
-// Primarily used for the WOTS PKs.
+// Primarily used for the WOTS PKs for the Deposit.
 message DepositSetupExchange {
   // 32-byte hash of some unique to deposit data.
   bytes scope = 1;
