@@ -1,11 +1,11 @@
 //! Serialized data storage for the P2P protocol.
 
 use async_trait::async_trait;
-use bitcoin::{OutPoint, XOnlyPublicKey};
+use bitcoin::{hashes::sha256, OutPoint, XOnlyPublicKey};
 use libp2p_identity::PeerId;
 use musig2::{PartialSignature, PubNonce};
 use serde::{de::DeserializeOwned, Serialize};
-use strata_p2p_types::{OperatorPubKey, Scope, SessionId};
+use strata_p2p_types::{OperatorPubKey, Scope, SessionId, Wots256PublicKey};
 use thiserror::Error;
 
 mod prost_serde;
@@ -34,9 +34,26 @@ pub struct AuthenticatedEntry<T> {
     pub key: OperatorPubKey,
 }
 
+/// A [`Vec`] of [`PartialSignature`]s.
 pub type PartialSignaturesEntry = AuthenticatedEntry<Vec<PartialSignature>>;
+
+/// A [`Vec`] of [`PubNonce`]s.
 pub type NoncesEntry = AuthenticatedEntry<Vec<PubNonce>>;
-pub type GenesisInfoEntry = AuthenticatedEntry<(OutPoint, Vec<XOnlyPublicKey>)>;
+
+/// A big tuple of:
+///
+/// 1. [`OutPoint`] of the pre-stake transaction.
+/// 2. [`Vec`] of Schnorr verification keys `Y_{i,j}` for blocks `j = 0..M`.
+/// 3. [`Vec`] of WOTS public keys for each stake transaction.
+/// 4. [`Vec`] of hashes for each stake transaction.
+/// 5. [`Vec`] of operator's funds prevouts for each stake transaction.
+pub type GenesisInfoEntry = AuthenticatedEntry<(
+    OutPoint,
+    Vec<XOnlyPublicKey>,
+    Vec<Wots256PublicKey>,
+    Vec<sha256::Hash>,
+    Vec<OutPoint>,
+)>;
 
 /// Basic functionality to get, set, and delete values from a Database.
 #[async_trait]

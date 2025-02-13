@@ -126,14 +126,18 @@ impl From<sled::Error> for RepositoryError {
 mod tests {
     use std::sync::Arc;
 
-    use bitcoin::{OutPoint, XOnlyPublicKey};
+    use bitcoin::{
+        hashes::{sha256, Hash},
+        OutPoint, XOnlyPublicKey,
+    };
     use musig2::{sign_partial, AggNonce, KeyAggContext, SecNonce};
-    use rand::thread_rng;
+    use rand::{thread_rng, RngCore};
     use secp256k1::{All, Keypair, Secp256k1};
     use strata_p2p_types::{OperatorPubKey, SessionId};
 
     use crate::{
         sled::AsyncDB, GenesisInfoEntry, NoncesEntry, PartialSignaturesEntry, RepositoryExt,
+        Wots256PublicKey,
     };
 
     #[tokio::test]
@@ -194,9 +198,18 @@ mod tests {
             assert_eq!(&retrieved_signature.entry, &[signature]);
 
             let outpoint = OutPoint::null();
-            let checkpoint_pubkeys = vec![generate_random_xonly(&secp); 10000];
+            let checkpoint_pubkeys = vec![generate_random_xonly(&secp); 10_000];
+            let stake_wots = vec![generate_random_wots(); 10_000];
+            let stake_hashes = vec![generate_random_hash(); 10_000];
+            let operator_funds = vec![OutPoint::null(); 10_000];
             let entry = GenesisInfoEntry {
-                entry: (outpoint, checkpoint_pubkeys.clone()),
+                entry: (
+                    outpoint,
+                    checkpoint_pubkeys.clone(),
+                    stake_wots.clone(),
+                    stake_hashes.clone(),
+                    operator_funds.clone(),
+                ),
                 signature: vec![],
                 key: operator_pk.clone(),
             };
@@ -204,11 +217,14 @@ mod tests {
             db.set_genesis_info_if_not_exists(entry).await.unwrap();
 
             let GenesisInfoEntry {
-                entry: (got_op, got_keys),
+                entry: (got_op, got_keys, got_wots, got_hashes, got_operator_funds),
                 ..
             } = db.get_genesis_info(&operator_pk).await.unwrap().unwrap();
             assert_eq!(got_op, outpoint);
             assert_eq!(got_keys, checkpoint_pubkeys);
+            assert_eq!(got_wots, stake_wots);
+            assert_eq!(got_hashes, stake_hashes);
+            assert_eq!(got_operator_funds, operator_funds);
 
             let retrieved_pub_nonces = db
                 .get_pub_nonces(&operator_pk, session_id)
@@ -225,5 +241,21 @@ mod tests {
         let (_seckey, pubkey) = ctx.generate_keypair(&mut thread_rng());
         let (xonly, _parity) = pubkey.x_only_public_key();
         xonly
+    }
+
+    fn generate_random_wots() -> Wots256PublicKey {
+        let mut rng = thread_rng();
+        let mut wots = [[0; 20]; 256];
+        for bytes in wots.iter_mut() {
+            rng.fill_bytes(bytes);
+        }
+        Wots256PublicKey::new(wots)
+    }
+
+    fn generate_random_hash() -> sha256::Hash {
+        let mut rng = thread_rng();
+        let mut hash = [0; 32];
+        rng.fill_bytes(&mut hash);
+        sha256::Hash::from_byte_array(hash)
     }
 }
