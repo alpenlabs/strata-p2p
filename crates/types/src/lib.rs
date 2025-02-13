@@ -2,10 +2,10 @@
 
 mod operator;
 mod scope;
-mod sessionid;
+mod session_id;
 mod wots;
 
 pub use operator::OperatorPubKey;
 pub use scope::Scope;
-pub use sessionid::SessionId;
+pub use session_id::SessionId;
 pub use wots::Wots256PublicKey;
