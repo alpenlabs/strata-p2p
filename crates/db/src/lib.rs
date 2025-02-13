@@ -5,7 +5,7 @@ use bitcoin::{hashes::sha256, OutPoint, XOnlyPublicKey};
 use libp2p_identity::PeerId;
 use musig2::{PartialSignature, PubNonce};
 use serde::{de::DeserializeOwned, Serialize};
-use strata_p2p_types::{OperatorPubKey, Scope, SessionId, Wots256PublicKey};
+use strata_p2p_types::{OperatorPubKey, Scope, SessionId, StakeChainId, Wots256PublicKey};
 use thiserror::Error;
 
 mod prost_serde;
@@ -218,19 +218,34 @@ where
         self.delete_raw(keys).await
     }
 
-    /// Gets stake chain info for a given [`OperatorPubKey`].
+    /// Gets stake chain info for a given [`OperatorPubKey`] and [`StakeChainId`].
     async fn get_stake_chain_info(
         &self,
         operator_pk: &OperatorPubKey,
+        stake_chain_id: &StakeChainId,
     ) -> DBResult<Option<StakeChainEntry>> {
-        let key = format!("stake-chain-{operator_pk}");
+        let key = format!("stake-chain-{operator_pk}_{stake_chain_id}");
         self.get(key).await
     }
 
-    /// Sets stake chain info for a given [`OperatorPubKey`] if it wasn't there before.
-    async fn set_stake_chain_info_if_not_exists(&self, info: StakeChainEntry) -> DBResult<bool> {
-        let key = format!("stake-chain-{}", info.key);
+    /// Sets stake chain info for a given [`SessionId`] if they weren't there before.
+    async fn set_stake_chain_info_if_not_exists(
+        &self,
+        stake_chain_id: StakeChainId,
+        info: StakeChainEntry,
+    ) -> DBResult<bool> {
+        let key = format!("stake-chain-{}_{stake_chain_id}", info.key);
         self.set_if_not_exists(key, info).await
+    }
+
+    /// Deletes multiple entries of stake chains from storage by pairs of
+    /// [`OperatorPubKey`]s and [`StakeChainId`]s.
+    async fn delete_stake_chains(&self, keys: &[(&OperatorPubKey, &StakeChainId)]) -> DBResult<()> {
+        let keys = keys
+            .iter()
+            .map(|(key, id)| format!("stake-chain-{key}_{id}"))
+            .collect::<Vec<_>>();
+        self.delete_raw(keys).await
     }
 
     /* P2P stores mapping of Musig2 exchange signers (operators) to node peer

@@ -133,7 +133,7 @@ mod tests {
     use musig2::{sign_partial, AggNonce, KeyAggContext, SecNonce};
     use rand::{thread_rng, RngCore};
     use secp256k1::{All, Keypair, Secp256k1};
-    use strata_p2p_types::{OperatorPubKey, SessionId};
+    use strata_p2p_types::{OperatorPubKey, SessionId, StakeChainId};
 
     use crate::{
         sled::AsyncDB, NoncesEntry, PartialSignaturesEntry, RepositoryExt, StakeChainEntry,
@@ -197,6 +197,7 @@ mod tests {
 
             assert_eq!(&retrieved_signature.entry, &[signature]);
 
+            let stake_chain_id = StakeChainId::hash(b"stake_chain_id");
             let outpoint = OutPoint::null();
             let checkpoint_pubkeys = vec![generate_random_xonly(&secp); 10_000];
             let stake_wots = vec![generate_random_wots(); 10_000];
@@ -214,13 +215,15 @@ mod tests {
                 key: operator_pk.clone(),
             };
 
-            db.set_stake_chain_info_if_not_exists(entry).await.unwrap();
+            db.set_stake_chain_info_if_not_exists(stake_chain_id, entry)
+                .await
+                .unwrap();
 
             let StakeChainEntry {
                 entry: (got_op, got_keys, got_wots, got_hashes, got_operator_funds),
                 ..
             } = db
-                .get_stake_chain_info(&operator_pk)
+                .get_stake_chain_info(&operator_pk, &stake_chain_id)
                 .await
                 .unwrap()
                 .unwrap();
