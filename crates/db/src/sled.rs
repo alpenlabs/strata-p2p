@@ -128,16 +128,16 @@ mod tests {
 
     use bitcoin::{
         hashes::{sha256, Hash},
-        OutPoint, XOnlyPublicKey,
+        OutPoint, Txid, XOnlyPublicKey,
     };
     use musig2::{sign_partial, AggNonce, KeyAggContext, SecNonce};
-    use rand::{thread_rng, RngCore};
+    use rand::{thread_rng, Rng, RngCore};
     use secp256k1::{All, Keypair, Secp256k1};
-    use strata_p2p_types::{OperatorPubKey, SessionId, StakeChainId};
+    use strata_p2p_types::{OperatorPubKey, SessionId, StakeChainId, Wots256PublicKey};
 
     use crate::{
         sled::AsyncDB, NoncesEntry, PartialSignaturesEntry, RepositoryExt, StakeChainEntry,
-        Wots256PublicKey,
+        StakeData,
     };
 
     #[tokio::test]
@@ -200,17 +200,9 @@ mod tests {
             let stake_chain_id = StakeChainId::hash(b"stake_chain_id");
             let outpoint = OutPoint::null();
             let checkpoint_pubkeys = vec![generate_random_xonly(&secp); 10_000];
-            let stake_wots = vec![generate_random_wots(); 10_000];
-            let stake_hashes = vec![generate_random_hash(); 10_000];
-            let operator_funds = vec![OutPoint::null(); 10_000];
+            let stake_data = vec![generate_random_stake_data(); 10_000];
             let entry = StakeChainEntry {
-                entry: (
-                    outpoint,
-                    checkpoint_pubkeys.clone(),
-                    stake_wots.clone(),
-                    stake_hashes.clone(),
-                    operator_funds.clone(),
-                ),
+                entry: (outpoint, checkpoint_pubkeys.clone(), stake_data.clone()),
                 signature: vec![],
                 key: operator_pk.clone(),
             };
@@ -220,7 +212,7 @@ mod tests {
                 .unwrap();
 
             let StakeChainEntry {
-                entry: (got_op, got_keys, got_wots, got_hashes, got_operator_funds),
+                entry: (got_op, got_keys, got_stake_data),
                 ..
             } = db
                 .get_stake_chain_info(&operator_pk, &stake_chain_id)
@@ -229,9 +221,7 @@ mod tests {
                 .unwrap();
             assert_eq!(got_op, outpoint);
             assert_eq!(got_keys, checkpoint_pubkeys);
-            assert_eq!(got_wots, stake_wots);
-            assert_eq!(got_hashes, stake_hashes);
-            assert_eq!(got_operator_funds, operator_funds);
+            assert_eq!(got_stake_data, stake_data);
 
             let retrieved_pub_nonces = db
                 .get_pub_nonces(&operator_pk, session_id)
@@ -264,5 +254,20 @@ mod tests {
         let mut hash = [0; 32];
         rng.fill_bytes(&mut hash);
         sha256::Hash::from_byte_array(hash)
+    }
+
+    fn generate_random_outpoint() -> OutPoint {
+        let mut rng = thread_rng();
+        let txid = Txid::from_slice(&generate_random_hash().to_byte_array()).unwrap();
+        let vout = rng.gen_range(0..u32::MAX);
+        OutPoint::new(txid, vout)
+    }
+
+    fn generate_random_stake_data() -> StakeData {
+        StakeData::new(
+            generate_random_wots(),
+            generate_random_hash(),
+            generate_random_outpoint(),
+        )
     }
 }

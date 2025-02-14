@@ -1,11 +1,11 @@
 //! Serialized data storage for the P2P protocol.
 
 use async_trait::async_trait;
-use bitcoin::{hashes::sha256, OutPoint, XOnlyPublicKey};
+use bitcoin::{OutPoint, XOnlyPublicKey};
 use libp2p_identity::PeerId;
 use musig2::{PartialSignature, PubNonce};
 use serde::{de::DeserializeOwned, Serialize};
-use strata_p2p_types::{OperatorPubKey, Scope, SessionId, StakeChainId, Wots256PublicKey};
+use strata_p2p_types::{OperatorPubKey, Scope, SessionId, StakeChainId, StakeData};
 use thiserror::Error;
 
 mod prost_serde;
@@ -44,16 +44,8 @@ pub type NoncesEntry = AuthenticatedEntry<Vec<PubNonce>>;
 ///
 /// 1. [`OutPoint`] of the pre-stake transaction.
 /// 2. [`Vec`] of Schnorr verification keys `Y_{i,j}` for blocks `j = 0..M`.
-/// 3. [`Vec`] of WOTS public keys for each stake transaction.
-/// 4. [`Vec`] of hashes for each stake transaction.
-/// 5. [`Vec`] of operator's funds prevouts for each stake transaction.
-pub type StakeChainEntry = AuthenticatedEntry<(
-    OutPoint,
-    Vec<XOnlyPublicKey>,
-    Vec<Wots256PublicKey>,
-    Vec<sha256::Hash>,
-    Vec<OutPoint>,
-)>;
+/// 3. [`Vec`] of [`StakeData`]s.
+pub type StakeChainEntry = AuthenticatedEntry<(OutPoint, Vec<XOnlyPublicKey>, Vec<StakeData>)>;
 
 /// Basic functionality to get, set, and delete values from a Database.
 #[async_trait]
