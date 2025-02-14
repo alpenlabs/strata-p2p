@@ -17,8 +17,23 @@ use serde::{
 pub struct Wots256PublicKey(pub [[u8; 20]; 256]);
 
 impl Wots256PublicKey {
+    /// Creates a new WOTS 256-bit public key from a byte array.
     pub fn new(bytes: [[u8; 20]; 256]) -> Self {
         Self(bytes)
+    }
+
+    /// Converts the public key to a byte array.
+    pub fn to_bytes(&self) -> [[u8; 20]; 256] {
+        self.0
+    }
+
+    /// Converts the public key to a flattened byte array.
+    pub fn to_flattened_bytes(&self) -> [u8; 5120] {
+        let mut bytes = [0u8; 5120];
+        for (i, byte_array) in self.0.iter().enumerate() {
+            bytes[i * 20..(i + 1) * 20].copy_from_slice(byte_array);
+        }
+        bytes
     }
 }
 
