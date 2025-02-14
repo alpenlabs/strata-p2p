@@ -191,18 +191,10 @@ async fn test_request_response() -> anyhow::Result<()> {
                 stake_chain_id,
                 pre_stake_outpoint,
                 checkpoint_pubkeys,
-                stake_wots,
-                stake_hashes,
-                operator_funds,
+                stake_data,
             } => {
                 let entry = StakeChainEntry {
-                    entry: (
-                        pre_stake_outpoint,
-                        checkpoint_pubkeys,
-                        stake_wots,
-                        stake_hashes,
-                        operator_funds,
-                    ),
+                    entry: (pre_stake_outpoint, checkpoint_pubkeys, stake_data),
                     signature: msg.signature,
                     key: msg.key,
                 };
@@ -478,9 +470,7 @@ fn mock_stake_chain_info(kp: &SecpKeypair) -> Command<()> {
         stake_chain_id: StakeChainId::hash(b"stake_chain_id"),
         pre_stake_outpoint: OutPoint::null(),
         checkpoint_pubkeys: vec![],
-        stake_wots: vec![],
-        stake_hashes: vec![],
-        operator_funds: vec![],
+        stake_data: vec![],
     };
     kind.sign_secp256k1(kp).into()
 }
