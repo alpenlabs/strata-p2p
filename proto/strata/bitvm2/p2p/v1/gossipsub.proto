@@ -12,14 +12,8 @@ message StakeChainExchange {
   bytes pre_stake_txid = 3;
   // Keys `Y_{i, j}`.
   repeated bytes checkpoint_pubkeys = 4;
-  // WOTS PKs for each stake tx.
-  repeated bytes stake_wots = 5;
-  // Hashes for each stake tx.
-  repeated bytes stake_hashes = 6;
-  // Operator's funds prevouts for each stake tx.
-  // There are to cover the dust outputs in each withdrawal request.
-  // Composed of txid:vout as a flattened byte array.
-  repeated bytes operator_funds = 7;
+  // Stake data for each stake tx.
+  repeated bytes stake_data = 5;
 }
 
 // Primarily used for the WOTS PKs for the Deposit.
