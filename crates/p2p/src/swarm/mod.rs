@@ -363,9 +363,7 @@ where
                             entry: (
                                 info.pre_stake_outpoint,
                                 info.checkpoint_pubkeys.clone(),
-                                info.stake_wots.clone(),
-                                info.stake_hashes.clone(),
-                                info.operator_funds.clone(),
+                                info.stake_data.clone(),
                             ),
                             signature: msg.signature.clone(),
                             key: msg.key.clone(),
@@ -632,23 +630,11 @@ where
                             .iter()
                             .map(|k| k.serialize().to_vec())
                             .collect(),
-                        stake_wots: v
+                        stake_data: v
                             .entry
                             .2
                             .iter()
-                            .map(|w| w.iter().copied().flatten().collect::<Vec<u8>>())
-                            .collect(),
-                        stake_hashes: v
-                            .entry
-                            .3
-                            .iter()
-                            .map(|h| h.to_byte_array().to_vec())
-                            .collect(),
-                        operator_funds: v
-                            .entry
-                            .4
-                            .iter()
-                            .map(|op| op.to_string().as_bytes().to_vec())
+                            .map(|w| w.to_flattened_bytes().to_vec())
                             .collect(),
                     })),
                     signature: v.signature,

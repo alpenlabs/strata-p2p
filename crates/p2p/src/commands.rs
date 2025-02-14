@@ -1,10 +1,10 @@
 //! Commands for P2P implementation from operator implementation.
 
-use bitcoin::{hashes::sha256, OutPoint, XOnlyPublicKey};
+use bitcoin::{OutPoint, XOnlyPublicKey};
 use libp2p::identity::secp256k1;
 use musig2::{PartialSignature, PubNonce};
 use prost::Message;
-use strata_p2p_types::{OperatorPubKey, Scope, SessionId, StakeChainId, Wots256PublicKey};
+use strata_p2p_types::{OperatorPubKey, Scope, SessionId, StakeChainId, StakeData};
 use strata_p2p_wire::p2p::v1::{
     DepositSetup, GetMessageRequest, GossipsubMsg, StakeChainExchange, UnsignedGossipsubMsg,
 };
@@ -49,17 +49,8 @@ pub enum UnsignedPublishMessage<DepositSetupPayload> {
         /// for blocks `j = 0..M`.
         checkpoint_pubkeys: Vec<XOnlyPublicKey>,
 
-        /// WOTS public keys for each stake transaction.
-        stake_wots: Vec<Wots256PublicKey>,
-
-        /// Hashes for each stake transaction.
-        stake_hashes: Vec<sha256::Hash>,
-
-        /// Operator's funds prevouts for each stake transaction.
-        ///
-        /// There are to cover the dust outputs in each withdrawal request.
-        /// Composed of `txid:vout` ([`OutPoint`]) as a flattened byte array.
-        operator_funds: Vec<OutPoint>,
+        /// Stake data for a whole Stake Chain.
+        stake_data: Vec<StakeData>,
     },
 
     /// Deposit setup.
@@ -127,17 +118,13 @@ impl<DSP: Message + Clone> From<UnsignedPublishMessage<DSP>> for UnsignedGossips
                 stake_chain_id,
                 pre_stake_outpoint,
                 checkpoint_pubkeys,
-                stake_wots,
-                stake_hashes,
-                operator_funds,
+                stake_data,
             } => UnsignedGossipsubMsg::StakeChainExchange {
                 stake_chain_id,
                 info: StakeChainExchange {
                     checkpoint_pubkeys,
                     pre_stake_outpoint,
-                    stake_wots,
-                    stake_hashes,
-                    operator_funds,
+                    stake_data,
                 },
             },
 
