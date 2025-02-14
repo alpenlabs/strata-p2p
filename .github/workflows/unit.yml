@@ -52,7 +52,7 @@ jobs:
 
       - name: Run tests with coverage
         run: |
-          cargo llvm-cov --workspace --locked nextest --profile ci --lcov --output-path lcov.info
+          cargo llvm-cov --workspace --all-features --locked nextest --profile ci --lcov --output-path lcov.info
 
       - name: Test Summary
         uses: test-summary/action@v2
