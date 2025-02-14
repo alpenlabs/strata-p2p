@@ -211,5 +211,19 @@ mod tests {
             let key = Wots256PublicKey::new(bytes);
             prop_assert_eq!(key.0, bytes);
         }
+
+        #[test]
+            fn proptest_to_flattened_bytes(key: Wots256PublicKey) {
+                let flattened = key.to_flattened_bytes();
+
+                // Verify the length is correct
+                prop_assert_eq!(flattened.len(), 5120);
+
+                // Verify each segment matches the original arrays
+                for (i, original_array) in key.0.iter().enumerate() {
+                    let segment = &flattened[i * 20..(i + 1) * 20];
+                    prop_assert_eq!(segment, original_array.as_slice());
+                }
+            }
     }
 }
