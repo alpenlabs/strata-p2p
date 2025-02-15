@@ -185,6 +185,10 @@ impl<DSP: Message + Default> DepositSetup<DSP> {
 /// Info provided during initial startup of nodes.
 ///
 /// This is primarily used for the Stake Chain setup.
+///
+/// # Implementation Details
+///
+/// Note that we are using little-endian encoding for the vout in [`OutPoint`]s.
 #[derive(Debug, Clone)]
 pub struct StakeChainExchange {
     /// [`OutPoint`] of the pre-stake transaction.

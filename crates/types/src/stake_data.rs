@@ -56,6 +56,11 @@ impl StakeData {
     /// - 36 (32 + 4) bytes for the operator funds
     ///
     /// Total is 5,188 bytes.
+    ///
+    /// # Implementation Details
+    ///
+    /// Note that we are using little-endian encoding for the vout in the operator funds'
+    /// [`OutPoint`].
     pub fn to_flattened_bytes(
         &self,
     ) -> [u8; WOTS_SINGLE * 256 + HASH_SIZE + TXID_SIZE + VOUT_SIZE] {
@@ -68,7 +73,7 @@ impl StakeData {
             .copy_from_slice(&self.operator_funds.txid.to_byte_array());
         bytes[WOTS_SINGLE * 256 + HASH_SIZE + TXID_SIZE
             ..WOTS_SINGLE * 256 + HASH_SIZE + TXID_SIZE + VOUT_SIZE]
-            .copy_from_slice(&self.operator_funds.vout.to_be_bytes());
+            .copy_from_slice(&self.operator_funds.vout.to_le_bytes());
         bytes
     }
 }
@@ -135,7 +140,7 @@ mod tests {
             prop_assert_eq!(txid_bytes, &stake_data.operator_funds.txid.to_byte_array());
 
             let vout_bytes = &flattened[WOTS_SINGLE * 256 + HASH_SIZE + TXID_SIZE..WOTS_SINGLE * 256 + HASH_SIZE + TXID_SIZE + 4];
-            prop_assert_eq!(vout_bytes, &stake_data.operator_funds.vout.to_be_bytes());
+            prop_assert_eq!(vout_bytes, &stake_data.operator_funds.vout.to_le_bytes());
         }
     }
 }
