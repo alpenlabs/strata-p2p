@@ -6,7 +6,16 @@ use bitcoin::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::Wots256PublicKey;
+use crate::{wots::WOTS_SINGLE, Wots256PublicKey};
+
+/// Size of a [`sha256::Hash`] in bytes.
+pub const HASH_SIZE: usize = 32;
+
+/// Size of a [`Txid`](bitcoin::Txid) in bytes.
+pub const TXID_SIZE: usize = 32;
+
+/// Size of a vout in bytes.
+pub const VOUT_SIZE: usize = 4;
 
 /// Stake data for a single stake transaction.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Deserialize, Serialize)]
@@ -47,12 +56,19 @@ impl StakeData {
     /// - 36 (32 + 4) bytes for the operator funds
     ///
     /// Total is 5,188 bytes.
-    pub fn to_flattened_bytes(&self) -> [u8; 5188] {
-        let mut bytes = [0u8; 5188];
-        bytes[0..5120].copy_from_slice(&self.withdrawal_fulfillment_pk.to_flattened_bytes());
-        bytes[5120..5152].copy_from_slice(&self.hash.to_byte_array());
-        bytes[5152..5184].copy_from_slice(&self.operator_funds.txid.to_byte_array());
-        bytes[5184..5188].copy_from_slice(&self.operator_funds.vout.to_be_bytes());
+    pub fn to_flattened_bytes(
+        &self,
+    ) -> [u8; WOTS_SINGLE * 256 + HASH_SIZE + TXID_SIZE + VOUT_SIZE] {
+        let mut bytes = [0u8; WOTS_SINGLE * 256 + HASH_SIZE + TXID_SIZE + VOUT_SIZE];
+        bytes[0..WOTS_SINGLE * 256]
+            .copy_from_slice(&self.withdrawal_fulfillment_pk.to_flattened_bytes());
+        bytes[WOTS_SINGLE * 256..WOTS_SINGLE * 256 + HASH_SIZE]
+            .copy_from_slice(&self.hash.to_byte_array());
+        bytes[WOTS_SINGLE * 256 + HASH_SIZE..WOTS_SINGLE * 256 + HASH_SIZE + TXID_SIZE]
+            .copy_from_slice(&self.operator_funds.txid.to_byte_array());
+        bytes[WOTS_SINGLE * 256 + HASH_SIZE + TXID_SIZE
+            ..WOTS_SINGLE * 256 + HASH_SIZE + TXID_SIZE + VOUT_SIZE]
+            .copy_from_slice(&self.operator_funds.vout.to_be_bytes());
         bytes
     }
 }
@@ -64,8 +80,15 @@ mod tests {
     #[cfg(feature = "proptest")]
     use proptest::prelude::*;
 
-    #[cfg(feature = "proptest")]
     use super::*;
+
+    // Sanity tests for the constants
+    #[test]
+    fn sanity_check_constants() {
+        assert_eq!(HASH_SIZE, 32);
+        assert_eq!(TXID_SIZE, 32);
+        assert_eq!(VOUT_SIZE, 4);
+    }
 
     #[cfg(feature = "proptest")]
     fn arb_outpoint() -> impl Strategy<Value = OutPoint> {
@@ -97,21 +120,21 @@ mod tests {
             let flattened = stake_data.to_flattened_bytes();
 
             // Verify total length
-            prop_assert_eq!(flattened.len(), 5188);
+            prop_assert_eq!(flattened.len(), WOTS_SINGLE * 256 + HASH_SIZE + TXID_SIZE + 4);
 
             // Verify withdrawal fulfillment public key bytes
-            let pk_bytes = &flattened[0..5120];
+            let pk_bytes = &flattened[0..WOTS_SINGLE * 256];
             prop_assert_eq!(pk_bytes, &withdrawal_pk.to_flattened_bytes());
 
             // Verify hash bytes
-            let hash_bytes = &flattened[5120..5152];
+            let hash_bytes = &flattened[WOTS_SINGLE * 256..WOTS_SINGLE * 256 + HASH_SIZE];
             prop_assert_eq!(hash_bytes, &stake_data.hash.to_byte_array());
 
             // Verify operator funds bytes
-            let txid_bytes = &flattened[5152..5184];
+            let txid_bytes = &flattened[WOTS_SINGLE * 256 + HASH_SIZE..WOTS_SINGLE * 256 + HASH_SIZE + TXID_SIZE];
             prop_assert_eq!(txid_bytes, &stake_data.operator_funds.txid.to_byte_array());
 
-            let vout_bytes = &flattened[5184..5188];
+            let vout_bytes = &flattened[WOTS_SINGLE * 256 + HASH_SIZE + TXID_SIZE..WOTS_SINGLE * 256 + HASH_SIZE + TXID_SIZE + 4];
             prop_assert_eq!(vout_bytes, &stake_data.operator_funds.vout.to_be_bytes());
         }
     }
