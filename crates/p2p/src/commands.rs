@@ -4,9 +4,9 @@ use bitcoin::{OutPoint, XOnlyPublicKey};
 use libp2p::identity::secp256k1;
 use musig2::{PartialSignature, PubNonce};
 use prost::Message;
-use strata_p2p_types::{OperatorPubKey, Scope, SessionId};
+use strata_p2p_types::{OperatorPubKey, Scope, SessionId, StakeChainId, StakeData};
 use strata_p2p_wire::p2p::v1::{
-    DepositSetup, GenesisInfo, GetMessageRequest, GossipsubMsg, UnsignedGossipsubMsg,
+    DepositSetup, GetMessageRequest, GossipsubMsg, StakeChainExchange, UnsignedGossipsubMsg,
 };
 
 /// Ask P2P implementation to distribute some data across network.
@@ -37,12 +37,20 @@ pub struct PublishMessage<DepositSetupPayload> {
 /// Types of unsigned messages.
 #[derive(Debug, Clone)]
 pub enum UnsignedPublishMessage<DepositSetupPayload> {
-    /// Genesis information.
-    ///
-    /// Primarily used for the Stake Chain setup.
-    GenesisInfo {
+    /// Stake Chain information.
+    StakeChainExchange {
+        /// 32-byte hash of some unique to stake chain data.
+        stake_chain_id: StakeChainId,
+
+        /// [`OutPoint`] of the pre-stake transaction.
         pre_stake_outpoint: OutPoint,
+
+        /// Each operator `i = 0..N` sends a message with his Schnorr verification keys `Y_{i,j}`
+        /// for blocks `j = 0..M`.
         checkpoint_pubkeys: Vec<XOnlyPublicKey>,
+
+        /// Stake data for a whole Stake Chain.
+        stake_data: Vec<StakeData>,
     },
 
     /// Deposit setup.
@@ -106,13 +114,19 @@ impl<DSP: Message + Clone> From<UnsignedPublishMessage<DSP>> for UnsignedGossips
     /// Converts [`UnsignedPublishMessage`] into [`UnsignedGossipsubMsg`].
     fn from(value: UnsignedPublishMessage<DSP>) -> Self {
         match value {
-            UnsignedPublishMessage::GenesisInfo {
+            UnsignedPublishMessage::StakeChainExchange {
+                stake_chain_id,
                 pre_stake_outpoint,
                 checkpoint_pubkeys,
-            } => UnsignedGossipsubMsg::GenesisInfo(GenesisInfo {
-                checkpoint_pubkeys,
-                pre_stake_outpoint,
-            }),
+                stake_data,
+            } => UnsignedGossipsubMsg::StakeChainExchange {
+                stake_chain_id,
+                info: StakeChainExchange {
+                    checkpoint_pubkeys,
+                    pre_stake_outpoint,
+                    stake_data,
+                },
+            },
 
             UnsignedPublishMessage::DepositSetup { scope, payload } => {
                 UnsignedGossipsubMsg::DepositSetup {

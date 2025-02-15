@@ -5,7 +5,7 @@ use bitcoin::{OutPoint, XOnlyPublicKey};
 use libp2p_identity::PeerId;
 use musig2::{PartialSignature, PubNonce};
 use serde::{de::DeserializeOwned, Serialize};
-use strata_p2p_types::{OperatorPubKey, Scope, SessionId};
+use strata_p2p_types::{OperatorPubKey, Scope, SessionId, StakeChainId, StakeData};
 use thiserror::Error;
 
 mod prost_serde;
@@ -34,9 +34,18 @@ pub struct AuthenticatedEntry<T> {
     pub key: OperatorPubKey,
 }
 
+/// A [`Vec`] of [`PartialSignature`]s.
 pub type PartialSignaturesEntry = AuthenticatedEntry<Vec<PartialSignature>>;
+
+/// A [`Vec`] of [`PubNonce`]s.
 pub type NoncesEntry = AuthenticatedEntry<Vec<PubNonce>>;
-pub type GenesisInfoEntry = AuthenticatedEntry<(OutPoint, Vec<XOnlyPublicKey>)>;
+
+/// A big tuple of:
+///
+/// 1. [`OutPoint`] of the pre-stake transaction.
+/// 2. [`Vec`] of Schnorr verification keys `Y_{i,j}` for blocks `j = 0..M`.
+/// 3. [`Vec`] of [`StakeData`]s.
+pub type StakeChainEntry = AuthenticatedEntry<(OutPoint, Vec<XOnlyPublicKey>, Vec<StakeData>)>;
 
 /// Basic functionality to get, set, and delete values from a Database.
 #[async_trait]
@@ -201,23 +210,34 @@ where
         self.delete_raw(keys).await
     }
 
-    /// Gets genesis info for a given [`OperatorPubKey`].
-    ///
-    /// This is primarily used for the Stake Chain setup.
-    async fn get_genesis_info(
+    /// Gets stake chain info for a given [`OperatorPubKey`] and [`StakeChainId`].
+    async fn get_stake_chain_info(
         &self,
         operator_pk: &OperatorPubKey,
-    ) -> DBResult<Option<GenesisInfoEntry>> {
-        let key = format!("genesis-{operator_pk}");
+        stake_chain_id: &StakeChainId,
+    ) -> DBResult<Option<StakeChainEntry>> {
+        let key = format!("stake-chain-{operator_pk}_{stake_chain_id}");
         self.get(key).await
     }
 
-    /// Sets genesis info for a given [`OperatorPubKey`] if it wasn't there before.
-    ///
-    /// This is primarily used for the Stake Chain setup.
-    async fn set_genesis_info_if_not_exists(&self, info: GenesisInfoEntry) -> DBResult<bool> {
-        let key = format!("genesis-{}", info.key);
+    /// Sets stake chain info for a given [`SessionId`] if they weren't there before.
+    async fn set_stake_chain_info_if_not_exists(
+        &self,
+        stake_chain_id: StakeChainId,
+        info: StakeChainEntry,
+    ) -> DBResult<bool> {
+        let key = format!("stake-chain-{}_{stake_chain_id}", info.key);
         self.set_if_not_exists(key, info).await
+    }
+
+    /// Deletes multiple entries of stake chains from storage by pairs of
+    /// [`OperatorPubKey`]s and [`StakeChainId`]s.
+    async fn delete_stake_chains(&self, keys: &[(&OperatorPubKey, &StakeChainId)]) -> DBResult<()> {
+        let keys = keys
+            .iter()
+            .map(|(key, id)| format!("stake-chain-{key}_{id}"))
+            .collect::<Vec<_>>();
+        self.delete_raw(keys).await
     }
 
     /* P2P stores mapping of Musig2 exchange signers (operators) to node peer
