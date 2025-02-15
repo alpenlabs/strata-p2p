@@ -59,7 +59,7 @@ impl StakeData {
     ///
     /// # Implementation Details
     ///
-    /// Note that we are using little-endian encoding for the vout in the operator funds'
+    /// The vout in the operator funds are encoded in little-endian bytes.
     /// [`OutPoint`].
     pub fn to_flattened_bytes(
         &self,
