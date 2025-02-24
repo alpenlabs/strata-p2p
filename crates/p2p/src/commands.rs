@@ -1,9 +1,12 @@
 //! Commands for P2P implementation from operator implementation.
 
-use bitcoin::{OutPoint, XOnlyPublicKey};
-use libp2p::identity::secp256k1;
+use bitcoin::{
+    hashes::{sha256, Hash},
+    OutPoint, XOnlyPublicKey,
+};
 use musig2::{PartialSignature, PubNonce};
 use prost::Message;
+use secp256k1::{rand::thread_rng, Message as SecpMessage, SECP256K1};
 use strata_p2p_types::{OperatorPubKey, Scope, SessionId, StakeChainId, StakeData};
 use strata_p2p_wire::p2p::v1::{
     DepositSetup, GetMessageRequest, GossipsubMsg, StakeChainExchange, UnsignedGossipsubMsg,
@@ -98,12 +101,20 @@ impl<DSP: Message + Default + Clone> UnsignedPublishMessage<DSP> {
     /// Signs `self` using supplied [`secp256k1::Keypair`]. Returns a `Command`
     /// with resulting signature and public key from [`secp256k1::Keypair`].
     pub fn sign_secp256k1(&self, keypair: &secp256k1::Keypair) -> PublishMessage<DSP> {
+        let mut rng = thread_rng();
+        let (key, _) = keypair.public_key().x_only_public_key().into();
         let kind: UnsignedGossipsubMsg<DSP> = self.clone().into();
-        let msg = kind.content();
-        let signature = keypair.secret().sign(&msg);
+        let content = kind.content();
+        let digest = sha256::Hash::const_hash(&content);
+        let digest = digest.as_byte_array();
+        let message = SecpMessage::from_digest(*digest);
+        let signature = SECP256K1
+            .sign_schnorr_with_rng(&message, keypair, &mut rng)
+            .serialize()
+            .to_vec();
 
         PublishMessage {
-            key: keypair.public().clone().into(),
+            key: key.into(),
             signature,
             msg: self.clone(),
         }

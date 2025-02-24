@@ -6,9 +6,13 @@ use common::Operator;
 use futures::future::join_all;
 use libp2p::{
     build_multiaddr,
-    identity::{secp256k1::Keypair as SecpKeypair, Keypair},
+    identity::{
+        secp256k1::{Keypair as IdentitySecpKeypair, SecretKey as IdentitySecretKey},
+        Keypair as IdentityKeypair,
+    },
     PeerId,
 };
+use secp256k1::{rand::thread_rng, Keypair, SECP256K1};
 use strata_p2p::{
     commands::{CleanStorageCommand, Command, UnsignedPublishMessage},
     events::Event,
@@ -27,7 +31,7 @@ mod common;
 struct OperatorHandle {
     handle: P2PHandle<()>,
     peer_id: PeerId,
-    kp: SecpKeypair,
+    kp: Keypair,
     db: AsyncDB, // We include DB here to manipulate internal data and flow mechanics.
 }
 
@@ -49,7 +53,7 @@ impl Setup {
         let signers_allowlist: Vec<OperatorPubKey> = keypairs
             .clone()
             .into_iter()
-            .map(|kp| kp.public().clone().into())
+            .map(|kp| kp.public_key().into())
             .collect();
 
         for (idx, (keypair, addr)) in keypairs.iter().zip(&multiaddresses).enumerate() {
@@ -57,6 +61,8 @@ impl Setup {
             other_addrs.remove(idx);
             let mut other_peerids = peer_ids.clone();
             other_peerids.remove(idx);
+            let secret_key = IdentitySecretKey::try_from_bytes(keypair.secret_bytes()).unwrap();
+            let keypair = IdentitySecpKeypair::from(secret_key);
 
             let operator = Operator::new(
                 keypair.clone(),
@@ -83,13 +89,18 @@ impl Setup {
     /// addresses.
     fn setup_keys_ids_addrs_of_n_operators(
         number: usize,
-    ) -> (Vec<SecpKeypair>, Vec<PeerId>, Vec<libp2p::Multiaddr>) {
+    ) -> (Vec<Keypair>, Vec<PeerId>, Vec<libp2p::Multiaddr>) {
+        let mut rng = thread_rng();
         let keypairs = (0..number)
-            .map(|_| SecpKeypair::generate())
+            .map(|_| Keypair::new_global(&mut rng))
             .collect::<Vec<_>>();
         let peer_ids = keypairs
             .iter()
-            .map(|key| PeerId::from_public_key(&Keypair::from(key.clone()).public()))
+            .map(|key| {
+                let secret_key = IdentitySecretKey::try_from_bytes(key.secret_bytes()).unwrap();
+                let keypair = IdentitySecpKeypair::from(secret_key);
+                PeerId::from_public_key(&IdentityKeypair::from(keypair.clone()).public())
+            })
             .collect::<Vec<_>>();
         let multiaddresses = (1..(keypairs.len() + 1) as u16)
             .map(|idx| build_multiaddr!(Memory(idx)))
@@ -114,11 +125,12 @@ impl Setup {
         for operator in operators {
             let peer_id = operator.p2p.local_peer_id();
             tasks.spawn(operator.p2p.listen());
-
+            let keypair =
+                Keypair::from_seckey_slice(SECP256K1, &operator.kp.secret().to_bytes()).unwrap();
             levers.push(OperatorHandle {
                 handle: operator.handle,
                 peer_id,
-                kp: operator.kp,
+                kp: keypair,
                 db: operator.db,
             });
         }
@@ -177,7 +189,7 @@ async fn test_request_response() -> anyhow::Result<()> {
     exchange_stake_chain_info(&mut operators[..OPERATORS_NUM - 1], OPERATORS_NUM - 1).await?;
 
     // create command to request info from the last operator
-    let operator_pk: OperatorPubKey = operators[OPERATORS_NUM - 1].kp.public().clone().into();
+    let operator_pk: OperatorPubKey = operators[OPERATORS_NUM - 1].kp.public_key().into();
     let stake_chain_id = StakeChainId::hash(b"stake_chain_id");
     let command = Command::<()>::RequestMessage(GetMessageRequest::StakeChainExchange {
         stake_chain_id,
@@ -299,7 +311,8 @@ async fn test_operator_cleans_entries_correctly_at_command() -> anyhow::Result<(
     exchange_deposit_nonces(&mut operators, OPERATORS_NUM, session_id).await?;
     exchange_deposit_sigs(&mut operators, OPERATORS_NUM, session_id).await?;
 
-    let other_operator_pubkey = OperatorPubKey::from(operators[0].kp.public().to_bytes().to_vec());
+    let other_operator_pubkey =
+        OperatorPubKey::from(operators[0].kp.public_key().serialize().to_vec());
     let last_operator = &mut operators[1];
     last_operator
         .handle
@@ -465,7 +478,7 @@ async fn exchange_deposit_sigs(
     Ok(())
 }
 
-fn mock_stake_chain_info(kp: &SecpKeypair) -> Command<()> {
+fn mock_stake_chain_info(kp: &Keypair) -> Command<()> {
     let kind = UnsignedPublishMessage::StakeChainExchange {
         stake_chain_id: StakeChainId::hash(b"stake_chain_id"),
         pre_stake_outpoint: OutPoint::null(),
@@ -475,12 +488,12 @@ fn mock_stake_chain_info(kp: &SecpKeypair) -> Command<()> {
     kind.sign_secp256k1(kp).into()
 }
 
-fn mock_deposit_setup(kp: &SecpKeypair, scope: Scope) -> Command<()> {
+fn mock_deposit_setup(kp: &Keypair, scope: Scope) -> Command<()> {
     let unsigned = UnsignedPublishMessage::DepositSetup { scope, payload: () };
     unsigned.sign_secp256k1(kp).into()
 }
 
-fn mock_deposit_nonces(kp: &SecpKeypair, session_id: SessionId) -> Command<()> {
+fn mock_deposit_nonces(kp: &Keypair, session_id: SessionId) -> Command<()> {
     let unsigned = UnsignedPublishMessage::Musig2NoncesExchange {
         session_id,
         pub_nonces: vec![],
@@ -488,7 +501,7 @@ fn mock_deposit_nonces(kp: &SecpKeypair, session_id: SessionId) -> Command<()> {
     unsigned.sign_secp256k1(kp).into()
 }
 
-fn mock_deposit_sigs(kp: &SecpKeypair, session_id: SessionId) -> Command<()> {
+fn mock_deposit_sigs(kp: &Keypair, session_id: SessionId) -> Command<()> {
     let unsigned = UnsignedPublishMessage::Musig2SignaturesExchange {
         session_id,
         partial_sigs: vec![],

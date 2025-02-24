@@ -3255,6 +3255,7 @@ dependencies = [
  "libp2p",
  "musig2",
  "prost",
+ "secp256k1",
  "sled",
  "strata-p2p-db",
  "strata-p2p-types",
@@ -3298,6 +3299,7 @@ dependencies = [
  "libp2p-identity",
  "proptest",
  "proptest-derive",
+ "secp256k1",
  "serde",
  "serde_json",
 ]
