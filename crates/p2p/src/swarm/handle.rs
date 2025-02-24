@@ -1,6 +1,7 @@
 //! Entity to control P2P implementation, spawned in another async task,
 //! and listen to its events through channels.
 
+use futures::{FutureExt, Stream};
 use tokio::sync::{
     broadcast::{self, error::RecvError},
     mpsc,
@@ -43,5 +44,27 @@ where
     /// Check event's channel is empty or not.
     pub fn events_is_empty(&self) -> bool {
         self.events.is_empty()
+    }
+}
+
+impl<DSP> Stream for P2PHandle<DSP>
+where
+    DSP: prost::Message + Clone,
+{
+    type Item = Event<DSP>;
+
+    fn poll_next(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Self::Item>> {
+        let poll = Box::pin(self.next_event()).poll_unpin(cx);
+        match poll {
+            std::task::Poll::Ready(Ok(v)) => std::task::Poll::Ready(Some(v)),
+            std::task::Poll::Ready(Err(RecvError::Closed)) => std::task::Poll::Ready(None),
+            // NOTE FOR REVIEW: should we be silently swallowing skipped messages here or should we
+            // handle it differently?
+            std::task::Poll::Ready(Err(RecvError::Lagged(_skipped))) => self.poll_next(cx),
+            std::task::Poll::Pending => std::task::Poll::Pending,
+        }
     }
 }
