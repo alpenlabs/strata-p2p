@@ -94,32 +94,45 @@ impl DerefMut for Wots256PublicKey {
     }
 }
 
+// Custom Serialization for Wots160PublicKey
 impl Serialize for Wots160PublicKey {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
-        let mut seq = serializer.serialize_seq(Some(160))?;
-        for byte_array in &self.0 {
-            seq.serialize_element(byte_array)?;
+        if serializer.is_human_readable() {
+            let mut seq = serializer.serialize_seq(Some(160))?;
+            for byte_array in &self.0 {
+                seq.serialize_element(byte_array)?;
+            }
+            seq.end()
+        } else {
+            // For binary formats, use the flattened bytes
+            serializer.serialize_bytes(&self.to_flattened_bytes())
         }
-        seq.end()
     }
 }
 
+// Custom Serialization for Wots256PublicKey
 impl Serialize for Wots256PublicKey {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
-        let mut seq = serializer.serialize_seq(Some(256))?;
-        for byte_array in &self.0 {
-            seq.serialize_element(byte_array)?;
+        if serializer.is_human_readable() {
+            let mut seq = serializer.serialize_seq(Some(256))?;
+            for byte_array in &self.0 {
+                seq.serialize_element(byte_array)?;
+            }
+            seq.end()
+        } else {
+            // For binary formats, use the flattened bytes
+            serializer.serialize_bytes(&self.to_flattened_bytes())
         }
-        seq.end()
     }
 }
 
+// Custom Deserialization for Wots160PublicKey
 impl<'de> Deserialize<'de> for Wots160PublicKey {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
@@ -131,7 +144,24 @@ impl<'de> Deserialize<'de> for Wots160PublicKey {
             type Value = Wots160PublicKey;
 
             fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-                formatter.write_str(format!("exactly 160 elements of [u8; {WOTS_SINGLE}]").as_str())
+                formatter.write_str(
+                    format!("a Wots160PublicKey with {} bytes", WOTS_SINGLE * 160).as_str(),
+                )
+            }
+
+            fn visit_bytes<E>(self, bytes: &[u8]) -> Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
+                if bytes.len() != WOTS_SINGLE * 160 {
+                    return Err(E::invalid_length(bytes.len(), &self));
+                }
+
+                let mut array = [[0u8; WOTS_SINGLE]; 160];
+                for (i, chunk) in bytes.chunks(WOTS_SINGLE).enumerate() {
+                    array[i].copy_from_slice(chunk);
+                }
+                Ok(Wots160PublicKey(array))
             }
 
             fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
@@ -139,24 +169,23 @@ impl<'de> Deserialize<'de> for Wots160PublicKey {
                 A: SeqAccess<'de>,
             {
                 let mut array = [[0u8; WOTS_SINGLE]; 160];
-
-                // Iterate through array elements
                 for (i, item) in array.iter_mut().enumerate() {
                     *item = seq
                         .next_element()?
                         .ok_or_else(|| de::Error::invalid_length(i, &self))?;
                 }
-
-                // Check for excess elements
                 if seq.next_element::<[u8; WOTS_SINGLE]>()?.is_some() {
                     return Err(de::Error::invalid_length(161, &self));
                 }
-
                 Ok(Wots160PublicKey(array))
             }
         }
 
-        deserializer.deserialize_seq(Wots160PublicKeyVisitor)
+        if deserializer.is_human_readable() {
+            deserializer.deserialize_seq(Wots160PublicKeyVisitor)
+        } else {
+            deserializer.deserialize_bytes(Wots160PublicKeyVisitor)
+        }
     }
 }
 
@@ -171,7 +200,24 @@ impl<'de> Deserialize<'de> for Wots256PublicKey {
             type Value = Wots256PublicKey;
 
             fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-                formatter.write_str(format!("exactly 256 elements of [u8; {WOTS_SINGLE}]").as_str())
+                formatter.write_str(
+                    format!("a Wots256PublicKey with {} bytes", WOTS_SINGLE * 256).as_str(),
+                )
+            }
+
+            fn visit_bytes<E>(self, bytes: &[u8]) -> Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
+                if bytes.len() != WOTS_SINGLE * 256 {
+                    return Err(E::invalid_length(bytes.len(), &self));
+                }
+
+                let mut array = [[0u8; WOTS_SINGLE]; 256];
+                for (i, chunk) in bytes.chunks(WOTS_SINGLE).enumerate() {
+                    array[i].copy_from_slice(chunk);
+                }
+                Ok(Wots256PublicKey(array))
             }
 
             fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
@@ -179,24 +225,23 @@ impl<'de> Deserialize<'de> for Wots256PublicKey {
                 A: SeqAccess<'de>,
             {
                 let mut array = [[0u8; WOTS_SINGLE]; 256];
-
-                // Iterate through array elements
                 for (i, item) in array.iter_mut().enumerate() {
                     *item = seq
                         .next_element()?
                         .ok_or_else(|| de::Error::invalid_length(i, &self))?;
                 }
-
-                // Check for excess elements
                 if seq.next_element::<[u8; WOTS_SINGLE]>()?.is_some() {
                     return Err(de::Error::invalid_length(257, &self));
                 }
-
                 Ok(Wots256PublicKey(array))
             }
         }
 
-        deserializer.deserialize_seq(Wots256PublicKeyVisitor)
+        if deserializer.is_human_readable() {
+            deserializer.deserialize_seq(Wots256PublicKeyVisitor)
+        } else {
+            deserializer.deserialize_bytes(Wots256PublicKeyVisitor)
+        }
     }
 }
 
