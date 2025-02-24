@@ -12,4 +12,4 @@ pub use scope::Scope;
 pub use session_id::SessionId;
 pub use stake_chain_id::StakeChainId;
 pub use stake_data::StakeData;
-pub use wots::Wots256PublicKey;
+pub use wots::{Wots160PublicKey, Wots256PublicKey};
