@@ -172,14 +172,15 @@ mod tests {
     use proptest::prelude::*;
 
     use super::*;
+    use crate::wots::wots_total_digits;
 
     #[test]
     fn test_flattened_bytes_roundtrip() {
         // Create test data with known values
         let test_data = WotsPublicKeys::new(
-            vec![Wots256PublicKey::new([[1u8; WOTS_SINGLE]; 68]); 2], // 2 * 32 + 4 = 68
-            vec![Wots256PublicKey::new([[2u8; WOTS_SINGLE]; 68]); 3], // 2 * 32 + 4 = 68
-            vec![Wots160PublicKey::new([[3u8; WOTS_SINGLE]; 44]); 4], // 2 * 20 + 4 = 44
+            vec![Wots256PublicKey::new([[1u8; WOTS_SINGLE]; wots_total_digits(32)]); 2], /* 2 * 32 + 4 = 68 */
+            vec![Wots256PublicKey::new([[2u8; WOTS_SINGLE]; wots_total_digits(32)]); 3], /* 2 * 32 + 4 = 68 */
+            vec![Wots160PublicKey::new([[3u8; WOTS_SINGLE]; wots_total_digits(20)]); 4], /* 2 * 20 + 4 = 44 */
         );
 
         // Convert to flattened bytes

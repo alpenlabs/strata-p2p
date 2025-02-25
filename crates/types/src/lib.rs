@@ -1,6 +1,7 @@
 //! Types for the Strata P2P messaging protocol.
 #![expect(incomplete_features)] // the generic_const_exprs feature is incomplete
 #![feature(generic_const_exprs)] // but necessary for using const generic bounds in
+#![feature(strict_overflow_ops)] // necessary for const wots computations
 
 mod deposit_data;
 mod operator;

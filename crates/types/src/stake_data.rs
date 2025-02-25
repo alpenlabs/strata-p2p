@@ -6,7 +6,7 @@ use bitcoin::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::{Wots256PublicKey, WOTS_SINGLE};
+use crate::{wots::wots_total_digits, Wots256PublicKey, WOTS_SINGLE};
 
 /// Size of a [`sha256::Hash`] in bytes.
 pub const HASH_SIZE: usize = 32;
@@ -18,7 +18,7 @@ pub const TXID_SIZE: usize = 32;
 pub const VOUT_SIZE: usize = 4;
 
 /// Size of Wots256PublicKey in arrays (2 * 32 + 4 = 68)
-const WOTS256_ARRAYS: usize = 2 * 32 + 4;
+const WOTS256_ARRAYS: usize = wots_total_digits(32);
 
 /// Stake data for a single stake transaction.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Deserialize, Serialize)]

@@ -14,12 +14,56 @@ use serde::{
 /// A single Winternitz One-Time Signature (WOTS) hash value.
 pub const WOTS_SINGLE: usize = 20;
 
+/// The number of bits in an individual WOTS digit.
+/// WARNING(proofofkeags): MUST BE A FACTOR OF 8 WITH CURRENT IMPLEMENTATION (1,2,4,8)
+pub const WOTS_DIGIT_WIDTH: usize = 4;
+
+/// The number of WOTS digits needed to commit a byte.
+pub const WOTS_DIGITS_PER_BYTE: usize = 8 / WOTS_DIGIT_WIDTH;
+
+/// The maximum number a WOTS digit can hold.
+pub const WOTS_MAX_DIGIT: usize = (2 << WOTS_DIGIT_WIDTH) - 1;
+
+/// The number of WOTS digits required to represent a message for a given message length.
+pub const fn wots_msg_digits(msg_len_bytes: usize) -> usize {
+    WOTS_DIGITS_PER_BYTE * msg_len_bytes
+}
+
+/// The number of WOTS digits required to sign the checksum for a given message length.
+///
+/// The checksum of a WOTS commitment is the sum of the digit values themselves which is then
+/// encoded as a base256 integer. That integer is then signed using the same WOTS scheme.
+pub const fn wots_checksum_digits(msg_len_bytes: usize) -> usize {
+    let max_checksum = wots_msg_digits(msg_len_bytes) * WOTS_MAX_DIGIT;
+
+    // Compute how many bytes we need to represent the checksum itself
+    let mut exp = 1;
+    loop {
+        if 256u64.strict_pow(exp) - 1 >= max_checksum as u64 {
+            break;
+        } else {
+            exp += 1;
+        }
+    }
+    let num_checksum_bytes = exp as usize;
+
+    // Multiply the checksum bytes by the digits per byte value.
+    WOTS_DIGITS_PER_BYTE * num_checksum_bytes
+}
+
+/// The total number of WOTS digit keys
+pub const fn wots_total_digits(msg_len_bytes: usize) -> usize {
+    wots_msg_digits(msg_len_bytes) + wots_checksum_digits(msg_len_bytes)
+}
+
 /// A variable-length Winternitz One-Time Signature (WOTS) public key.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[cfg_attr(feature = "proptest", derive(Arbitrary))]
-pub struct WotsPublicKey<const MSG_LEN: usize>(pub [[u8; WOTS_SINGLE]; 2 * MSG_LEN + 4])
+pub struct WotsPublicKey<const MSG_LEN_BYTES: usize>(
+    pub [[u8; WOTS_SINGLE]; wots_total_digits(MSG_LEN_BYTES)],
+)
 where
-    [(); 2 * MSG_LEN + 4]: Sized;
+    [(); wots_total_digits(MSG_LEN_BYTES)]: Sized;
 
 /// 160-bit Winternitz One-Time Signature (WOTS) public key.
 pub type Wots160PublicKey = WotsPublicKey<20>;
@@ -27,28 +71,28 @@ pub type Wots160PublicKey = WotsPublicKey<20>;
 /// 256-bit Winternitz One-Time Signature (WOTS) public key.
 pub type Wots256PublicKey = WotsPublicKey<32>;
 
-impl<const MSG_LEN: usize> WotsPublicKey<MSG_LEN>
+impl<const MSG_LEN_BYTES: usize> WotsPublicKey<MSG_LEN_BYTES>
 where
-    [(); 2 * MSG_LEN + 4]: Sized,
-    [(); WOTS_SINGLE * (2 * MSG_LEN + 4)]: Sized,
+    [(); wots_total_digits(MSG_LEN_BYTES)]: Sized,
+    [(); WOTS_SINGLE * wots_total_digits(MSG_LEN_BYTES)]: Sized,
 {
     /// The size of this WOTS public key in bytes.
-    pub const SIZE: usize = 2 * MSG_LEN + 4;
+    pub const SIZE: usize = wots_total_digits(MSG_LEN_BYTES);
 
     /// Creates a new WOTS 160-bit public key from a byte array.
-    pub fn new(bytes: [[u8; WOTS_SINGLE]; 2 * MSG_LEN + 4]) -> Self {
+    pub fn new(bytes: [[u8; WOTS_SINGLE]; wots_total_digits(MSG_LEN_BYTES)]) -> Self {
         Self(bytes)
     }
 
     /// Converts the public key to a byte array.
-    pub fn to_bytes(&self) -> [[u8; WOTS_SINGLE]; 2 * MSG_LEN + 4] {
+    pub fn to_bytes(&self) -> [[u8; WOTS_SINGLE]; wots_total_digits(MSG_LEN_BYTES)] {
         self.0
     }
 
     /// Converts the public key to a flattened byte array.
     pub fn to_flattened_bytes(&self) -> Vec<u8> {
         // Changed return type to Vec<u8>
-        let mut bytes = Vec::with_capacity(WOTS_SINGLE * (2 * MSG_LEN + 4));
+        let mut bytes = Vec::with_capacity(WOTS_SINGLE * wots_total_digits(MSG_LEN_BYTES));
         for byte_array in &self.0 {
             bytes.extend_from_slice(byte_array);
         }
@@ -66,11 +110,11 @@ where
     pub fn from_flattened_bytes(bytes: &[u8]) -> Self {
         assert_eq!(
             bytes.len(),
-            WOTS_SINGLE * (2 * MSG_LEN + 4),
+            WOTS_SINGLE * (2 * MSG_LEN_BYTES + 4),
             "Invalid byte array length"
         );
 
-        let mut key = [[0u8; WOTS_SINGLE]; 2 * MSG_LEN + 4];
+        let mut key = [[0u8; WOTS_SINGLE]; wots_total_digits(MSG_LEN_BYTES)];
         for (i, byte_array) in key.iter_mut().enumerate() {
             byte_array.copy_from_slice(&bytes[i * WOTS_SINGLE..(i + 1) * WOTS_SINGLE]);
         }
@@ -78,20 +122,20 @@ where
     }
 }
 
-impl<const MSG_LEN: usize> Deref for WotsPublicKey<MSG_LEN>
+impl<const MSG_LEN_BYTES: usize> Deref for WotsPublicKey<MSG_LEN_BYTES>
 where
-    [(); 2 * MSG_LEN + 4]: Sized,
+    [(); wots_total_digits(MSG_LEN_BYTES)]: Sized,
 {
-    type Target = [[u8; WOTS_SINGLE]; 2 * MSG_LEN + 4];
+    type Target = [[u8; WOTS_SINGLE]; wots_total_digits(MSG_LEN_BYTES)];
 
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
-impl<const MSG_LEN: usize> DerefMut for WotsPublicKey<MSG_LEN>
+impl<const MSG_LEN_BYTES: usize> DerefMut for WotsPublicKey<MSG_LEN_BYTES>
 where
-    [(); 2 * MSG_LEN + 4]: Sized,
+    [(); wots_total_digits(MSG_LEN_BYTES)]: Sized,
 {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
@@ -99,17 +143,17 @@ where
 }
 
 // Custom Serialization for WotsPublicKey
-impl<const MSG_LEN: usize> Serialize for WotsPublicKey<MSG_LEN>
+impl<const MSG_LEN_BYTES: usize> Serialize for WotsPublicKey<MSG_LEN_BYTES>
 where
-    [(); 2 * MSG_LEN + 4]: Sized,
-    [(); WOTS_SINGLE * (2 * MSG_LEN + 4)]: Sized,
+    [(); wots_total_digits(MSG_LEN_BYTES)]: Sized,
+    [(); WOTS_SINGLE * wots_total_digits(MSG_LEN_BYTES)]: Sized,
 {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
         if serializer.is_human_readable() {
-            let mut seq = serializer.serialize_seq(Some(2 * MSG_LEN + 4))?;
+            let mut seq = serializer.serialize_seq(Some(2 * MSG_LEN_BYTES + 4))?;
             for byte_array in &self.0 {
                 seq.serialize_element(byte_array)?;
             }
@@ -121,10 +165,10 @@ where
 }
 
 // Custom Deserialization for WotsPublicKey
-impl<'de, const MSG_LEN: usize> Deserialize<'de> for WotsPublicKey<MSG_LEN>
+impl<'de, const MSG_LEN_BYTES: usize> Deserialize<'de> for WotsPublicKey<MSG_LEN_BYTES>
 where
-    [(); 2 * MSG_LEN + 4]: Sized,
-    [(); WOTS_SINGLE * (2 * MSG_LEN + 4)]: Sized,
+    [(); wots_total_digits(MSG_LEN_BYTES)]: Sized,
+    [(); WOTS_SINGLE * wots_total_digits(MSG_LEN_BYTES)]: Sized,
 {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
@@ -134,7 +178,7 @@ where
 
         impl<'de, const M: usize> Visitor<'de> for WotsPublicKeyVisitor<M>
         where
-            [(); 2 * M + 4]: Sized,
+            [(); wots_total_digits(M)]: Sized,
         {
             type Value = WotsPublicKey<M>;
 
@@ -153,7 +197,7 @@ where
                     return Err(E::invalid_length(bytes.len(), &self));
                 }
 
-                let mut array = [[0u8; WOTS_SINGLE]; 2 * M + 4];
+                let mut array = [[0u8; WOTS_SINGLE]; wots_total_digits(M)];
                 for (i, chunk) in bytes.chunks(WOTS_SINGLE).enumerate() {
                     array[i].copy_from_slice(chunk);
                 }
@@ -164,7 +208,7 @@ where
             where
                 A: SeqAccess<'de>,
             {
-                let mut array = [[0u8; WOTS_SINGLE]; 2 * M + 4];
+                let mut array = [[0u8; WOTS_SINGLE]; wots_total_digits(M)];
                 for (i, item) in array.iter_mut().enumerate() {
                     *item = seq
                         .next_element()?
@@ -178,9 +222,9 @@ where
         }
 
         if deserializer.is_human_readable() {
-            deserializer.deserialize_seq(WotsPublicKeyVisitor::<MSG_LEN>)
+            deserializer.deserialize_seq(WotsPublicKeyVisitor::<MSG_LEN_BYTES>)
         } else {
-            deserializer.deserialize_bytes(WotsPublicKeyVisitor::<MSG_LEN>)
+            deserializer.deserialize_bytes(WotsPublicKeyVisitor::<MSG_LEN_BYTES>)
         }
     }
 }
@@ -196,12 +240,17 @@ mod tests {
     #[test]
     fn sanity_check_constants() {
         assert_eq!(WOTS_SINGLE, 20);
+        assert_eq!(WOTS_DIGIT_WIDTH, 4);
+        assert_eq!(wots_msg_digits(32), 64);
+        assert_eq!(wots_msg_digits(20), 40);
+        assert_eq!(wots_checksum_digits(32), 4);
+        assert_eq!(wots_checksum_digits(20), 4);
     }
 
     #[test]
     fn flattened_bytes_roundtrip() {
-        let key160 = Wots160PublicKey::new([[1u8; WOTS_SINGLE]; 44]); // 2 * 20 + 4
-        let key256 = Wots256PublicKey::new([[1u8; WOTS_SINGLE]; 68]); // 2 * 32 + 4
+        let key160 = Wots160PublicKey::new([[1u8; WOTS_SINGLE]; wots_total_digits(20)]); // 2 * 20 + 4
+        let key256 = Wots256PublicKey::new([[1u8; WOTS_SINGLE]; wots_total_digits(32)]); // 2 * 32 + 4
 
         // Test flattened bytes roundtrip
         let flattened160 = key160.to_flattened_bytes();
@@ -216,8 +265,8 @@ mod tests {
 
     #[test]
     fn json_serialization() {
-        let key160 = Wots160PublicKey::new([[1u8; WOTS_SINGLE]; 44]); // 2 * 20 + 4
-        let key256 = Wots256PublicKey::new([[1u8; WOTS_SINGLE]; 68]); // 2 * 32 + 4
+        let key160 = Wots160PublicKey::new([[1u8; WOTS_SINGLE]; wots_total_digits(20)]); // 2 * 20 + 4
+        let key256 = Wots256PublicKey::new([[1u8; WOTS_SINGLE]; wots_total_digits(32)]); // 2 * 32 + 4
 
         // Test JSON serialization
         let serialized160 = serde_json::to_string(&key160).unwrap();
@@ -231,8 +280,8 @@ mod tests {
 
     #[test]
     fn bincode_serialization() {
-        let key160 = Wots160PublicKey::new([[1u8; WOTS_SINGLE]; 44]); // 2 * 20 + 4
-        let key256 = Wots256PublicKey::new([[1u8; WOTS_SINGLE]; 68]); // 2 * 32 + 4
+        let key160 = Wots160PublicKey::new([[1u8; WOTS_SINGLE]; wots_total_digits(20)]); // 2 * 20 + 4
+        let key256 = Wots256PublicKey::new([[1u8; WOTS_SINGLE]; wots_total_digits(32)]); // 2 * 32 + 4
 
         // Test bincode serialization
         let serialized160 = bincode::serialize(&key160).unwrap();
