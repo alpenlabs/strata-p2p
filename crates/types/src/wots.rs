@@ -17,16 +17,16 @@ pub const WOTS_SINGLE: usize = 20;
 /// A 160-bit Winternitz One-Time Signature (WOTS) public key.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[cfg_attr(feature = "proptest", derive(Arbitrary))]
-pub struct Wots160PublicKey(pub [[u8; WOTS_SINGLE]; 160]);
+pub struct Wots160PublicKey(pub [[u8; WOTS_SINGLE]; Wots160PublicKey::SIZE]);
 
 /// A 256-bit Winternitz One-Time Signature (WOTS) public key.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[cfg_attr(feature = "proptest", derive(Arbitrary))]
-pub struct Wots256PublicKey(pub [[u8; WOTS_SINGLE]; 256]);
+pub struct Wots256PublicKey(pub [[u8; WOTS_SINGLE]; Wots256PublicKey::SIZE]);
 
 impl Wots160PublicKey {
     /// The size of a WOTS 160-bit public key bitcommits to.
-    pub const SIZE: usize = 160;
+    pub const SIZE: usize = 44;
 
     /// Creates a new WOTS 160-bit public key from a byte array.
     pub fn new(bytes: [[u8; WOTS_SINGLE]; Self::SIZE]) -> Self {
@@ -49,12 +49,12 @@ impl Wots160PublicKey {
 
     /// Creates the public key from a flattened byte array.
     ///
-    /// If you already have a structured `[[u8; 20]; 160]` then you should use
+    /// If you already have a structured `[[u8; 20]; 44]` then you should use
     /// [`Wots160PublicKey::new`].
     ///
     /// # Panics
     ///
-    /// Panics if the byte array is not of length `[u8; 3_200]`.
+    /// Panics if the byte array is not of length `[u8; 880]`.
     pub fn from_flattened_bytes(bytes: &[u8]) -> Self {
         assert_eq!(
             bytes.len(),
@@ -72,7 +72,7 @@ impl Wots160PublicKey {
 
 impl Wots256PublicKey {
     /// The size of a WOTS 256-bit public key bitcommits to.
-    pub const SIZE: usize = 256;
+    pub const SIZE: usize = 68;
 
     /// Creates a new WOTS 256-bit public key from a byte array.
     pub fn new(bytes: [[u8; WOTS_SINGLE]; Self::SIZE]) -> Self {
@@ -95,12 +95,12 @@ impl Wots256PublicKey {
 
     /// Creates the public key from a flattened byte array.
     ///
-    /// If you already have a structured `[[u8; 20]; 256]` then you should use
+    /// If you already have a structured `[[u8; 20]; 68]` then you should use
     /// [`Wots256PublicKey::new`].
     ///
     /// # Panics
     ///
-    /// Panics if the byte array is not of length `[u8; 5_120]`.
+    /// Panics if the byte array is not of length `[u8; 1_360]`.
     pub fn from_flattened_bytes(bytes: &[u8]) -> Self {
         assert_eq!(
             bytes.len(),
@@ -117,7 +117,7 @@ impl Wots256PublicKey {
 }
 
 impl Deref for Wots160PublicKey {
-    type Target = [[u8; WOTS_SINGLE]; 160];
+    type Target = [[u8; WOTS_SINGLE]; Self::SIZE];
 
     fn deref(&self) -> &Self::Target {
         &self.0
@@ -125,7 +125,7 @@ impl Deref for Wots160PublicKey {
 }
 
 impl Deref for Wots256PublicKey {
-    type Target = [[u8; WOTS_SINGLE]; 256];
+    type Target = [[u8; WOTS_SINGLE]; Self::SIZE];
 
     fn deref(&self) -> &Self::Target {
         &self.0
@@ -151,7 +151,7 @@ impl Serialize for Wots160PublicKey {
         S: Serializer,
     {
         if serializer.is_human_readable() {
-            let mut seq = serializer.serialize_seq(Some(160))?;
+            let mut seq = serializer.serialize_seq(Some(Wots160PublicKey::SIZE))?;
             for byte_array in &self.0 {
                 seq.serialize_element(byte_array)?;
             }
@@ -170,7 +170,7 @@ impl Serialize for Wots256PublicKey {
         S: Serializer,
     {
         if serializer.is_human_readable() {
-            let mut seq = serializer.serialize_seq(Some(256))?;
+            let mut seq = serializer.serialize_seq(Some(Wots256PublicKey::SIZE))?;
             for byte_array in &self.0 {
                 seq.serialize_element(byte_array)?;
             }
@@ -195,7 +195,11 @@ impl<'de> Deserialize<'de> for Wots160PublicKey {
 
             fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
                 formatter.write_str(
-                    format!("a Wots160PublicKey with {} bytes", WOTS_SINGLE * 160).as_str(),
+                    format!(
+                        "a Wots160PublicKey with {} bytes",
+                        WOTS_SINGLE * Wots160PublicKey::SIZE
+                    )
+                    .as_str(),
                 )
             }
 
@@ -203,11 +207,11 @@ impl<'de> Deserialize<'de> for Wots160PublicKey {
             where
                 E: de::Error,
             {
-                if bytes.len() != WOTS_SINGLE * 160 {
+                if bytes.len() != WOTS_SINGLE * Wots160PublicKey::SIZE {
                     return Err(E::invalid_length(bytes.len(), &self));
                 }
 
-                let mut array = [[0u8; WOTS_SINGLE]; 160];
+                let mut array = [[0u8; WOTS_SINGLE]; Wots160PublicKey::SIZE];
                 for (i, chunk) in bytes.chunks(WOTS_SINGLE).enumerate() {
                     array[i].copy_from_slice(chunk);
                 }
@@ -218,14 +222,14 @@ impl<'de> Deserialize<'de> for Wots160PublicKey {
             where
                 A: SeqAccess<'de>,
             {
-                let mut array = [[0u8; WOTS_SINGLE]; 160];
+                let mut array = [[0u8; WOTS_SINGLE]; Wots160PublicKey::SIZE];
                 for (i, item) in array.iter_mut().enumerate() {
                     *item = seq
                         .next_element()?
                         .ok_or_else(|| de::Error::invalid_length(i, &self))?;
                 }
                 if seq.next_element::<[u8; WOTS_SINGLE]>()?.is_some() {
-                    return Err(de::Error::invalid_length(161, &self));
+                    return Err(de::Error::invalid_length(Wots160PublicKey::SIZE + 1, &self));
                 }
                 Ok(Wots160PublicKey(array))
             }
@@ -251,7 +255,11 @@ impl<'de> Deserialize<'de> for Wots256PublicKey {
 
             fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
                 formatter.write_str(
-                    format!("a Wots256PublicKey with {} bytes", WOTS_SINGLE * 256).as_str(),
+                    format!(
+                        "a Wots256PublicKey with {} bytes",
+                        WOTS_SINGLE * Wots256PublicKey::SIZE
+                    )
+                    .as_str(),
                 )
             }
 
@@ -259,11 +267,11 @@ impl<'de> Deserialize<'de> for Wots256PublicKey {
             where
                 E: de::Error,
             {
-                if bytes.len() != WOTS_SINGLE * 256 {
+                if bytes.len() != WOTS_SINGLE * Wots256PublicKey::SIZE {
                     return Err(E::invalid_length(bytes.len(), &self));
                 }
 
-                let mut array = [[0u8; WOTS_SINGLE]; 256];
+                let mut array = [[0u8; WOTS_SINGLE]; Wots256PublicKey::SIZE];
                 for (i, chunk) in bytes.chunks(WOTS_SINGLE).enumerate() {
                     array[i].copy_from_slice(chunk);
                 }
@@ -274,14 +282,14 @@ impl<'de> Deserialize<'de> for Wots256PublicKey {
             where
                 A: SeqAccess<'de>,
             {
-                let mut array = [[0u8; WOTS_SINGLE]; 256];
+                let mut array = [[0u8; WOTS_SINGLE]; Wots256PublicKey::SIZE];
                 for (i, item) in array.iter_mut().enumerate() {
                     *item = seq
                         .next_element()?
                         .ok_or_else(|| de::Error::invalid_length(i, &self))?;
                 }
                 if seq.next_element::<[u8; WOTS_SINGLE]>()?.is_some() {
-                    return Err(de::Error::invalid_length(257, &self));
+                    return Err(de::Error::invalid_length(Wots256PublicKey::SIZE + 1, &self));
                 }
                 Ok(Wots256PublicKey(array))
             }
@@ -310,8 +318,8 @@ mod tests {
 
     #[test]
     fn flattened_bytes_roundtrip() {
-        let key160 = Wots160PublicKey([[1u8; WOTS_SINGLE]; 160]);
-        let key256 = Wots256PublicKey([[1u8; WOTS_SINGLE]; 256]);
+        let key160 = Wots160PublicKey([[1u8; WOTS_SINGLE]; Wots160PublicKey::SIZE]);
+        let key256 = Wots256PublicKey([[1u8; WOTS_SINGLE]; Wots256PublicKey::SIZE]);
 
         // Test flattened bytes roundtrip
         let flattened160 = key160.to_flattened_bytes();
@@ -326,8 +334,8 @@ mod tests {
 
     #[test]
     fn json_serialization() {
-        let key160 = Wots160PublicKey([[1u8; WOTS_SINGLE]; 160]);
-        let key256 = Wots256PublicKey([[1u8; WOTS_SINGLE]; 256]);
+        let key160 = Wots160PublicKey([[1u8; WOTS_SINGLE]; Wots160PublicKey::SIZE]);
+        let key256 = Wots256PublicKey([[1u8; WOTS_SINGLE]; Wots256PublicKey::SIZE]);
 
         // Test JSON serialization
         let serialized160 = serde_json::to_string(&key160).unwrap();
@@ -341,8 +349,8 @@ mod tests {
 
     #[test]
     fn bincode_serialization() {
-        let key160 = Wots160PublicKey([[2u8; WOTS_SINGLE]; 160]);
-        let key256 = Wots256PublicKey([[2u8; WOTS_SINGLE]; 256]);
+        let key160 = Wots160PublicKey([[1u8; WOTS_SINGLE]; Wots160PublicKey::SIZE]);
+        let key256 = Wots256PublicKey([[1u8; WOTS_SINGLE]; Wots256PublicKey::SIZE]);
 
         // Test bincode serialization
         let serialized160 = bincode::serialize(&key160).unwrap();
@@ -400,13 +408,13 @@ mod tests {
     fn deserialize_invalid_array_length160() {
         // Create JSON with one array having wrong length (19 instead of 20)
         let mut json = String::from("[");
-        for i in 0..160 {
-            if i == 90 {
+        for i in 0..Wots160PublicKey::SIZE {
+            if i == 32 {
                 json.push_str("[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]"); // 19 elements
             } else {
                 json.push_str("[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]");
             }
-            if i < 159 {
+            if i < Wots160PublicKey::SIZE - 1 {
                 json.push(',');
             }
         }
@@ -420,13 +428,13 @@ mod tests {
     fn deserialize_invalid_array_length256() {
         // Create JSON with one array having wrong length (19 instead of 20)
         let mut json = String::from("[");
-        for i in 0..256 {
-            if i == 128 {
+        for i in 0..Wots256PublicKey::SIZE {
+            if i == 52 {
                 json.push_str("[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]"); // 19 elements
             } else {
                 json.push_str("[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]");
             }
-            if i < 255 {
+            if i < Wots256PublicKey::SIZE - 1 {
                 json.push(',');
             }
         }
@@ -492,13 +500,13 @@ mod tests {
         }
 
         #[test]
-        fn proptest_new_constructor160(bytes: [[u8; WOTS_SINGLE]; 160]) {
+        fn proptest_new_constructor160(bytes: [[u8; WOTS_SINGLE]; Wots160PublicKey::SIZE]) {
             let key = Wots160PublicKey::new(bytes);
             prop_assert_eq!(key.0, bytes);
         }
 
         #[test]
-        fn proptest_new_constructor256(bytes: [[u8; WOTS_SINGLE]; 256]) {
+        fn proptest_new_constructor256(bytes: [[u8; WOTS_SINGLE]; Wots256PublicKey::SIZE]) {
             let key = Wots256PublicKey::new(bytes);
             prop_assert_eq!(key.0, bytes);
         }
@@ -508,7 +516,7 @@ mod tests {
             let flattened = key.to_flattened_bytes();
 
             // Verify the length is correct
-            prop_assert_eq!(flattened.len(), WOTS_SINGLE * 160);
+            prop_assert_eq!(flattened.len(), WOTS_SINGLE * Wots160PublicKey::SIZE);
 
             // Verify each segment matches the original arrays
             for (i, original_array) in key.0.iter().enumerate() {
@@ -522,7 +530,7 @@ mod tests {
             let flattened = key.to_flattened_bytes();
 
             // Verify the length is correct
-            prop_assert_eq!(flattened.len(), WOTS_SINGLE * 256);
+            prop_assert_eq!(flattened.len(), WOTS_SINGLE * Wots256PublicKey::SIZE);
 
             // Verify each segment matches the original arrays
             for (i, original_array) in key.0.iter().enumerate() {

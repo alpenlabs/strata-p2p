@@ -63,16 +63,19 @@ impl StakeData {
     /// [`OutPoint`].
     pub fn to_flattened_bytes(
         &self,
-    ) -> [u8; WOTS_SINGLE * 256 + HASH_SIZE + TXID_SIZE + VOUT_SIZE] {
-        let mut bytes = [0u8; WOTS_SINGLE * 256 + HASH_SIZE + TXID_SIZE + VOUT_SIZE];
-        bytes[0..WOTS_SINGLE * 256]
+    ) -> [u8; WOTS_SINGLE * Wots256PublicKey::SIZE + HASH_SIZE + TXID_SIZE + VOUT_SIZE] {
+        let mut bytes =
+            [0u8; WOTS_SINGLE * Wots256PublicKey::SIZE + HASH_SIZE + TXID_SIZE + VOUT_SIZE];
+        bytes[0..WOTS_SINGLE * Wots256PublicKey::SIZE]
             .copy_from_slice(&self.withdrawal_fulfillment_pk.to_flattened_bytes());
-        bytes[WOTS_SINGLE * 256..WOTS_SINGLE * 256 + HASH_SIZE]
+        bytes[WOTS_SINGLE * Wots256PublicKey::SIZE
+            ..WOTS_SINGLE * Wots256PublicKey::SIZE + HASH_SIZE]
             .copy_from_slice(&self.hash.to_byte_array());
-        bytes[WOTS_SINGLE * 256 + HASH_SIZE..WOTS_SINGLE * 256 + HASH_SIZE + TXID_SIZE]
+        bytes[WOTS_SINGLE * Wots256PublicKey::SIZE + HASH_SIZE
+            ..WOTS_SINGLE * Wots256PublicKey::SIZE + HASH_SIZE + TXID_SIZE]
             .copy_from_slice(&self.operator_funds.txid.to_byte_array());
-        bytes[WOTS_SINGLE * 256 + HASH_SIZE + TXID_SIZE
-            ..WOTS_SINGLE * 256 + HASH_SIZE + TXID_SIZE + VOUT_SIZE]
+        bytes[WOTS_SINGLE * Wots256PublicKey::SIZE + HASH_SIZE + TXID_SIZE
+            ..WOTS_SINGLE * Wots256PublicKey::SIZE + HASH_SIZE + TXID_SIZE + VOUT_SIZE]
             .copy_from_slice(&self.operator_funds.vout.to_le_bytes());
         bytes
     }
@@ -125,21 +128,21 @@ mod tests {
             let flattened = stake_data.to_flattened_bytes();
 
             // Verify total length
-            prop_assert_eq!(flattened.len(), WOTS_SINGLE * 256 + HASH_SIZE + TXID_SIZE + 4);
+            prop_assert_eq!(flattened.len(), WOTS_SINGLE * Wots256PublicKey::SIZE + HASH_SIZE + TXID_SIZE + 4);
 
             // Verify withdrawal fulfillment public key bytes
-            let pk_bytes = &flattened[0..WOTS_SINGLE * 256];
+            let pk_bytes = &flattened[0..WOTS_SINGLE * Wots256PublicKey::SIZE];
             prop_assert_eq!(pk_bytes, &withdrawal_pk.to_flattened_bytes());
 
             // Verify hash bytes
-            let hash_bytes = &flattened[WOTS_SINGLE * 256..WOTS_SINGLE * 256 + HASH_SIZE];
+            let hash_bytes = &flattened[WOTS_SINGLE * Wots256PublicKey::SIZE..WOTS_SINGLE * Wots256PublicKey::SIZE + HASH_SIZE];
             prop_assert_eq!(hash_bytes, &stake_data.hash.to_byte_array());
 
             // Verify operator funds bytes
-            let txid_bytes = &flattened[WOTS_SINGLE * 256 + HASH_SIZE..WOTS_SINGLE * 256 + HASH_SIZE + TXID_SIZE];
+            let txid_bytes = &flattened[WOTS_SINGLE * Wots256PublicKey::SIZE + HASH_SIZE..WOTS_SINGLE * Wots256PublicKey::SIZE + HASH_SIZE + TXID_SIZE];
             prop_assert_eq!(txid_bytes, &stake_data.operator_funds.txid.to_byte_array());
 
-            let vout_bytes = &flattened[WOTS_SINGLE * 256 + HASH_SIZE + TXID_SIZE..WOTS_SINGLE * 256 + HASH_SIZE + TXID_SIZE + 4];
+            let vout_bytes = &flattened[WOTS_SINGLE * Wots256PublicKey::SIZE + HASH_SIZE + TXID_SIZE..WOTS_SINGLE * Wots256PublicKey::SIZE + HASH_SIZE + TXID_SIZE + 4];
             prop_assert_eq!(vout_bytes, &stake_data.operator_funds.vout.to_le_bytes());
         }
     }

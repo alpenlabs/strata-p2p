@@ -224,7 +224,7 @@ impl StakeChainExchange {
 
                 // Parse the Wots256PublicKey.
                 // Read exactly [[u8; 20]; 256] bytes.
-                let mut wots = [[0; 20]; 256]; // Wots256PublicKey
+                let mut wots = [[0; 20]; Wots256PublicKey::SIZE]; // Wots256PublicKey
                 for bytes in wots.iter_mut() {
                     curr.read_exact(bytes)
                         .map_err(|err| DecodeError::new(err.to_string()))?;
@@ -331,8 +331,7 @@ impl UnsignedGossipsubMsg {
                         .try_into()
                         .map_err(|_| DecodeError::new("invalid length of bytes for scope"))?;
                     let scope = Scope::from_bytes(bytes);
-                    let bytes = proto.wots_pks.as_slice();
-                    let wots_pks = WotsPublicKeys::from_flattened_bytes(bytes);
+                    let wots_pks = WotsPublicKeys::from_flattened_bytes(&proto.wots_pks);
 
                     Self::DepositSetup { scope, wots_pks }
                 }
