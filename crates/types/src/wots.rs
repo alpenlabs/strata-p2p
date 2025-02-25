@@ -25,44 +25,94 @@ pub struct Wots160PublicKey(pub [[u8; WOTS_SINGLE]; 160]);
 pub struct Wots256PublicKey(pub [[u8; WOTS_SINGLE]; 256]);
 
 impl Wots160PublicKey {
+    /// The size of a WOTS 160-bit public key bitcommits to.
+    pub const SIZE: usize = 160;
+
     /// Creates a new WOTS 160-bit public key from a byte array.
-    pub fn new(bytes: [[u8; WOTS_SINGLE]; 160]) -> Self {
+    pub fn new(bytes: [[u8; WOTS_SINGLE]; Self::SIZE]) -> Self {
         Self(bytes)
     }
 
     /// Converts the public key to a byte array.
-    pub fn to_bytes(&self) -> [[u8; WOTS_SINGLE]; 160] {
+    pub fn to_bytes(&self) -> [[u8; WOTS_SINGLE]; Self::SIZE] {
         self.0
     }
 
     /// Converts the public key to a flattened byte array.
-    pub fn to_flattened_bytes(&self) -> [u8; WOTS_SINGLE * 160] {
-        let mut bytes = [0u8; WOTS_SINGLE * 160];
+    pub fn to_flattened_bytes(&self) -> [u8; WOTS_SINGLE * Self::SIZE] {
+        let mut bytes = [0u8; WOTS_SINGLE * Self::SIZE];
         for (i, byte_array) in self.0.iter().enumerate() {
             bytes[i * WOTS_SINGLE..(i + 1) * WOTS_SINGLE].copy_from_slice(byte_array);
         }
         bytes
+    }
+
+    /// Creates the public key from a flattened byte array.
+    ///
+    /// If you already have a structured `[[u8; 20]; 160]` then you should use
+    /// [`Wots160PublicKey::new`].
+    ///
+    /// # Panics
+    ///
+    /// Panics if the byte array is not of length `[u8; 3_200]`.
+    pub fn from_flattened_bytes(bytes: &[u8]) -> Self {
+        assert_eq!(
+            bytes.len(),
+            WOTS_SINGLE * Self::SIZE,
+            "Invalid byte array length"
+        );
+
+        let mut key = [[0u8; WOTS_SINGLE]; Self::SIZE];
+        for (i, byte_array) in key.iter_mut().enumerate() {
+            byte_array.copy_from_slice(&bytes[i * WOTS_SINGLE..(i + 1) * WOTS_SINGLE]);
+        }
+        Self(key)
     }
 }
 
 impl Wots256PublicKey {
+    /// The size of a WOTS 256-bit public key bitcommits to.
+    pub const SIZE: usize = 256;
+
     /// Creates a new WOTS 256-bit public key from a byte array.
-    pub fn new(bytes: [[u8; WOTS_SINGLE]; 256]) -> Self {
+    pub fn new(bytes: [[u8; WOTS_SINGLE]; Self::SIZE]) -> Self {
         Self(bytes)
     }
 
     /// Converts the public key to a byte array.
-    pub fn to_bytes(&self) -> [[u8; WOTS_SINGLE]; 256] {
+    pub fn to_bytes(&self) -> [[u8; WOTS_SINGLE]; Self::SIZE] {
         self.0
     }
 
     /// Converts the public key to a flattened byte array.
-    pub fn to_flattened_bytes(&self) -> [u8; WOTS_SINGLE * 256] {
-        let mut bytes = [0u8; WOTS_SINGLE * 256];
+    pub fn to_flattened_bytes(&self) -> [u8; WOTS_SINGLE * Self::SIZE] {
+        let mut bytes = [0u8; WOTS_SINGLE * Self::SIZE];
         for (i, byte_array) in self.0.iter().enumerate() {
             bytes[i * WOTS_SINGLE..(i + 1) * WOTS_SINGLE].copy_from_slice(byte_array);
         }
         bytes
+    }
+
+    /// Creates the public key from a flattened byte array.
+    ///
+    /// If you already have a structured `[[u8; 20]; 256]` then you should use
+    /// [`Wots256PublicKey::new`].
+    ///
+    /// # Panics
+    ///
+    /// Panics if the byte array is not of length `[u8; 5_120]`.
+    pub fn from_flattened_bytes(bytes: &[u8]) -> Self {
+        assert_eq!(
+            bytes.len(),
+            WOTS_SINGLE * Self::SIZE,
+            "Invalid byte array length"
+        );
+
+        let mut key = [[0u8; WOTS_SINGLE]; Self::SIZE];
+        for (i, byte_array) in key.iter_mut().enumerate() {
+            byte_array.copy_from_slice(&bytes[i * WOTS_SINGLE..(i + 1) * WOTS_SINGLE]);
+        }
+        Self(key)
     }
 }
 
@@ -256,6 +306,22 @@ mod tests {
     #[test]
     fn sanity_check_constants() {
         assert_eq!(WOTS_SINGLE, 20);
+    }
+
+    #[test]
+    fn flattened_bytes_roundtrip() {
+        let key160 = Wots160PublicKey([[1u8; WOTS_SINGLE]; 160]);
+        let key256 = Wots256PublicKey([[1u8; WOTS_SINGLE]; 256]);
+
+        // Test flattened bytes roundtrip
+        let flattened160 = key160.to_flattened_bytes();
+        let flattened256 = key256.to_flattened_bytes();
+
+        let deserialized160 = Wots160PublicKey::from_flattened_bytes(&flattened160);
+        let deserialized256 = Wots256PublicKey::from_flattened_bytes(&flattened256);
+
+        assert_eq!(key160, deserialized160);
+        assert_eq!(key256, deserialized256);
     }
 
     #[test]
