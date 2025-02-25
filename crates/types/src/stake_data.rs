@@ -6,7 +6,7 @@ use bitcoin::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::{wots::WOTS_SINGLE, Wots256PublicKey};
+use crate::{Wots256PublicKey, WOTS_SINGLE};
 
 /// Size of a [`sha256::Hash`] in bytes.
 pub const HASH_SIZE: usize = 32;
@@ -16,6 +16,9 @@ pub const TXID_SIZE: usize = 32;
 
 /// Size of a vout in bytes.
 pub const VOUT_SIZE: usize = 4;
+
+/// Size of Wots256PublicKey in arrays (2 * 32 + 4 = 68)
+const WOTS256_ARRAYS: usize = 2 * 32 + 4;
 
 /// Stake data for a single stake transaction.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Deserialize, Serialize)]
@@ -63,7 +66,7 @@ impl StakeData {
     /// [`OutPoint`].
     pub fn to_flattened_bytes(
         &self,
-    ) -> [u8; WOTS_SINGLE * Wots256PublicKey::SIZE + HASH_SIZE + TXID_SIZE + VOUT_SIZE] {
+    ) -> [u8; WOTS_SINGLE * WOTS256_ARRAYS + HASH_SIZE + TXID_SIZE + VOUT_SIZE] {
         let mut bytes =
             [0u8; WOTS_SINGLE * Wots256PublicKey::SIZE + HASH_SIZE + TXID_SIZE + VOUT_SIZE];
         bytes[0..WOTS_SINGLE * Wots256PublicKey::SIZE]
@@ -96,6 +99,8 @@ mod tests {
         assert_eq!(HASH_SIZE, 32);
         assert_eq!(TXID_SIZE, 32);
         assert_eq!(VOUT_SIZE, 4);
+        assert_eq!(WOTS_SINGLE, 20);
+        assert_eq!(WOTS256_ARRAYS, 68);
     }
 
     #[cfg(feature = "proptest")]

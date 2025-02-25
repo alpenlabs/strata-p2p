@@ -6,7 +6,7 @@
 use proptest_derive::Arbitrary;
 use serde::{Deserialize, Serialize};
 
-use crate::{wots::WOTS_SINGLE, Wots160PublicKey, Wots256PublicKey};
+use crate::{Wots160PublicKey, Wots256PublicKey, WOTS_SINGLE};
 
 /// Winternitz One-Time Signature (WOTS) public key.
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Serialize, Deserialize)]
@@ -177,9 +177,9 @@ mod tests {
     fn test_flattened_bytes_roundtrip() {
         // Create test data with known values
         let test_data = WotsPublicKeys::new(
-            vec![Wots256PublicKey([[1u8; WOTS_SINGLE]; Wots256PublicKey::SIZE]); 2],
-            vec![Wots256PublicKey([[2u8; WOTS_SINGLE]; Wots256PublicKey::SIZE]); 3],
-            vec![Wots160PublicKey([[3u8; WOTS_SINGLE]; Wots160PublicKey::SIZE]); 4],
+            vec![Wots256PublicKey::new([[1u8; WOTS_SINGLE]; 68]); 2], // 2 * 32 + 4 = 68
+            vec![Wots256PublicKey::new([[2u8; WOTS_SINGLE]; 68]); 3], // 2 * 32 + 4 = 68
+            vec![Wots160PublicKey::new([[3u8; WOTS_SINGLE]; 44]); 4], // 2 * 20 + 4 = 44
         );
 
         // Convert to flattened bytes
@@ -219,9 +219,9 @@ mod tests {
             value in 0u8..255u8
         ) {
             let test_data = WotsPublicKeys::new(
-                vec![Wots256PublicKey([[value; WOTS_SINGLE]; Wots256PublicKey::SIZE]); n_inputs as usize],
-                vec![Wots256PublicKey([[value; WOTS_SINGLE]; Wots256PublicKey::SIZE]); n_fqs as usize],
-                vec![Wots160PublicKey([[value; WOTS_SINGLE]; Wots160PublicKey::SIZE]); n_hashes as usize],
+                vec![Wots256PublicKey::new([[value; WOTS_SINGLE]; Wots256PublicKey::SIZE]); n_inputs as usize],
+                vec![Wots256PublicKey::new([[value; WOTS_SINGLE]; Wots256PublicKey::SIZE]); n_fqs as usize],
+                vec![Wots160PublicKey::new([[value; WOTS_SINGLE]; Wots160PublicKey::SIZE]); n_hashes as usize],
             );
 
             let flattened = test_data.to_flattened_bytes();

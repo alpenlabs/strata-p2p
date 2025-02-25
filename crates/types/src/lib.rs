@@ -1,4 +1,6 @@
 //! Types for the Strata P2P messaging protocol.
+#![expect(incomplete_features)] // the generic_const_exprs feature is incomplete
+#![feature(generic_const_exprs)] // but necessary for using const generic bounds in
 
 mod deposit_data;
 mod operator;
@@ -14,4 +16,4 @@ pub use scope::Scope;
 pub use session_id::SessionId;
 pub use stake_chain_id::StakeChainId;
 pub use stake_data::StakeData;
-pub use wots::{Wots160PublicKey, Wots256PublicKey};
+pub use wots::{Wots160PublicKey, Wots256PublicKey, WotsPublicKey, WOTS_SINGLE};

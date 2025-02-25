@@ -9,7 +9,8 @@ use bitcoin::{
 use musig2::{PartialSignature, PubNonce};
 use prost::{DecodeError, Message};
 use strata_p2p_types::{
-    OperatorPubKey, Scope, SessionId, StakeChainId, StakeData, Wots256PublicKey, WotsPublicKeys,
+    OperatorPubKey, Scope, SessionId, StakeChainId, StakeData, Wots256PublicKey, WotsPublicKey,
+    WotsPublicKeys, WOTS_SINGLE,
 };
 
 use super::proto::{
@@ -223,13 +224,14 @@ impl StakeChainExchange {
                 let mut curr = Cursor::new(bytes);
 
                 // Parse the Wots256PublicKey.
-                // Read exactly [[u8; 20]; 256] bytes.
-                let mut wots = [[0; 20]; Wots256PublicKey::SIZE]; // Wots256PublicKey
+                // Read exactly [[u8; 20]; 68] bytes.
+                const WOTS_MSG_LEN: usize = Wots256PublicKey::SIZE;
+                let mut wots = [[0; WOTS_SINGLE]; WOTS_MSG_LEN]; // Wots256PublicKey
                 for bytes in wots.iter_mut() {
                     curr.read_exact(bytes)
                         .map_err(|err| DecodeError::new(err.to_string()))?;
                 }
-                let wots = Wots256PublicKey::new(wots);
+                let wots = WotsPublicKey::<32>::new(wots);
 
                 // Parse the sha256 hash.
                 let mut sha256_hash = [0; 32];
