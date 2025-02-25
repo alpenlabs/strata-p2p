@@ -9,7 +9,7 @@ use bitcoin::{
 use musig2::{PartialSignature, PubNonce};
 use prost::{DecodeError, Message};
 use strata_p2p_types::{
-    OperatorPubKey, Scope, SessionId, StakeChainId, StakeData, Wots256PublicKey,
+    OperatorPubKey, Scope, SessionId, StakeChainId, StakeData, Wots256PublicKey, WotsPublicKeys,
 };
 
 use super::proto::{
@@ -166,19 +166,17 @@ impl GetMessageRequest {
 ///
 /// This is primarily used for the WOTS PKs.
 #[derive(Debug, Clone)]
-pub struct DepositSetup<DepositSetupPayload: Message> {
-    /// Some arbitrary payload.
-    ///
-    /// Primarily used for the WOTS PKs.
-    pub payload: DepositSetupPayload,
+pub struct DepositSetup {
+    /// Winternitz One Time Signature (WOTS) public keys required for processing a deposit.
+    pub wots_pks: WotsPublicKeys,
 }
 
-impl<DSP: Message + Default> DepositSetup<DSP> {
+impl DepositSetup {
     /// Tries to convert a [`ProtoDepositSetup`] into [`DepositSetup`].
     pub fn from_proto_msg(proto: &ProtoDepositSetup) -> Result<Self, DecodeError> {
-        let payload: DSP = Message::decode(proto.payload.as_ref())?;
+        let wots_pks = WotsPublicKeys::from_flattened_bytes(&proto.wots_pks);
 
-        Ok(Self { payload })
+        Ok(Self { wots_pks })
     }
 }
 
@@ -269,7 +267,7 @@ impl StakeChainExchange {
 
 /// Unsigned messages exchanged between operators.
 #[derive(Clone, Debug)]
-pub enum UnsignedGossipsubMsg<DepositSetupPayload: Message> {
+pub enum UnsignedGossipsubMsg {
     /// Operators exchange stake chain info.
     StakeChainExchange {
         /// 32-byte hash of some unique to stake chain data.
@@ -287,8 +285,8 @@ pub enum UnsignedGossipsubMsg<DepositSetupPayload: Message> {
         /// [`Scope`] of the deposit data.
         scope: Scope,
 
-        /// Payload of the deposit setup.
-        setup: DepositSetup<DepositSetupPayload>,
+        /// [`WotsPublicKeys`] of the deposit data.
+        wots_pks: WotsPublicKeys,
     },
 
     /// Operators exchange (public) nonces before signing.
@@ -310,7 +308,7 @@ pub enum UnsignedGossipsubMsg<DepositSetupPayload: Message> {
     },
 }
 
-impl<DSP: Message + Default> UnsignedGossipsubMsg<DSP> {
+impl UnsignedGossipsubMsg {
     /// Tries to convert [`ProtoGossipsubMsgBody`] into typed [`UnsignedGossipsubMsg`]
     /// with specific types instead of raw vectors.
     pub fn from_msg_proto(proto: &ProtoGossipsubMsgBody) -> Result<Self, DecodeError> {
@@ -333,11 +331,12 @@ impl<DSP: Message + Default> UnsignedGossipsubMsg<DSP> {
                         .try_into()
                         .map_err(|_| DecodeError::new("invalid length of bytes for scope"))?;
                     let scope = Scope::from_bytes(bytes);
+                    let bytes = proto.wots_pks.as_slice().try_into().map_err(|_| {
+                        DecodeError::new("invalid length of bytes for WOTS public keys")
+                    })?;
+                    let wots_pks = WotsPublicKeys::from_flattened_bytes(bytes);
 
-                    Self::DepositSetup {
-                        scope,
-                        setup: DepositSetup::from_proto_msg(proto)?,
-                    }
+                    Self::DepositSetup { scope, wots_pks }
                 }
                 ProtoGossipsubMsgBody::Nonce(proto) => {
                     let bytes =
@@ -410,9 +409,9 @@ impl<DSP: Message + Default> UnsignedGossipsubMsg<DSP> {
                     content.extend(data.operator_funds.vout.to_le_bytes());
                 });
             }
-            Self::DepositSetup { scope, setup } => {
+            Self::DepositSetup { scope, wots_pks } => {
                 content.extend(scope.as_ref());
-                content.extend(setup.payload.encode_to_vec());
+                content.extend(wots_pks.to_flattened_bytes());
             }
             Self::Musig2NoncesExchange { session_id, nonces } => {
                 content.extend(session_id.as_ref());
@@ -455,10 +454,10 @@ impl<DSP: Message + Default> UnsignedGossipsubMsg<DSP> {
                     .map(|data| data.to_flattened_bytes().to_vec())
                     .collect::<Vec<Vec<u8>>>(),
             }),
-            Self::DepositSetup { scope, setup } => {
+            Self::DepositSetup { scope, wots_pks } => {
                 ProtoGossipsubMsgBody::Setup(ProtoDepositSetup {
                     scope: scope.to_vec(),
-                    payload: setup.payload.encode_to_vec(),
+                    wots_pks: wots_pks.to_flattened_bytes().to_vec(),
                 })
             }
             Self::Musig2NoncesExchange { session_id, nonces } => {
@@ -480,7 +479,7 @@ impl<DSP: Message + Default> UnsignedGossipsubMsg<DSP> {
 
 /// Gossipsub message.
 #[derive(Clone, Debug)]
-pub struct GossipsubMsg<DepositSetupPayload: Message + Clone> {
+pub struct GossipsubMsg {
     /// Operator's signature of the message.
     pub signature: Vec<u8>,
 
@@ -488,13 +487,10 @@ pub struct GossipsubMsg<DepositSetupPayload: Message + Clone> {
     pub key: OperatorPubKey,
 
     /// Unsigned payload.
-    pub unsigned: UnsignedGossipsubMsg<DepositSetupPayload>,
+    pub unsigned: UnsignedGossipsubMsg,
 }
 
-impl<DepositSetupPayload> GossipsubMsg<DepositSetupPayload>
-where
-    DepositSetupPayload: Message + Default + Clone,
-{
+impl GossipsubMsg {
     /// Tries to decode a Gossipsub message from bytes.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
         let msg = ProtoGossipMsg::decode(bytes)?;
@@ -502,7 +498,7 @@ where
             return Err(DecodeError::new("Message with empty body"));
         };
 
-        let kind = UnsignedGossipsubMsg::<DepositSetupPayload>::from_msg_proto(&body)?;
+        let kind = UnsignedGossipsubMsg::from_msg_proto(&body)?;
         let key = msg.key.into();
 
         Ok(Self {

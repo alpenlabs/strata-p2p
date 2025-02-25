@@ -146,7 +146,7 @@ mod tests {
         let db = config.open().expect("Failed to open sled database");
         let db = AsyncDB::new(Default::default(), Arc::new(db));
 
-        async fn inner(db: &impl RepositoryExt<()>) {
+        async fn inner(db: &impl RepositoryExt) {
             let secp = Secp256k1::new();
             let keypair = Keypair::new(&secp, &mut rand::thread_rng());
             let message = b"message";

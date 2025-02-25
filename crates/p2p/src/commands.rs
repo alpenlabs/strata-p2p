@@ -3,17 +3,16 @@
 use bitcoin::{OutPoint, XOnlyPublicKey};
 use libp2p::identity::secp256k1;
 use musig2::{PartialSignature, PubNonce};
-use prost::Message;
-use strata_p2p_types::{OperatorPubKey, Scope, SessionId, StakeChainId, StakeData};
+use strata_p2p_types::{OperatorPubKey, Scope, SessionId, StakeChainId, StakeData, WotsPublicKeys};
 use strata_p2p_wire::p2p::v1::{
-    DepositSetup, GetMessageRequest, GossipsubMsg, StakeChainExchange, UnsignedGossipsubMsg,
+    GetMessageRequest, GossipsubMsg, StakeChainExchange, UnsignedGossipsubMsg,
 };
 
 /// Ask P2P implementation to distribute some data across network.
 #[derive(Debug, Clone)]
-pub enum Command<DepositSetupPayload> {
+pub enum Command {
     /// Publishes message through gossip sub network of peers.
-    PublishMessage(PublishMessage<DepositSetupPayload>),
+    PublishMessage(PublishMessage),
 
     /// Requests some message directly from other operator by peer id.
     RequestMessage(GetMessageRequest),
@@ -23,7 +22,7 @@ pub enum Command<DepositSetupPayload> {
 }
 
 #[derive(Debug, Clone)]
-pub struct PublishMessage<DepositSetupPayload> {
+pub struct PublishMessage {
     /// Operator's public key.
     pub key: OperatorPubKey,
 
@@ -31,12 +30,12 @@ pub struct PublishMessage<DepositSetupPayload> {
     pub signature: Vec<u8>,
 
     /// Unsigned message.
-    pub msg: UnsignedPublishMessage<DepositSetupPayload>,
+    pub msg: UnsignedPublishMessage,
 }
 
 /// Types of unsigned messages.
 #[derive(Debug, Clone)]
-pub enum UnsignedPublishMessage<DepositSetupPayload> {
+pub enum UnsignedPublishMessage {
     /// Stake Chain information.
     StakeChainExchange {
         /// 32-byte hash of some unique to stake chain data.
@@ -61,7 +60,7 @@ pub enum UnsignedPublishMessage<DepositSetupPayload> {
         scope: Scope,
 
         /// Payload, WOTS PKs.
-        payload: DepositSetupPayload,
+        wots_pks: WotsPublicKeys,
     },
 
     /// MuSig2 (public) nonces exchange.
@@ -83,9 +82,9 @@ pub enum UnsignedPublishMessage<DepositSetupPayload> {
     },
 }
 
-impl<DSP: Message + Clone> From<PublishMessage<DSP>> for GossipsubMsg<DSP> {
+impl From<PublishMessage> for GossipsubMsg {
     /// Converts [`PublishMessage`] into [`GossipsubMsg`].
-    fn from(value: PublishMessage<DSP>) -> Self {
+    fn from(value: PublishMessage) -> Self {
         GossipsubMsg {
             signature: value.signature,
             key: value.key,
@@ -94,11 +93,11 @@ impl<DSP: Message + Clone> From<PublishMessage<DSP>> for GossipsubMsg<DSP> {
     }
 }
 
-impl<DSP: Message + Default + Clone> UnsignedPublishMessage<DSP> {
+impl UnsignedPublishMessage {
     /// Signs `self` using supplied [`secp256k1::Keypair`]. Returns a `Command`
     /// with resulting signature and public key from [`secp256k1::Keypair`].
-    pub fn sign_secp256k1(&self, keypair: &secp256k1::Keypair) -> PublishMessage<DSP> {
-        let kind: UnsignedGossipsubMsg<DSP> = self.clone().into();
+    pub fn sign_secp256k1(&self, keypair: &secp256k1::Keypair) -> PublishMessage {
+        let kind: UnsignedGossipsubMsg = self.clone().into();
         let msg = kind.content();
         let signature = keypair.secret().sign(&msg);
 
@@ -110,9 +109,9 @@ impl<DSP: Message + Default + Clone> UnsignedPublishMessage<DSP> {
     }
 }
 
-impl<DSP: Message + Clone> From<UnsignedPublishMessage<DSP>> for UnsignedGossipsubMsg<DSP> {
+impl From<UnsignedPublishMessage> for UnsignedGossipsubMsg {
     /// Converts [`UnsignedPublishMessage`] into [`UnsignedGossipsubMsg`].
-    fn from(value: UnsignedPublishMessage<DSP>) -> Self {
+    fn from(value: UnsignedPublishMessage) -> Self {
         match value {
             UnsignedPublishMessage::StakeChainExchange {
                 stake_chain_id,
@@ -128,11 +127,8 @@ impl<DSP: Message + Clone> From<UnsignedPublishMessage<DSP>> for UnsignedGossips
                 },
             },
 
-            UnsignedPublishMessage::DepositSetup { scope, payload } => {
-                UnsignedGossipsubMsg::DepositSetup {
-                    scope,
-                    setup: DepositSetup { payload },
-                }
+            UnsignedPublishMessage::DepositSetup { scope, wots_pks } => {
+                UnsignedGossipsubMsg::DepositSetup { scope, wots_pks }
             }
 
             UnsignedPublishMessage::Musig2NoncesExchange {
@@ -154,10 +150,8 @@ impl<DSP: Message + Clone> From<UnsignedPublishMessage<DSP>> for UnsignedGossips
     }
 }
 
-impl<DepositSetupPayload> From<PublishMessage<DepositSetupPayload>>
-    for Command<DepositSetupPayload>
-{
-    fn from(v: PublishMessage<DepositSetupPayload>) -> Self {
+impl From<PublishMessage> for Command {
+    fn from(v: PublishMessage) -> Self {
         Self::PublishMessage(v)
     }
 }
@@ -212,7 +206,7 @@ impl CleanStorageCommand {
     }
 }
 
-impl<DSP> From<CleanStorageCommand> for Command<DSP> {
+impl From<CleanStorageCommand> for Command {
     fn from(v: CleanStorageCommand) -> Self {
         Self::CleanStorage(v)
     }

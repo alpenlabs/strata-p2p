@@ -5,7 +5,7 @@ use bitcoin::{OutPoint, XOnlyPublicKey};
 use libp2p_identity::PeerId;
 use musig2::{PartialSignature, PubNonce};
 use serde::{de::DeserializeOwned, Serialize};
-use strata_p2p_types::{OperatorPubKey, Scope, SessionId, StakeChainId, StakeData};
+use strata_p2p_types::{OperatorPubKey, Scope, SessionId, StakeChainId, StakeData, WotsPublicKeys};
 use thiserror::Error;
 
 mod prost_serde;
@@ -107,10 +107,7 @@ pub trait Repository: Send + Sync + 'static {
 /// Additional functionality that extends [`Repository`] to the specific needs of Deposit Setups,
 /// Musig2 (public) nonces and (partial) signatures; and peer id storage.
 #[async_trait]
-pub trait RepositoryExt<DepositSetupPayload>: Repository
-where
-    DepositSetupPayload: prost::Message + Default + Send + Sync + 'static,
-{
+pub trait RepositoryExt: Repository {
     /// Gets (partial) signatures for a given [`OperatorPubKey`] and [`SessionId`].
     async fn get_partial_signatures(
         &self,
@@ -181,7 +178,7 @@ where
         &self,
         operator_pk: &OperatorPubKey,
         scope: Scope,
-    ) -> DBResult<Option<DepositSetupEntry<DepositSetupPayload>>> {
+    ) -> DBResult<Option<DepositSetupEntry>> {
         let key = format!("setup-{operator_pk}_{scope}");
         self.get(key).await
     }
@@ -192,7 +189,7 @@ where
     async fn set_deposit_setup_if_not_exists(
         &self,
         scope: Scope,
-        setup: DepositSetupEntry<DepositSetupPayload>,
+        setup: DepositSetupEntry,
     ) -> DBResult<bool> {
         let key = format!("setup-{}_{scope}", setup.key);
         self.set_if_not_exists(key, setup).await
@@ -265,17 +262,11 @@ where
     }
 }
 
-impl<T, DSP> RepositoryExt<DSP> for T
-where
-    DSP: prost::Message + Default + Send + Sync + 'static,
-    T: Repository,
-{
-}
+impl<T> RepositoryExt for T where T: Repository {}
 
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
-pub struct DepositSetupEntry<DSP: prost::Message + Default> {
-    #[serde(with = "prost_serde")]
-    pub payload: DSP,
+pub struct DepositSetupEntry {
+    pub wots_pks: WotsPublicKeys,
     pub signature: Vec<u8>,
     pub key: OperatorPubKey,
 }

@@ -1,4 +1,5 @@
 //! Custom [`serde`] serializers and deserializers for [`prost`] messages.
+#![allow(dead_code)]
 
 use serde::{de::Error, Deserialize, Deserializer, Serializer};
 
