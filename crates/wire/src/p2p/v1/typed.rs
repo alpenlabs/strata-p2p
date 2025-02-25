@@ -331,9 +331,7 @@ impl UnsignedGossipsubMsg {
                         .try_into()
                         .map_err(|_| DecodeError::new("invalid length of bytes for scope"))?;
                     let scope = Scope::from_bytes(bytes);
-                    let bytes = proto.wots_pks.as_slice().try_into().map_err(|_| {
-                        DecodeError::new("invalid length of bytes for WOTS public keys")
-                    })?;
+                    let bytes = proto.wots_pks.as_slice();
                     let wots_pks = WotsPublicKeys::from_flattened_bytes(bytes);
 
                     Self::DepositSetup { scope, wots_pks }

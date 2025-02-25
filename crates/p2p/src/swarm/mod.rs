@@ -120,7 +120,7 @@ impl<DB: RepositoryExt> P2P<DB> {
             .map_err(ProtocolError::Listen)?;
 
         // WOTS PKs are biiiiiiiig
-        let channel_size = channel_size.unwrap_or(2_000_000);
+        let channel_size = channel_size.unwrap_or(400_000);
         let (events_tx, events_rx) = broadcast::channel(channel_size);
         let (cmds_tx, cmds_rx) = mpsc::channel(50_000);
 

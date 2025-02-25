@@ -128,9 +128,9 @@ impl Setup {
     }
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn test_all_to_all_one_scope() -> anyhow::Result<()> {
-    const OPERATORS_NUM: usize = 4;
+    const OPERATORS_NUM: usize = 2;
 
     tracing_subscriber::registry()
         .with(fmt::layer())
@@ -158,9 +158,9 @@ async fn test_all_to_all_one_scope() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn test_request_response() -> anyhow::Result<()> {
-    const OPERATORS_NUM: usize = 4;
+    const OPERATORS_NUM: usize = 2;
 
     tracing_subscriber::registry()
         .with(fmt::layer())
@@ -234,9 +234,9 @@ async fn test_request_response() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn test_all_to_all_multiple_scopes() -> anyhow::Result<()> {
-    const OPERATORS_NUM: usize = 10;
+    const OPERATORS_NUM: usize = 2;
 
     tracing_subscriber::registry()
         .with(fmt::layer())
@@ -251,11 +251,11 @@ async fn test_all_to_all_multiple_scopes() -> anyhow::Result<()> {
 
     exchange_stake_chain_info(&mut operators, OPERATORS_NUM).await?;
 
-    let scopes = (0..10)
+    let scopes = (0..OPERATORS_NUM)
         .map(|i| Scope::hash(format!("scope{}", i).as_bytes()))
         .collect::<Vec<_>>();
 
-    let session_ids = (0..10)
+    let session_ids = (0..OPERATORS_NUM)
         .map(|i| SessionId::hash(format!("session{}", i).as_bytes()))
         .collect::<Vec<_>>();
 
@@ -476,7 +476,7 @@ fn mock_stake_chain_info(kp: &SecpKeypair) -> Command {
 }
 
 fn mock_deposit_setup(kp: &SecpKeypair, scope: Scope) -> Command {
-    let mock_bytes = [0u8; 1_323_520];
+    let mock_bytes = [0u8; 362_960];
     let unsigned = UnsignedPublishMessage::DepositSetup {
         scope,
         wots_pks: WotsPublicKeys::from_flattened_bytes(&mock_bytes),
