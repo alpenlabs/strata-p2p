@@ -206,43 +206,149 @@ impl<'de> Deserialize<'de> for WotsPublicKeys {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(feature = "proptest")]
+    use proptest::prelude::*;
+
     use super::*;
 
+    // Sanity checks for constants
     #[test]
-    fn test_minimal_json_roundtrip() {
-        // Create minimal test data
-        let test_data = WotsPublicKeys(
-            [Wots256PublicKey([[1; WOTS_SINGLE]; 256]); N_VERIFIER_PUBLIC_INPUTS],
-            [Wots256PublicKey([[2; WOTS_SINGLE]; 256]); N_VERIFIER_FQS],
-            [Wots160PublicKey([[3; WOTS_SINGLE]; 160]); N_VERIFIER_HASHES],
-        );
-
-        // Test JSON serialization
-        let serialized = serde_json::to_string(&test_data).unwrap();
-        let deserialized: WotsPublicKeys = serde_json::from_str(&serialized).unwrap();
-
-        // Compare first elements
-        assert_eq!(test_data.0[0].0[0], deserialized.0[0].0[0]);
-        assert_eq!(test_data.1[0].0[0], deserialized.1[0].0[0]);
-        assert_eq!(test_data.2[0].0[0], deserialized.2[0].0[0]);
+    fn sanity_check_constants() {
+        assert_eq!(N_VERIFIER_PUBLIC_INPUTS, 1);
+        assert_eq!(N_VERIFIER_FQS, 20);
+        assert_eq!(N_VERIFIER_HASHES, 380);
     }
 
     #[test]
-    fn test_minimal_bincode_roundtrip() {
-        // Create minimal test data
+    fn test_json_serialization() {
         let test_data = WotsPublicKeys(
-            [Wots256PublicKey([[1; WOTS_SINGLE]; 256]); N_VERIFIER_PUBLIC_INPUTS],
-            [Wots256PublicKey([[2; WOTS_SINGLE]; 256]); N_VERIFIER_FQS],
-            [Wots160PublicKey([[3; WOTS_SINGLE]; 160]); N_VERIFIER_HASHES],
+            [Wots256PublicKey([[1u8; WOTS_SINGLE]; 256]); N_VERIFIER_PUBLIC_INPUTS],
+            [Wots256PublicKey([[2u8; WOTS_SINGLE]; 256]); N_VERIFIER_FQS],
+            [Wots160PublicKey([[3u8; WOTS_SINGLE]; 160]); N_VERIFIER_HASHES],
         );
 
-        // Test bincode serialization
+        let serialized = serde_json::to_string(&test_data).unwrap();
+        let deserialized: WotsPublicKeys = serde_json::from_str(&serialized).unwrap();
+
+        assert_eq!(test_data.0[0], deserialized.0[0]);
+        assert_eq!(test_data.1[0], deserialized.1[0]);
+        assert_eq!(test_data.2[0], deserialized.2[0]);
+    }
+
+    #[test]
+    fn test_bincode_serialization() {
+        let test_data = WotsPublicKeys(
+            [Wots256PublicKey([[1u8; WOTS_SINGLE]; 256]); N_VERIFIER_PUBLIC_INPUTS],
+            [Wots256PublicKey([[2u8; WOTS_SINGLE]; 256]); N_VERIFIER_FQS],
+            [Wots160PublicKey([[3u8; WOTS_SINGLE]; 160]); N_VERIFIER_HASHES],
+        );
+
         let serialized = bincode::serialize(&test_data).unwrap();
         let deserialized: WotsPublicKeys = bincode::deserialize(&serialized).unwrap();
 
-        // Compare first elements
+        assert_eq!(test_data.0[0], deserialized.0[0]);
+        assert_eq!(test_data.1[0], deserialized.1[0]);
+        assert_eq!(test_data.2[0], deserialized.2[0]);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_deserialize_invalid_length() {
+        // Create a JSON array with wrong number of elements
+        let mut json = String::from("[");
+        for _ in 0..(N_VERIFIER_PUBLIC_INPUTS + N_VERIFIER_FQS + N_VERIFIER_HASHES - 1) {
+            json.push_str(&format!(
+                "{{\"array\":[[{}; {}]; {}]}}",
+                1, WOTS_SINGLE, 256
+            ));
+            json.push(',');
+        }
+        json.push(']');
+
+        let _: WotsPublicKeys = serde_json::from_str(&json).unwrap();
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_deserialize_invalid_binary_length() {
+        // Create invalid length binary data
+        let invalid_data = vec![0u8; 100]; // Too short
+        let _: WotsPublicKeys = bincode::deserialize(&invalid_data).unwrap();
+    }
+
+    #[cfg(feature = "proptest")]
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(50))]
+
+        #[test]
+        fn proptest_serde_json_roundtrip(byte: u8) {
+            let test_data = WotsPublicKeys(
+                [Wots256PublicKey([[byte; WOTS_SINGLE]; 256]); N_VERIFIER_PUBLIC_INPUTS],
+                [Wots256PublicKey([[byte; WOTS_SINGLE]; 256]); N_VERIFIER_FQS],
+                [Wots160PublicKey([[byte; WOTS_SINGLE]; 160]); N_VERIFIER_HASHES]
+            );
+
+            let serialized = serde_json::to_string(&test_data).unwrap();
+            let deserialized: WotsPublicKeys = serde_json::from_str(&serialized).unwrap();
+
+            prop_assert_eq!(test_data.0[0].0[0], deserialized.0[0].0[0]);
+            prop_assert_eq!(test_data.1[0].0[0], deserialized.1[0].0[0]);
+            prop_assert_eq!(test_data.2[0].0[0], deserialized.2[0].0[0]);
+        }
+
+        #[test]
+        fn proptest_bincode_roundtrip(byte: u8) {
+            let test_data = WotsPublicKeys(
+                [Wots256PublicKey([[byte; WOTS_SINGLE]; 256]); N_VERIFIER_PUBLIC_INPUTS],
+                [Wots256PublicKey([[byte; WOTS_SINGLE]; 256]); N_VERIFIER_FQS],
+                [Wots160PublicKey([[byte; WOTS_SINGLE]; 160]); N_VERIFIER_HASHES]
+            );
+
+            let serialized = bincode::serialize(&test_data).unwrap();
+            let deserialized: WotsPublicKeys = bincode::deserialize(&serialized).unwrap();
+
+            prop_assert_eq!(test_data.0[0].0[0], deserialized.0[0].0[0]);
+            prop_assert_eq!(test_data.1[0].0[0], deserialized.1[0].0[0]);
+            prop_assert_eq!(test_data.2[0].0[0], deserialized.2[0].0[0]);
+        }
+
+        #[test]
+        fn proptest_array_sizes(byte: u8) {
+            let test_data = WotsPublicKeys(
+                [Wots256PublicKey([[byte; WOTS_SINGLE]; 256]); N_VERIFIER_PUBLIC_INPUTS],
+                [Wots256PublicKey([[byte; WOTS_SINGLE]; 256]); N_VERIFIER_FQS],
+                [Wots160PublicKey([[byte; WOTS_SINGLE]; 160]); N_VERIFIER_HASHES]
+            );
+
+            prop_assert_eq!(test_data.0.len(), N_VERIFIER_PUBLIC_INPUTS);
+            prop_assert_eq!(test_data.1.len(), N_VERIFIER_FQS);
+            prop_assert_eq!(test_data.2.len(), N_VERIFIER_HASHES);
+        }
+    }
+
+    #[test]
+    fn test_full_structure() {
+        let test_bytes = 0xFFu8;
+        let test_data = WotsPublicKeys(
+            [Wots256PublicKey([[test_bytes; WOTS_SINGLE]; 256]); N_VERIFIER_PUBLIC_INPUTS],
+            [Wots256PublicKey([[test_bytes; WOTS_SINGLE]; 256]); N_VERIFIER_FQS],
+            [Wots160PublicKey([[test_bytes; WOTS_SINGLE]; 160]); N_VERIFIER_HASHES],
+        );
+
+        // Test serialization/deserialization
+        let serialized = bincode::serialize(&test_data).unwrap();
+        let deserialized: WotsPublicKeys = bincode::deserialize(&serialized).unwrap();
+
         assert_eq!(test_data.0[0].0[0], deserialized.0[0].0[0]);
         assert_eq!(test_data.1[0].0[0], deserialized.1[0].0[0]);
         assert_eq!(test_data.2[0].0[0], deserialized.2[0].0[0]);
+
+        // Test JSON serialization/deserialization
+        let json_serialized = serde_json::to_string(&test_data).unwrap();
+        let json_deserialized: WotsPublicKeys = serde_json::from_str(&json_serialized).unwrap();
+
+        assert_eq!(test_data.0[0].0[0], json_deserialized.0[0].0[0]);
+        assert_eq!(test_data.1[0].0[0], json_deserialized.1[0].0[0]);
+        assert_eq!(test_data.2[0].0[0], json_deserialized.2[0].0[0]);
     }
 }
