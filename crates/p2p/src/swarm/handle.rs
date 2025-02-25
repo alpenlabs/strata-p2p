@@ -1,13 +1,24 @@
 //! Entity to control P2P implementation, spawned in another async task,
 //! and listen to its events through channels.
 
+use std::fmt::Display;
+
 use futures::{FutureExt, Stream};
+use thiserror::Error;
 use tokio::sync::{
     broadcast::{self, error::RecvError},
     mpsc,
 };
 
 use crate::{commands::Command, events::Event};
+
+#[derive(Debug, Clone, Error)]
+pub struct ErrDroppedMsgs(u64);
+impl Display for ErrDroppedMsgs {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "P2PHandle dropped {} messages", self.0)
+    }
+}
 
 /// Handle to interact with P2P implementation spawned in another async
 /// task. To create new one, use [`super::P2P::new_handle`].
@@ -51,7 +62,7 @@ impl<DSP> Stream for P2PHandle<DSP>
 where
     DSP: prost::Message + Clone,
 {
-    type Item = Event<DSP>;
+    type Item = Result<Event<DSP>, ErrDroppedMsgs>;
 
     fn poll_next(
         mut self: std::pin::Pin<&mut Self>,
@@ -59,11 +70,12 @@ where
     ) -> std::task::Poll<Option<Self::Item>> {
         let poll = Box::pin(self.next_event()).poll_unpin(cx);
         match poll {
-            std::task::Poll::Ready(Ok(v)) => std::task::Poll::Ready(Some(v)),
+            std::task::Poll::Ready(Ok(v)) => std::task::Poll::Ready(Some(Ok(v))),
             std::task::Poll::Ready(Err(RecvError::Closed)) => std::task::Poll::Ready(None),
-            // NOTE FOR REVIEW: should we be silently swallowing skipped messages here or should we
-            // handle it differently?
-            std::task::Poll::Ready(Err(RecvError::Lagged(_skipped))) => self.poll_next(cx),
+            std::task::Poll::Ready(Err(RecvError::Lagged(skipped))) => {
+                tracing::warn!("P2P Stream lost {} messages", skipped);
+                std::task::Poll::Ready(Some(Err(ErrDroppedMsgs(skipped))))
+            }
             std::task::Poll::Pending => std::task::Poll::Pending,
         }
     }
