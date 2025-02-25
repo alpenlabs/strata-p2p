@@ -25,15 +25,118 @@ pub const N_VERIFIER_FQS: usize = 20;
 /// Number of 160-bit WOTS public keys for the hashes.
 pub const N_VERIFIER_HASHES: usize = 380;
 
+/// Total size of the WOTS public keys in bytes.
+pub const WOTS_PKS_TOTAL_SIZE: usize =
+    (N_VERIFIER_PUBLIC_INPUTS * WOTS_SINGLE * Wots256PublicKey::SIZE)
+        + (N_VERIFIER_FQS * WOTS_SINGLE * Wots256PublicKey::SIZE)
+        + (N_VERIFIER_HASHES * WOTS_SINGLE * Wots160PublicKey::SIZE);
+
 /// Winternitz One-Time Signature (WOTS) public key.
 // NOTE: Taken from <https://github.com/alpenlabs/BitVM/blob/f7fd93e9c9187100e7c9b7b68e07f9f7c568a843/bitvm/src/groth16/g16.rs#L17-L21>
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 #[cfg_attr(feature = "proptest", derive(Arbitrary))]
-pub struct WotsPublicKeys(
-    [Wots256PublicKey; N_VERIFIER_PUBLIC_INPUTS],
-    [Wots256PublicKey; N_VERIFIER_FQS],
-    [Wots160PublicKey; N_VERIFIER_HASHES],
-);
+pub struct WotsPublicKeys {
+    pub public_inputs: [Wots256PublicKey; N_VERIFIER_PUBLIC_INPUTS],
+    pub fqs: [Wots256PublicKey; N_VERIFIER_FQS],
+    pub hashes: [Wots160PublicKey; N_VERIFIER_HASHES],
+}
+
+impl WotsPublicKeys {
+    /// Creates a new [`WotsPublicKeys`] instance.
+    pub fn new(
+        public_inputs: [Wots256PublicKey; N_VERIFIER_PUBLIC_INPUTS],
+        fqs: [Wots256PublicKey; N_VERIFIER_FQS],
+        hashes: [Wots160PublicKey; N_VERIFIER_HASHES],
+    ) -> Self {
+        Self {
+            public_inputs,
+            fqs,
+            hashes,
+        }
+    }
+
+    /// Length of the flattened byte array.
+    pub const SIZE: usize = WOTS_PKS_TOTAL_SIZE;
+
+    /// Converts [`WotsPublicKeys`] to a flattened byte array.
+    pub fn to_flattened_bytes(&self) -> [u8; Self::SIZE] {
+        let mut bytes = [0u8; Self::SIZE];
+        let mut offset = 0;
+
+        // Copy public_inputs bytes
+        for public_input in &self.public_inputs {
+            let flattened = public_input.to_flattened_bytes();
+            bytes[offset..offset + WOTS_SINGLE * Wots256PublicKey::SIZE]
+                .copy_from_slice(&flattened);
+            offset += WOTS_SINGLE * Wots256PublicKey::SIZE;
+        }
+
+        // Copy fqs bytes
+        for fq in &self.fqs {
+            let flattened = fq.to_flattened_bytes();
+            bytes[offset..offset + WOTS_SINGLE * Wots256PublicKey::SIZE]
+                .copy_from_slice(&flattened);
+            offset += WOTS_SINGLE * Wots256PublicKey::SIZE;
+        }
+
+        // Copy hashes bytes
+        for hash in &self.hashes {
+            let flattened = hash.to_flattened_bytes();
+            bytes[offset..offset + WOTS_SINGLE * Wots160PublicKey::SIZE]
+                .copy_from_slice(&flattened);
+            offset += WOTS_SINGLE * Wots160PublicKey::SIZE;
+        }
+
+        bytes
+    }
+
+    /// Creates the [`Wots160PublicKey`] from a flattened byte array.
+    ///
+    /// If you already have structured nested arrays then you should use
+    /// [`WotsPublicKeys::new`].
+    ///
+    /// # Panics
+    ///
+    /// Panics if the byte array is not of length `[u8; 1_323_520]`.
+    pub fn from_flattened_bytes(bytes: &[u8]) -> Self {
+        assert_eq!(
+            bytes.len(),
+            WOTS_PKS_TOTAL_SIZE,
+            "Invalid byte array length"
+        );
+
+        let mut offset = 0;
+
+        // Read public_inputs
+        let mut public_inputs = [Wots256PublicKey([[0; WOTS_SINGLE]; Wots256PublicKey::SIZE]);
+            N_VERIFIER_PUBLIC_INPUTS];
+        for public_input in &mut public_inputs {
+            let slice = &bytes[offset..offset + WOTS_SINGLE * Wots256PublicKey::SIZE];
+            *public_input = Wots256PublicKey::from_flattened_bytes(slice);
+            offset += WOTS_SINGLE * Wots256PublicKey::SIZE;
+        }
+
+        // Read fqs
+        let mut fqs =
+            [Wots256PublicKey([[0; WOTS_SINGLE]; Wots256PublicKey::SIZE]); N_VERIFIER_FQS];
+        for fq in &mut fqs {
+            let slice = &bytes[offset..offset + WOTS_SINGLE * Wots256PublicKey::SIZE];
+            *fq = Wots256PublicKey::from_flattened_bytes(slice);
+            offset += WOTS_SINGLE * Wots256PublicKey::SIZE;
+        }
+
+        // Read hashes
+        let mut hashes =
+            [Wots160PublicKey([[0; WOTS_SINGLE]; Wots160PublicKey::SIZE]); N_VERIFIER_HASHES];
+        for hash in &mut hashes {
+            let slice = &bytes[offset..offset + WOTS_SINGLE * Wots160PublicKey::SIZE];
+            *hash = Wots160PublicKey::from_flattened_bytes(slice);
+            offset += WOTS_SINGLE * Wots160PublicKey::SIZE;
+        }
+
+        Self::new(public_inputs, fqs, hashes)
+    }
+}
 
 // Custom Serialization for WotsPublicKeys
 impl Serialize for WotsPublicKeys {
@@ -48,40 +151,40 @@ impl Serialize for WotsPublicKeys {
             ))?;
 
             // Serialize each element individually
-            for key in &self.0 {
+            for key in &self.public_inputs {
                 seq.serialize_element(key)?;
             }
-            for key in &self.1 {
+            for key in &self.fqs {
                 seq.serialize_element(key)?;
             }
-            for key in &self.2 {
+            for key in &self.hashes {
                 seq.serialize_element(key)?;
             }
             seq.end()
         } else {
             // For binary formats, use bytes
             let mut bytes = Vec::with_capacity(
-                N_VERIFIER_PUBLIC_INPUTS * 256 * WOTS_SINGLE
-                    + N_VERIFIER_FQS * 256 * WOTS_SINGLE
-                    + N_VERIFIER_HASHES * 160 * WOTS_SINGLE,
+                N_VERIFIER_PUBLIC_INPUTS * Wots256PublicKey::SIZE * WOTS_SINGLE
+                    + N_VERIFIER_FQS * Wots256PublicKey::SIZE * WOTS_SINGLE
+                    + N_VERIFIER_HASHES * Wots160PublicKey::SIZE * WOTS_SINGLE,
             );
 
             // Add public_inputs bytes
-            for key in &self.0 {
+            for key in &self.public_inputs {
                 for inner in &key.0 {
                     bytes.extend_from_slice(inner);
                 }
             }
 
             // Add fqs bytes
-            for key in &self.1 {
+            for key in &self.fqs {
                 for inner in &key.0 {
                     bytes.extend_from_slice(inner);
                 }
             }
 
             // Add hashes bytes
-            for key in &self.2 {
+            for key in &self.hashes {
                 for inner in &key.0 {
                     bytes.extend_from_slice(inner);
                 }
@@ -112,9 +215,12 @@ impl<'de> Deserialize<'de> for WotsPublicKeys {
                 A: SeqAccess<'de>,
             {
                 let mut public_inputs =
-                    [Wots256PublicKey([[0; WOTS_SINGLE]; 256]); N_VERIFIER_PUBLIC_INPUTS];
-                let mut fqs = [Wots256PublicKey([[0; WOTS_SINGLE]; 256]); N_VERIFIER_FQS];
-                let mut hashes = [Wots160PublicKey([[0; WOTS_SINGLE]; 160]); N_VERIFIER_HASHES];
+                    [Wots256PublicKey([[0; WOTS_SINGLE]; Wots256PublicKey::SIZE]);
+                        N_VERIFIER_PUBLIC_INPUTS];
+                let mut fqs =
+                    [Wots256PublicKey([[0; WOTS_SINGLE]; Wots256PublicKey::SIZE]); N_VERIFIER_FQS];
+                let mut hashes = [Wots160PublicKey([[0; WOTS_SINGLE]; Wots160PublicKey::SIZE]);
+                    N_VERIFIER_HASHES];
 
                 // Deserialize public_inputs
                 for (i, public_input) in public_inputs
@@ -144,7 +250,7 @@ impl<'de> Deserialize<'de> for WotsPublicKeys {
                     })?;
                 }
 
-                Ok(WotsPublicKeys(public_inputs, fqs, hashes))
+                Ok(WotsPublicKeys::new(public_inputs, fqs, hashes))
             }
 
             fn visit_bytes<E>(self, bytes: &[u8]) -> Result<Self::Value, E>
@@ -152,9 +258,10 @@ impl<'de> Deserialize<'de> for WotsPublicKeys {
                 E: de::Error,
             {
                 // Calculate expected sizes
-                const PUBLIC_INPUTS_SIZE: usize = N_VERIFIER_PUBLIC_INPUTS * 256 * WOTS_SINGLE;
-                const FQS_SIZE: usize = N_VERIFIER_FQS * 256 * WOTS_SINGLE;
-                const HASHES_SIZE: usize = N_VERIFIER_HASHES * 160 * WOTS_SINGLE;
+                const PUBLIC_INPUTS_SIZE: usize =
+                    N_VERIFIER_PUBLIC_INPUTS * Wots256PublicKey::SIZE * WOTS_SINGLE;
+                const FQS_SIZE: usize = N_VERIFIER_FQS * Wots256PublicKey::SIZE * WOTS_SINGLE;
+                const HASHES_SIZE: usize = N_VERIFIER_HASHES * Wots160PublicKey::SIZE * WOTS_SINGLE;
                 const EXPECTED_SIZE: usize = PUBLIC_INPUTS_SIZE + FQS_SIZE + HASHES_SIZE;
 
                 if bytes.len() != EXPECTED_SIZE {
@@ -167,32 +274,44 @@ impl<'de> Deserialize<'de> for WotsPublicKeys {
 
                 // Convert bytes to arrays
                 let mut public_inputs =
-                    [Wots256PublicKey([[0; WOTS_SINGLE]; 256]); N_VERIFIER_PUBLIC_INPUTS];
-                let mut fqs = [Wots256PublicKey([[0; WOTS_SINGLE]; 256]); N_VERIFIER_FQS];
-                let mut hashes = [Wots160PublicKey([[0; WOTS_SINGLE]; 160]); N_VERIFIER_HASHES];
+                    [Wots256PublicKey([[0; WOTS_SINGLE]; Wots256PublicKey::SIZE]);
+                        N_VERIFIER_PUBLIC_INPUTS];
+                let mut fqs =
+                    [Wots256PublicKey([[0; WOTS_SINGLE]; Wots256PublicKey::SIZE]); N_VERIFIER_FQS];
+                let mut hashes = [Wots160PublicKey([[0; WOTS_SINGLE]; Wots160PublicKey::SIZE]);
+                    N_VERIFIER_HASHES];
 
                 // Fill public_inputs
-                for (i, chunk) in public_inputs_bytes.chunks(256 * WOTS_SINGLE).enumerate() {
+                for (i, chunk) in public_inputs_bytes
+                    .chunks(Wots256PublicKey::SIZE * WOTS_SINGLE)
+                    .enumerate()
+                {
                     for (j, inner_chunk) in chunk.chunks(WOTS_SINGLE).enumerate() {
                         public_inputs[i].0[j].copy_from_slice(inner_chunk);
                     }
                 }
 
                 // Fill fqs
-                for (i, chunk) in fqs_bytes.chunks(256 * WOTS_SINGLE).enumerate() {
+                for (i, chunk) in fqs_bytes
+                    .chunks(Wots256PublicKey::SIZE * WOTS_SINGLE)
+                    .enumerate()
+                {
                     for (j, inner_chunk) in chunk.chunks(WOTS_SINGLE).enumerate() {
                         fqs[i].0[j].copy_from_slice(inner_chunk);
                     }
                 }
 
                 // Fill hashes
-                for (i, chunk) in hashes_bytes.chunks(160 * WOTS_SINGLE).enumerate() {
+                for (i, chunk) in hashes_bytes
+                    .chunks(Wots160PublicKey::SIZE * WOTS_SINGLE)
+                    .enumerate()
+                {
                     for (j, inner_chunk) in chunk.chunks(WOTS_SINGLE).enumerate() {
                         hashes[i].0[j].copy_from_slice(inner_chunk);
                     }
                 }
 
-                Ok(WotsPublicKeys(public_inputs, fqs, hashes))
+                Ok(WotsPublicKeys::new(public_inputs, fqs, hashes))
             }
         }
 
@@ -217,38 +336,41 @@ mod tests {
         assert_eq!(N_VERIFIER_PUBLIC_INPUTS, 1);
         assert_eq!(N_VERIFIER_FQS, 20);
         assert_eq!(N_VERIFIER_HASHES, 380);
+        assert_eq!(WOTS_PKS_TOTAL_SIZE, 1_323_520);
     }
 
     #[test]
     fn test_json_serialization() {
-        let test_data = WotsPublicKeys(
-            [Wots256PublicKey([[1u8; WOTS_SINGLE]; 256]); N_VERIFIER_PUBLIC_INPUTS],
-            [Wots256PublicKey([[2u8; WOTS_SINGLE]; 256]); N_VERIFIER_FQS],
-            [Wots160PublicKey([[3u8; WOTS_SINGLE]; 160]); N_VERIFIER_HASHES],
+        let test_data = WotsPublicKeys::new(
+            [Wots256PublicKey([[1u8; WOTS_SINGLE]; Wots256PublicKey::SIZE]);
+                N_VERIFIER_PUBLIC_INPUTS],
+            [Wots256PublicKey([[2u8; WOTS_SINGLE]; Wots256PublicKey::SIZE]); N_VERIFIER_FQS],
+            [Wots160PublicKey([[3u8; WOTS_SINGLE]; Wots160PublicKey::SIZE]); N_VERIFIER_HASHES],
         );
 
         let serialized = serde_json::to_string(&test_data).unwrap();
         let deserialized: WotsPublicKeys = serde_json::from_str(&serialized).unwrap();
 
-        assert_eq!(test_data.0[0], deserialized.0[0]);
-        assert_eq!(test_data.1[0], deserialized.1[0]);
-        assert_eq!(test_data.2[0], deserialized.2[0]);
+        assert_eq!(test_data.public_inputs[0], deserialized.public_inputs[0]);
+        assert_eq!(test_data.fqs[0], deserialized.fqs[0]);
+        assert_eq!(test_data.hashes[0], deserialized.hashes[0]);
     }
 
     #[test]
     fn test_bincode_serialization() {
-        let test_data = WotsPublicKeys(
-            [Wots256PublicKey([[1u8; WOTS_SINGLE]; 256]); N_VERIFIER_PUBLIC_INPUTS],
-            [Wots256PublicKey([[2u8; WOTS_SINGLE]; 256]); N_VERIFIER_FQS],
-            [Wots160PublicKey([[3u8; WOTS_SINGLE]; 160]); N_VERIFIER_HASHES],
+        let test_data = WotsPublicKeys::new(
+            [Wots256PublicKey([[1u8; WOTS_SINGLE]; Wots256PublicKey::SIZE]);
+                N_VERIFIER_PUBLIC_INPUTS],
+            [Wots256PublicKey([[2u8; WOTS_SINGLE]; Wots256PublicKey::SIZE]); N_VERIFIER_FQS],
+            [Wots160PublicKey([[3u8; WOTS_SINGLE]; Wots160PublicKey::SIZE]); N_VERIFIER_HASHES],
         );
 
         let serialized = bincode::serialize(&test_data).unwrap();
         let deserialized: WotsPublicKeys = bincode::deserialize(&serialized).unwrap();
 
-        assert_eq!(test_data.0[0], deserialized.0[0]);
-        assert_eq!(test_data.1[0], deserialized.1[0]);
-        assert_eq!(test_data.2[0], deserialized.2[0]);
+        assert_eq!(test_data.public_inputs[0], deserialized.public_inputs[0]);
+        assert_eq!(test_data.fqs[0], deserialized.fqs[0]);
+        assert_eq!(test_data.hashes[0], deserialized.hashes[0]);
     }
 
     #[test]
@@ -259,7 +381,9 @@ mod tests {
         for _ in 0..(N_VERIFIER_PUBLIC_INPUTS + N_VERIFIER_FQS + N_VERIFIER_HASHES - 1) {
             json.push_str(&format!(
                 "{{\"array\":[[{}; {}]; {}]}}",
-                1, WOTS_SINGLE, 256
+                1,
+                WOTS_SINGLE,
+                Wots256PublicKey::SIZE
             ));
             json.push(',');
         }
@@ -282,73 +406,81 @@ mod tests {
 
         #[test]
         fn proptest_serde_json_roundtrip(byte: u8) {
-            let test_data = WotsPublicKeys(
-                [Wots256PublicKey([[byte; WOTS_SINGLE]; 256]); N_VERIFIER_PUBLIC_INPUTS],
-                [Wots256PublicKey([[byte; WOTS_SINGLE]; 256]); N_VERIFIER_FQS],
-                [Wots160PublicKey([[byte; WOTS_SINGLE]; 160]); N_VERIFIER_HASHES]
+            let test_data = WotsPublicKeys::new(
+                [Wots256PublicKey([[byte; WOTS_SINGLE]; Wots256PublicKey::SIZE]); N_VERIFIER_PUBLIC_INPUTS],
+                [Wots256PublicKey([[byte; WOTS_SINGLE]; Wots256PublicKey::SIZE]); N_VERIFIER_FQS],
+                [Wots160PublicKey([[byte; WOTS_SINGLE]; Wots160PublicKey::SIZE]); N_VERIFIER_HASHES]
             );
 
             let serialized = serde_json::to_string(&test_data).unwrap();
             let deserialized: WotsPublicKeys = serde_json::from_str(&serialized).unwrap();
 
-            prop_assert_eq!(test_data.0[0].0[0], deserialized.0[0].0[0]);
-            prop_assert_eq!(test_data.1[0].0[0], deserialized.1[0].0[0]);
-            prop_assert_eq!(test_data.2[0].0[0], deserialized.2[0].0[0]);
+            prop_assert_eq!(test_data.public_inputs[0].0[0], deserialized.public_inputs[0].0[0]);
+            prop_assert_eq!(test_data.fqs[0].0[0], deserialized.fqs[0].0[0]);
+            prop_assert_eq!(test_data.hashes[0].0[0], deserialized.hashes[0].0[0]);
         }
 
         #[test]
         fn proptest_bincode_roundtrip(byte: u8) {
-            let test_data = WotsPublicKeys(
-                [Wots256PublicKey([[byte; WOTS_SINGLE]; 256]); N_VERIFIER_PUBLIC_INPUTS],
-                [Wots256PublicKey([[byte; WOTS_SINGLE]; 256]); N_VERIFIER_FQS],
-                [Wots160PublicKey([[byte; WOTS_SINGLE]; 160]); N_VERIFIER_HASHES]
+            let test_data = WotsPublicKeys::new(
+                [Wots256PublicKey([[byte; WOTS_SINGLE]; Wots256PublicKey::SIZE]); N_VERIFIER_PUBLIC_INPUTS],
+                [Wots256PublicKey([[byte; WOTS_SINGLE]; Wots256PublicKey::SIZE]); N_VERIFIER_FQS],
+                [Wots160PublicKey([[byte; WOTS_SINGLE]; Wots160PublicKey::SIZE]); N_VERIFIER_HASHES]
             );
 
             let serialized = bincode::serialize(&test_data).unwrap();
             let deserialized: WotsPublicKeys = bincode::deserialize(&serialized).unwrap();
 
-            prop_assert_eq!(test_data.0[0].0[0], deserialized.0[0].0[0]);
-            prop_assert_eq!(test_data.1[0].0[0], deserialized.1[0].0[0]);
-            prop_assert_eq!(test_data.2[0].0[0], deserialized.2[0].0[0]);
+            prop_assert_eq!(test_data.public_inputs[0].0[0], deserialized.public_inputs[0].0[0]);
+            prop_assert_eq!(test_data.fqs[0].0[0], deserialized.fqs[0].0[0]);
+            prop_assert_eq!(test_data.hashes[0].0[0], deserialized.hashes[0].0[0]);
         }
 
         #[test]
         fn proptest_array_sizes(byte: u8) {
-            let test_data = WotsPublicKeys(
-                [Wots256PublicKey([[byte; WOTS_SINGLE]; 256]); N_VERIFIER_PUBLIC_INPUTS],
-                [Wots256PublicKey([[byte; WOTS_SINGLE]; 256]); N_VERIFIER_FQS],
-                [Wots160PublicKey([[byte; WOTS_SINGLE]; 160]); N_VERIFIER_HASHES]
+            let test_data = WotsPublicKeys::new(
+                [Wots256PublicKey([[byte; WOTS_SINGLE]; Wots256PublicKey::SIZE]); N_VERIFIER_PUBLIC_INPUTS],
+                [Wots256PublicKey([[byte; WOTS_SINGLE]; Wots256PublicKey::SIZE]); N_VERIFIER_FQS],
+                [Wots160PublicKey([[byte; WOTS_SINGLE]; Wots160PublicKey::SIZE]); N_VERIFIER_HASHES]
             );
 
-            prop_assert_eq!(test_data.0.len(), N_VERIFIER_PUBLIC_INPUTS);
-            prop_assert_eq!(test_data.1.len(), N_VERIFIER_FQS);
-            prop_assert_eq!(test_data.2.len(), N_VERIFIER_HASHES);
+            prop_assert_eq!(test_data.public_inputs.len(), N_VERIFIER_PUBLIC_INPUTS);
+            prop_assert_eq!(test_data.fqs.len(), N_VERIFIER_FQS);
+            prop_assert_eq!(test_data.hashes.len(), N_VERIFIER_HASHES);
         }
     }
 
     #[test]
     fn test_full_structure() {
         let test_bytes = 0xFFu8;
-        let test_data = WotsPublicKeys(
-            [Wots256PublicKey([[test_bytes; WOTS_SINGLE]; 256]); N_VERIFIER_PUBLIC_INPUTS],
-            [Wots256PublicKey([[test_bytes; WOTS_SINGLE]; 256]); N_VERIFIER_FQS],
-            [Wots160PublicKey([[test_bytes; WOTS_SINGLE]; 160]); N_VERIFIER_HASHES],
+        let test_data = WotsPublicKeys::new(
+            [Wots256PublicKey([[test_bytes; WOTS_SINGLE]; Wots256PublicKey::SIZE]);
+                N_VERIFIER_PUBLIC_INPUTS],
+            [Wots256PublicKey([[test_bytes; WOTS_SINGLE]; Wots256PublicKey::SIZE]); N_VERIFIER_FQS],
+            [Wots160PublicKey([[test_bytes; WOTS_SINGLE]; Wots160PublicKey::SIZE]);
+                N_VERIFIER_HASHES],
         );
 
         // Test serialization/deserialization
         let serialized = bincode::serialize(&test_data).unwrap();
         let deserialized: WotsPublicKeys = bincode::deserialize(&serialized).unwrap();
 
-        assert_eq!(test_data.0[0].0[0], deserialized.0[0].0[0]);
-        assert_eq!(test_data.1[0].0[0], deserialized.1[0].0[0]);
-        assert_eq!(test_data.2[0].0[0], deserialized.2[0].0[0]);
+        assert_eq!(
+            test_data.public_inputs[0].0[0],
+            deserialized.public_inputs[0].0[0]
+        );
+        assert_eq!(test_data.fqs[0].0[0], deserialized.fqs[0].0[0]);
+        assert_eq!(test_data.hashes[0].0[0], deserialized.hashes[0].0[0]);
 
         // Test JSON serialization/deserialization
         let json_serialized = serde_json::to_string(&test_data).unwrap();
         let json_deserialized: WotsPublicKeys = serde_json::from_str(&json_serialized).unwrap();
 
-        assert_eq!(test_data.0[0].0[0], json_deserialized.0[0].0[0]);
-        assert_eq!(test_data.1[0].0[0], json_deserialized.1[0].0[0]);
-        assert_eq!(test_data.2[0].0[0], json_deserialized.2[0].0[0]);
+        assert_eq!(
+            test_data.public_inputs[0].0[0],
+            json_deserialized.public_inputs[0].0[0]
+        );
+        assert_eq!(test_data.fqs[0].0[0], json_deserialized.fqs[0].0[0]);
+        assert_eq!(test_data.hashes[0].0[0], json_deserialized.hashes[0].0[0]);
     }
 }
