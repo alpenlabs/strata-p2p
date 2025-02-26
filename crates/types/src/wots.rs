@@ -15,7 +15,7 @@ use serde::{
 pub const WOTS_SINGLE: usize = 20;
 
 /// The number of bits in an individual WOTS digit.
-/// WARNING(proofofkeags): MUST BE A FACTOR OF 8 WITH CURRENT IMPLEMENTATION (1,2,4,8)
+// WARNING(proofofkeags): MUST BE A FACTOR OF 8 WITH CURRENT IMPLEMENTATION (1,2,4,8)
 pub const WOTS_DIGIT_WIDTH: usize = 4;
 
 /// The number of WOTS digits needed to commit a byte.
