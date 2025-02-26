@@ -53,11 +53,8 @@ impl P2PHandle {
     }
 }
 
-impl<DSP> Stream for P2PHandle<DSP>
-where
-    DSP: prost::Message + Clone,
-{
-    type Item = Result<Event<DSP>, ErrDroppedMsgs>;
+impl Stream for P2PHandle {
+    type Item = Result<Event, ErrDroppedMsgs>;
 
     fn poll_next(
         mut self: std::pin::Pin<&mut Self>,
