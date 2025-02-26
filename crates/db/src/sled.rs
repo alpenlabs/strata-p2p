@@ -133,7 +133,9 @@ mod tests {
     use musig2::{sign_partial, AggNonce, KeyAggContext, SecNonce};
     use rand::{thread_rng, Rng, RngCore};
     use secp256k1::{All, Keypair, Secp256k1};
-    use strata_p2p_types::{OperatorPubKey, SessionId, StakeChainId, Wots256PublicKey};
+    use strata_p2p_types::{
+        OperatorPubKey, SessionId, StakeChainId, Wots160PublicKey, Wots256PublicKey,
+    };
 
     use crate::{
         sled::AsyncDB, NoncesEntry, PartialSignaturesEntry, RepositoryExt, StakeChainEntry,
@@ -146,7 +148,7 @@ mod tests {
         let db = config.open().expect("Failed to open sled database");
         let db = AsyncDB::new(Default::default(), Arc::new(db));
 
-        async fn inner(db: &impl RepositoryExt<()>) {
+        async fn inner(db: &impl RepositoryExt) {
             let secp = Secp256k1::new();
             let keypair = Keypair::new(&secp, &mut rand::thread_rng());
             let message = b"message";
@@ -240,9 +242,19 @@ mod tests {
         xonly
     }
 
-    fn generate_random_wots() -> Wots256PublicKey {
+    #[allow(dead_code)]
+    fn generate_random_wots160() -> Wots160PublicKey {
         let mut rng = thread_rng();
-        let mut wots = [[0; 20]; 256];
+        let mut wots = [[0; 20]; Wots160PublicKey::SIZE];
+        for bytes in wots.iter_mut() {
+            rng.fill_bytes(bytes);
+        }
+        Wots160PublicKey::new(wots)
+    }
+
+    fn generate_random_wots256() -> Wots256PublicKey {
+        let mut rng = thread_rng();
+        let mut wots = [[0; 20]; Wots256PublicKey::SIZE];
         for bytes in wots.iter_mut() {
             rng.fill_bytes(bytes);
         }
@@ -265,7 +277,7 @@ mod tests {
 
     fn generate_random_stake_data() -> StakeData {
         StakeData::new(
-            generate_random_wots(),
+            generate_random_wots256(),
             generate_random_hash(),
             generate_random_outpoint(),
         )

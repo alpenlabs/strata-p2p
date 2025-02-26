@@ -1,6 +1,5 @@
 //! Events emitted from P2P.
 
-use prost::Message;
 use strata_p2p_wire::p2p::v1::GossipsubMsg;
 
 /// Events emitted from P2P to handle from operator side.
@@ -11,15 +10,13 @@ use strata_p2p_wire::p2p::v1::GossipsubMsg;
 /// applications may vary. The only requirement for them to be decodable from bytes as protobuf
 /// message.
 #[derive(Clone, Debug)]
-pub enum Event<DepositSetupPayload: Message + Clone> {
+pub enum Event {
     /// Received message from other operator.
-    ReceivedMessage(GossipsubMsg<DepositSetupPayload>),
+    ReceivedMessage(GossipsubMsg),
 }
 
-impl<DepositSetupPayload: Message + Clone> From<GossipsubMsg<DepositSetupPayload>>
-    for Event<DepositSetupPayload>
-{
-    fn from(v: GossipsubMsg<DepositSetupPayload>) -> Self {
+impl From<GossipsubMsg> for Event {
+    fn from(v: GossipsubMsg) -> Self {
         Self::ReceivedMessage(v)
     }
 }

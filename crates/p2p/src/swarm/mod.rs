@@ -75,15 +75,15 @@ pub struct P2PConfig {
 }
 
 /// Implementation of p2p protocol for BitVM2 data exchange.
-pub struct P2P<DepositSetupPayload: ProtoMsg + Clone, Repository> {
+pub struct P2P<Repository> {
     /// The swarm that handles the networking.
     swarm: Swarm<Behaviour>,
 
     /// Event channel for the swarm.
-    events: broadcast::Sender<Event<DepositSetupPayload>>,
+    events: broadcast::Sender<Event>,
 
     /// Command channel for the swarm.
-    commands: mpsc::Receiver<Command<DepositSetupPayload>>,
+    commands: mpsc::Receiver<Command>,
 
     /// ([`Clone`]able) Command channel for the swarm.
     ///
@@ -91,7 +91,7 @@ pub struct P2P<DepositSetupPayload: ProtoMsg + Clone, Repository> {
     ///
     /// This is needed because we can't create new handles from the receiver, as
     /// only sender is [`Clone`]able.
-    commands_sender: mpsc::Sender<Command<DepositSetupPayload>>,
+    commands_sender: mpsc::Sender<Command>,
 
     /// The database instance.
     db: Repository,
@@ -104,25 +104,24 @@ pub struct P2P<DepositSetupPayload: ProtoMsg + Clone, Repository> {
 }
 
 /// Alias for P2P and P2PHandle tuple.
-pub type P2PWithHandle<DSP, Repository> = (P2P<DSP, Repository>, P2PHandle<DSP>);
+pub type P2PWithHandle<Repository> = (P2P<Repository>, P2PHandle);
 
-impl<DSP, DB: RepositoryExt<DSP>> P2P<DSP, DB>
-where
-    DSP: ProtoMsg + Clone + Default + 'static,
-{
+impl<DB: RepositoryExt> P2P<DB> {
     /// Creates a new P2P instance from the given configuration.
     pub fn from_config(
         cfg: P2PConfig,
         cancel: CancellationToken,
         db: DB,
         mut swarm: Swarm<Behaviour>,
-    ) -> P2PResult<P2PWithHandle<DSP, DB>> {
+        channel_size: Option<usize>,
+    ) -> P2PResult<P2PWithHandle<DB>> {
         swarm
             .listen_on(cfg.listening_addr.clone())
             .map_err(ProtocolError::Listen)?;
 
-        // TODO(Velnbur): make this configurable
-        let (events_tx, events_rx) = broadcast::channel(50_000);
+        // WOTS PKs are biiiiiiiig
+        let channel_size = channel_size.unwrap_or(400_000);
+        let (events_tx, events_rx) = broadcast::channel(channel_size);
         let (cmds_tx, cmds_rx) = mpsc::channel(50_000);
 
         Ok((
@@ -145,7 +144,7 @@ where
     }
 
     /// Creates a new subscribed handler.
-    pub fn new_handle(&self) -> P2PHandle<DSP> {
+    pub fn new_handle(&self) -> P2PHandle {
         P2PHandle::new(self.events.subscribe(), self.commands_sender.clone())
     }
 
@@ -276,7 +275,7 @@ where
         message_id: MessageId,
         message: Message,
     ) -> P2PResult<()> {
-        let msg = match GossipsubMsg::<DSP>::from_bytes(&message.data) {
+        let msg = match GossipsubMsg::from_bytes(&message.data) {
             Ok(msg) => msg,
             Err(err) => {
                 debug!(%err, "Got invalid message from peer, rejecting it.");
@@ -350,7 +349,7 @@ where
     /// Adds data received from external source to DB if it wasn't there before.
     ///
     /// Returns a `bool` indicating if the data was already presented or not.
-    async fn add_msg_if_not_exists(&mut self, msg: &GossipsubMsg<DSP>) -> DBResult<bool> {
+    async fn add_msg_if_not_exists(&mut self, msg: &GossipsubMsg) -> DBResult<bool> {
         match &msg.unsigned {
             v1::UnsignedGossipsubMsg::StakeChainExchange {
                 stake_chain_id,
@@ -371,12 +370,12 @@ where
                     )
                     .await
             }
-            v1::UnsignedGossipsubMsg::DepositSetup { scope, setup } => {
+            v1::UnsignedGossipsubMsg::DepositSetup { scope, wots_pks } => {
                 self.db
                     .set_deposit_setup_if_not_exists(
                         *scope,
                         DepositSetupEntry {
-                            payload: setup.payload.clone(),
+                            wots_pks: wots_pks.clone(),
                             signature: msg.signature.clone(),
                             key: msg.key.clone(),
                         },
@@ -414,7 +413,7 @@ where
     }
 
     /// Handles command sent through channel by P2P implementation user.
-    async fn handle_command(&mut self, cmd: Command<DSP>) -> P2PResult<()> {
+    async fn handle_command(&mut self, cmd: Command) -> P2PResult<()> {
         match cmd {
             Command::PublishMessage(send_message) => {
                 let msg = send_message.into();
@@ -647,7 +646,7 @@ where
                 setup.map(|v| proto::GossipsubMsg {
                     body: Some(Body::Setup(proto::DepositSetupExchange {
                         scope: scope.to_vec(),
-                        payload: v.payload.encode_to_vec(),
+                        wots_pks: v.wots_pks.to_flattened_bytes().to_vec(),
                     })),
                     signature: v.signature,
                     key: v.key.into(),
@@ -692,7 +691,7 @@ where
     }
 
     /// Handles [`v1::GetMessageResponse`] from the swarm.
-    async fn handle_get_message_response(&mut self, msg: GossipsubMsg<DSP>) -> P2PResult<()> {
+    async fn handle_get_message_response(&mut self, msg: GossipsubMsg) -> P2PResult<()> {
         let new_event = self.add_msg_if_not_exists(&msg).await?;
 
         if new_event {
@@ -707,7 +706,7 @@ where
     }
 
     /// Checks gossip sub message for validity by protocol rules.
-    fn validate_gossipsub_msg(&self, msg: &GossipsubMsg<DSP>) -> P2PResult<()> {
+    fn validate_gossipsub_msg(&self, msg: &GossipsubMsg) -> P2PResult<()> {
         if !self.config.signers_allowlist.contains(&msg.key) {
             return Err(ValidationError::NotInSignersAllowlist.into());
         }

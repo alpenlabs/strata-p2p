@@ -10,8 +10,8 @@ use threadpool::ThreadPool;
 use tokio_util::sync::CancellationToken;
 
 pub struct Operator {
-    pub p2p: P2P<(), AsyncDB>,
-    pub handle: P2PHandle<()>,
+    pub p2p: P2P<AsyncDB>,
+    pub handle: P2PHandle,
     pub kp: SecpKeypair,
     pub db: AsyncDB,
 }
@@ -38,7 +38,7 @@ impl Operator {
 
         let swarm = swarm::with_inmemory_transport(&config)?;
         let db = AsyncDB::new(ThreadPool::new(1), Arc::new(db));
-        let (p2p, handle) = P2P::<(), AsyncDB>::from_config(config, cancel, db.clone(), swarm)?;
+        let (p2p, handle) = P2P::<AsyncDB>::from_config(config, cancel, db.clone(), swarm, None)?;
 
         Ok(Self {
             handle,

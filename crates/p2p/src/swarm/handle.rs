@@ -23,36 +23,27 @@ impl Display for ErrDroppedMsgs {
 /// Handle to interact with P2P implementation spawned in another async
 /// task. To create a new one, use [`super::P2P::new_handle`].
 #[derive(Debug)]
-pub struct P2PHandle<DSP>
-where
-    DSP: prost::Message + Clone,
-{
+pub struct P2PHandle {
     /// Event channel for the swarm.
-    events: broadcast::Receiver<Event<DSP>>,
+    events: broadcast::Receiver<Event>,
 
     /// Command channel for the swarm.
-    commands: mpsc::Sender<Command<DSP>>,
+    commands: mpsc::Sender<Command>,
 }
 
-impl<DSP> P2PHandle<DSP>
-where
-    DSP: prost::Message + Clone,
-{
+impl P2PHandle {
     /// Creates a new [`P2PHandle`].
-    pub(crate) fn new(
-        events: broadcast::Receiver<Event<DSP>>,
-        commands: mpsc::Sender<Command<DSP>>,
-    ) -> Self {
+    pub(crate) fn new(events: broadcast::Receiver<Event>, commands: mpsc::Sender<Command>) -> Self {
         Self { events, commands }
     }
 
     /// Sends command to P2P.
-    pub async fn send_command(&self, command: impl Into<Command<DSP>>) {
+    pub async fn send_command(&self, command: impl Into<Command>) {
         let _ = self.commands.send(command.into()).await;
     }
 
     /// Gets the next event from P2P from events channel.
-    pub async fn next_event(&mut self) -> Result<Event<DSP>, RecvError> {
+    pub async fn next_event(&mut self) -> Result<Event, RecvError> {
         self.events.recv().await
     }
 
@@ -62,11 +53,8 @@ where
     }
 }
 
-impl<DSP> Stream for P2PHandle<DSP>
-where
-    DSP: prost::Message + Clone,
-{
-    type Item = Result<Event<DSP>, ErrDroppedMsgs>;
+impl Stream for P2PHandle {
+    type Item = Result<Event, ErrDroppedMsgs>;
 
     fn poll_next(
         mut self: std::pin::Pin<&mut Self>,

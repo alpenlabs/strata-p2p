@@ -20,8 +20,8 @@ message StakeChainExchange {
 message DepositSetupExchange {
   // 32-byte hash of some unique to deposit data.
   bytes scope = 1;
-  // Some arbitrary payload which depends on the implementation.
-  bytes payload = 2;
+  // Deposit data with all WOTS 160- and 256-bit public keys.
+  bytes wots_pks = 2;
 }
 
 // Musig2 first-round (public) nonces exchange.
