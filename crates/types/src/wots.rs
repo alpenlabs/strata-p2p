@@ -39,7 +39,7 @@ pub const fn wots_checksum_digits(msg_len_bytes: usize) -> usize {
     // Compute how many bytes we need to represent the checksum itself
     let mut exp = 1;
     loop {
-        if 256u64.strict_pow(exp) - 1 >= max_checksum as u64 {
+        if 256u64.strict_pow(exp) > max_checksum as u64 {
             break;
         } else {
             exp += 1;
