@@ -6,7 +6,7 @@ use bitcoin::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::{wots::wots_total_digits, Wots256PublicKey, WOTS_SINGLE};
+use crate::{Wots256PublicKey, WOTS_SINGLE};
 
 /// Size of a [`sha256::Hash`] in bytes.
 pub const HASH_SIZE: usize = 32;
@@ -18,7 +18,7 @@ pub const TXID_SIZE: usize = 32;
 pub const VOUT_SIZE: usize = 4;
 
 /// Size of Wots256PublicKey in arrays (2 * 32 + 4 = 68)
-const WOTS256_ARRAYS: usize = wots_total_digits(32);
+const WOTS256_ARRAYS: usize = 68;
 
 /// Stake data for a single stake transaction.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Deserialize, Serialize)]
@@ -54,11 +54,11 @@ impl StakeData {
     ///
     /// The byte array is structured as follows:
     ///
-    /// - 5,120 (20 * 256) bytes for the withdrawal fulfillment public key.
+    /// - 1,360 (20 * 68) bytes for the withdrawal fulfillment public key.
     /// - 32 bytes for the hash.
     /// - 36 (32 + 4) bytes for the operator funds
     ///
-    /// Total is 5,188 bytes.
+    /// Total is 1,428 bytes.
     ///
     /// # Implementation Details
     ///
@@ -67,18 +67,16 @@ impl StakeData {
     pub fn to_flattened_bytes(
         &self,
     ) -> [u8; WOTS_SINGLE * WOTS256_ARRAYS + HASH_SIZE + TXID_SIZE + VOUT_SIZE] {
-        let mut bytes =
-            [0u8; WOTS_SINGLE * Wots256PublicKey::SIZE + HASH_SIZE + TXID_SIZE + VOUT_SIZE];
-        bytes[0..WOTS_SINGLE * Wots256PublicKey::SIZE]
+        let mut bytes = [0u8; WOTS_SINGLE * WOTS256_ARRAYS + HASH_SIZE + TXID_SIZE + VOUT_SIZE];
+        bytes[0..WOTS_SINGLE * WOTS256_ARRAYS]
             .copy_from_slice(&self.withdrawal_fulfillment_pk.to_flattened_bytes());
-        bytes[WOTS_SINGLE * Wots256PublicKey::SIZE
-            ..WOTS_SINGLE * Wots256PublicKey::SIZE + HASH_SIZE]
+        bytes[WOTS_SINGLE * WOTS256_ARRAYS..WOTS_SINGLE * WOTS256_ARRAYS + HASH_SIZE]
             .copy_from_slice(&self.hash.to_byte_array());
-        bytes[WOTS_SINGLE * Wots256PublicKey::SIZE + HASH_SIZE
-            ..WOTS_SINGLE * Wots256PublicKey::SIZE + HASH_SIZE + TXID_SIZE]
+        bytes[WOTS_SINGLE * WOTS256_ARRAYS + HASH_SIZE
+            ..WOTS_SINGLE * WOTS256_ARRAYS + HASH_SIZE + TXID_SIZE]
             .copy_from_slice(&self.operator_funds.txid.to_byte_array());
-        bytes[WOTS_SINGLE * Wots256PublicKey::SIZE + HASH_SIZE + TXID_SIZE
-            ..WOTS_SINGLE * Wots256PublicKey::SIZE + HASH_SIZE + TXID_SIZE + VOUT_SIZE]
+        bytes[WOTS_SINGLE * WOTS256_ARRAYS + HASH_SIZE + TXID_SIZE
+            ..WOTS_SINGLE * WOTS256_ARRAYS + HASH_SIZE + TXID_SIZE + VOUT_SIZE]
             .copy_from_slice(&self.operator_funds.vout.to_le_bytes());
         bytes
     }
