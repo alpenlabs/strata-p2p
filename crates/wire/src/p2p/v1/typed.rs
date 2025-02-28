@@ -17,9 +17,8 @@ use super::proto::{
     get_message_request::Body as ProtoGetMessageRequestBody,
     gossipsub_msg::Body as ProtoGossipsubMsgBody, DepositRequestKey,
     DepositSetupExchange as ProtoDepositSetup, GetMessageRequest as ProtoGetMessageRequest,
-    GossipsubMsg as ProtoGossipMsg, Musig2ExchangeRequestKey,
-    Musig2NoncesExchange as ProtoMusig2NoncesExchange,
-    Musig2SignaturesExchange as ProtoMusig2SignaturesExchange,
+    GossipsubMsg as ProtoGossipMsg, Musig2NoncesExchange as ProtoMusig2NoncesExchange,
+    Musig2RequestKey, Musig2SignaturesExchange as ProtoMusig2SignaturesExchange,
     StakeChainExchange as ProtoStakeChainExchange, StakeChainRequestKey,
 };
 
@@ -71,7 +70,7 @@ impl GetMessageRequest {
                     operator_pk: operator.into(),
                 }
             }
-            ProtoGetMessageRequestBody::Nonces(Musig2ExchangeRequestKey {
+            ProtoGetMessageRequestBody::Nonces(Musig2RequestKey {
                 session_id,
                 operator,
             }) => {
@@ -85,7 +84,7 @@ impl GetMessageRequest {
                     operator_pk: operator.into(),
                 }
             }
-            ProtoGetMessageRequestBody::Sigs(Musig2ExchangeRequestKey {
+            ProtoGetMessageRequestBody::Sigs(Musig2RequestKey {
                 session_id,
                 operator,
             }) => {
@@ -136,14 +135,14 @@ impl GetMessageRequest {
             Self::Musig2SignaturesExchange {
                 session_id,
                 operator_pk,
-            } => ProtoGetMessageRequestBody::Nonces(Musig2ExchangeRequestKey {
+            } => ProtoGetMessageRequestBody::Nonces(Musig2RequestKey {
                 session_id: session_id.to_vec(),
                 operator: operator_pk.into(),
             }),
             Self::Musig2NoncesExchange {
                 session_id,
                 operator_pk,
-            } => ProtoGetMessageRequestBody::Sigs(Musig2ExchangeRequestKey {
+            } => ProtoGetMessageRequestBody::Sigs(Musig2RequestKey {
                 session_id: session_id.to_vec(),
                 operator: operator_pk.into(),
             }),
