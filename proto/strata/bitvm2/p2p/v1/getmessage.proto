@@ -13,7 +13,7 @@ message DepositRequestKey {
 }
 
 // Request for Musig2 (public) nonces or (partial) signatures.
-message Musig2ExchangeRequestKey {
+message Musig2RequestKey {
   // 32-byte hash of the deposit data.
   bytes session_id = 1;
   // Public key of target operator.
@@ -32,8 +32,8 @@ message StakeChainRequestKey {
 message GetMessageRequest {
   oneof body {
     DepositRequestKey deposit_setup = 1;
-    Musig2ExchangeRequestKey nonces = 2;
-    Musig2ExchangeRequestKey sigs = 3;
+    Musig2RequestKey nonces = 2;
+    Musig2RequestKey sigs = 3;
     StakeChainRequestKey stake_chain = 4;
   }
 }
