@@ -53,6 +53,12 @@ impl P2PHandle {
     }
 }
 
+impl Clone for P2PHandle {
+    fn clone(&self) -> Self {
+        Self::new(self.events.resubscribe(), self.commands.clone())
+    }
+}
+
 impl Stream for P2PHandle {
     type Item = Result<Event, ErrDroppedMsgs>;
 
