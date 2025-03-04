@@ -11,7 +11,7 @@ use tracing::warn;
 use super::{DBResult, Repository, RepositoryError};
 
 /// Thread-safe wrapper for [`Db`] with a [`ThreadPool`] for async operations.
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct AsyncDB {
     /// Thread pool used for async operations.
     pool: ThreadPool,

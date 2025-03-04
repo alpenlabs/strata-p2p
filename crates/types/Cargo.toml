@@ -7,6 +7,12 @@ edition = "2021"
 default = []
 proptest = ["dep:proptest", "dep:proptest-derive"]
 
+[lints]
+rust.missing_debug_implementations = "warn"
+rust.unreachable_pub = "warn"
+rust.unused_crate_dependencies = "deny"
+rust.unused_must_use = "deny"
+
 [dependencies]
 bitcoin.workspace = true
 hex.workspace = true

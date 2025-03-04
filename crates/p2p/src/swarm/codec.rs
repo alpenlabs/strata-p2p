@@ -21,6 +21,7 @@ const RESPONSE_SIZE_MAXIMUM: u64 = 10 * 1024 * 1024;
 /// A [`Codec`] defines the request and response types
 /// for a request-response [`Behaviour`](super::Behaviour) protocol or
 /// protocol family and how they are encoded/decoded on an I/O stream.
+#[derive(Debug)]
 pub struct Codec<Req, Resp> {
     /// Phatom data for the tuple request-response.
     phantom: PhantomData<(Req, Resp)>,

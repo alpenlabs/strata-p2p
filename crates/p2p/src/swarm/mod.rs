@@ -54,6 +54,7 @@ static TOPIC: LazyLock<Sha256Topic> = LazyLock::new(|| Sha256Topic::new("bitvm2"
 const PROTOCOL_NAME: &str = "/strata-bitvm2";
 
 /// Configuration options for [`P2P`].
+#[derive(Debug, Clone)]
 pub struct P2PConfig {
     /// [`Keypair`] used as [`PeerId`].
     pub keypair: Keypair,
@@ -75,6 +76,7 @@ pub struct P2PConfig {
 }
 
 /// Implementation of p2p protocol for BitVM2 data exchange.
+#[expect(missing_debug_implementations)]
 pub struct P2P<Repository> {
     /// The swarm that handles the networking.
     swarm: Swarm<Behaviour>,
@@ -492,7 +494,7 @@ impl<DB: RepositoryExt> P2P<DB> {
                     .push(connect_to_peer_command.peer_addr.clone());
 
                 // Add peer to swarm
-                let _ = self.swarm.add_peer_address(
+                self.swarm.add_peer_address(
                     connect_to_peer_command.peer_id,
                     connect_to_peer_command.peer_addr.clone(),
                 );
