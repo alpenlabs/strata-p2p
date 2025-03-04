@@ -3,13 +3,20 @@
 use std::{sync::Arc, time::Duration};
 
 use anyhow::bail;
-use bitcoin::OutPoint;
+use bitcoin::{
+    secp256k1::{
+        rand::{rngs::OsRng, Rng},
+        SecretKey,
+    },
+    OutPoint,
+};
 use futures::future::join_all;
 use libp2p::{
     build_multiaddr,
     identity::{secp256k1::Keypair as SecpKeypair, Keypair},
     Multiaddr, PeerId,
 };
+use musig2::{NonceSeed, PartialSignature, PubNonce, SecNonce};
 use strata_p2p_db::sled::AsyncDB;
 use strata_p2p_types::{OperatorPubKey, Scope, SessionId, StakeChainId, WotsPublicKeys};
 use strata_p2p_wire::p2p::v1::{GossipsubMsg, UnsignedGossipsubMsg};
@@ -168,9 +175,9 @@ impl Setup {
     }
 }
 
-pub(crate) fn mock_stake_chain_info(kp: &SecpKeypair) -> Command {
+pub(crate) fn mock_stake_chain_info(kp: &SecpKeypair, stake_chain_id: StakeChainId) -> Command {
     let kind = UnsignedPublishMessage::StakeChainExchange {
-        stake_chain_id: StakeChainId::hash(b"stake_chain_id"),
+        stake_chain_id,
         pre_stake_outpoint: OutPoint::null(),
         checkpoint_pubkeys: vec![],
         stake_data: vec![],
@@ -190,7 +197,7 @@ pub(crate) fn mock_deposit_setup(kp: &SecpKeypair, scope: Scope) -> Command {
 pub(crate) fn mock_deposit_nonces(kp: &SecpKeypair, session_id: SessionId) -> Command {
     let unsigned = UnsignedPublishMessage::Musig2NoncesExchange {
         session_id,
-        pub_nonces: vec![],
+        pub_nonces: (0..5).map(|_| generate_pubnonce()).collect(),
     };
     unsigned.sign_secp256k1(kp).into()
 }
@@ -198,7 +205,7 @@ pub(crate) fn mock_deposit_nonces(kp: &SecpKeypair, session_id: SessionId) -> Co
 pub(crate) fn mock_deposit_sigs(kp: &SecpKeypair, session_id: SessionId) -> Command {
     let unsigned = UnsignedPublishMessage::Musig2SignaturesExchange {
         session_id,
-        partial_sigs: vec![],
+        partial_sigs: (0..5).map(|_| generate_partial_signature()).collect(),
     };
     unsigned.sign_secp256k1(kp).into()
 }
@@ -206,11 +213,12 @@ pub(crate) fn mock_deposit_sigs(kp: &SecpKeypair, session_id: SessionId) -> Comm
 pub(crate) async fn exchange_stake_chain_info(
     operators: &mut [OperatorHandle],
     operators_num: usize,
+    stake_chain_id: StakeChainId,
 ) -> anyhow::Result<()> {
     for operator in operators.iter() {
         operator
             .handle
-            .send_command(mock_stake_chain_info(&operator.kp))
+            .send_command(mock_stake_chain_info(&operator.kp, stake_chain_id))
             .await;
     }
     for operator in operators.iter_mut() {
@@ -325,4 +333,31 @@ pub(crate) async fn exchange_deposit_sigs(
     }
 
     Ok(())
+}
+
+/// Size of the nonce seed in bytes.
+const NONCE_SEED_SIZE: usize = 32;
+
+/// Generates a mock public nonce.
+pub(crate) fn generate_pubnonce() -> PubNonce {
+    let sec_nonce = generate_secnonce();
+
+    sec_nonce.public_nonce()
+}
+
+/// Generates a mock secret nonce.
+pub(crate) fn generate_secnonce() -> SecNonce {
+    let mut nonce_seed_bytes = [0u8; NONCE_SEED_SIZE];
+    OsRng.fill(&mut nonce_seed_bytes);
+    let nonce_seed = NonceSeed::from(nonce_seed_bytes);
+
+    SecNonce::build(nonce_seed).build()
+}
+
+/// Generates a mock partial signature.
+pub(crate) fn generate_partial_signature() -> PartialSignature {
+    let secret_key = SecretKey::new(&mut OsRng);
+
+    PartialSignature::from_slice(secret_key.as_ref())
+        .expect("should be able to generate arbitrary partial signature")
 }

@@ -1,7 +1,7 @@
 //! Gossipsub tests.
 
 use strata_p2p_db::{sled::AsyncDB, RepositoryExt};
-use strata_p2p_types::{OperatorPubKey, Scope, SessionId};
+use strata_p2p_types::{OperatorPubKey, Scope, SessionId, StakeChainId};
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
 use super::common::{
@@ -11,7 +11,7 @@ use super::common::{
 use crate::commands::CleanStorageCommand;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
-async fn test_all_to_all_one_scope() -> anyhow::Result<()> {
+async fn all_to_all_one_scope() -> anyhow::Result<()> {
     const OPERATORS_NUM: usize = 2;
 
     tracing_subscriber::registry()
@@ -25,10 +25,11 @@ async fn test_all_to_all_one_scope() -> anyhow::Result<()> {
         tasks,
     } = Setup::all_to_all(OPERATORS_NUM).await?;
 
+    let stake_chain_id = StakeChainId::hash(b"stake_chain_id");
     let scope = Scope::hash(b"scope");
     let session_id = SessionId::hash(b"session_id");
 
-    exchange_stake_chain_info(&mut operators, OPERATORS_NUM).await?;
+    exchange_stake_chain_info(&mut operators, OPERATORS_NUM, stake_chain_id).await?;
     exchange_deposit_setup(&mut operators, OPERATORS_NUM, scope).await?;
     exchange_deposit_nonces(&mut operators, OPERATORS_NUM, session_id).await?;
     exchange_deposit_sigs(&mut operators, OPERATORS_NUM, session_id).await?;
@@ -41,7 +42,7 @@ async fn test_all_to_all_one_scope() -> anyhow::Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
-async fn test_all_to_all_multiple_scopes() -> anyhow::Result<()> {
+async fn all_to_all_multiple_scopes() -> anyhow::Result<()> {
     const OPERATORS_NUM: usize = 2;
 
     tracing_subscriber::registry()
@@ -55,15 +56,20 @@ async fn test_all_to_all_multiple_scopes() -> anyhow::Result<()> {
         tasks,
     } = Setup::all_to_all(OPERATORS_NUM).await?;
 
-    exchange_stake_chain_info(&mut operators, OPERATORS_NUM).await?;
-
+    let stake_chain_ids = (0..OPERATORS_NUM)
+        .map(|i| StakeChainId::hash(format!("stake_chain_id_{}", i).as_bytes()))
+        .collect::<Vec<_>>();
     let scopes = (0..OPERATORS_NUM)
-        .map(|i| Scope::hash(format!("scope{}", i).as_bytes()))
+        .map(|i| Scope::hash(format!("scope_{}", i).as_bytes()))
         .collect::<Vec<_>>();
 
     let session_ids = (0..OPERATORS_NUM)
-        .map(|i| SessionId::hash(format!("session{}", i).as_bytes()))
+        .map(|i| SessionId::hash(format!("session_{}", i).as_bytes()))
         .collect::<Vec<_>>();
+
+    for stake_chain_id in &stake_chain_ids {
+        exchange_stake_chain_info(&mut operators, OPERATORS_NUM, *stake_chain_id).await?;
+    }
 
     for scope in &scopes {
         exchange_deposit_setup(&mut operators, OPERATORS_NUM, *scope).await?;
@@ -83,7 +89,7 @@ async fn test_all_to_all_multiple_scopes() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
-async fn test_operator_cleans_entries_correctly_at_command() -> anyhow::Result<()> {
+async fn operator_cleans_entries_correctly_at_command() -> anyhow::Result<()> {
     const OPERATORS_NUM: usize = 2;
 
     tracing_subscriber::registry()
@@ -97,10 +103,11 @@ async fn test_operator_cleans_entries_correctly_at_command() -> anyhow::Result<(
         tasks,
     } = Setup::all_to_all(OPERATORS_NUM).await?;
 
+    let stake_chain_id = StakeChainId::hash(b"stake_chain_id");
     let scope = Scope::hash(b"scope");
     let session_id = SessionId::hash(b"session_id");
 
-    exchange_stake_chain_info(&mut operators, OPERATORS_NUM).await?;
+    exchange_stake_chain_info(&mut operators, OPERATORS_NUM, stake_chain_id).await?;
     exchange_deposit_setup(&mut operators, OPERATORS_NUM, scope).await?;
     exchange_deposit_nonces(&mut operators, OPERATORS_NUM, session_id).await?;
     exchange_deposit_sigs(&mut operators, OPERATORS_NUM, session_id).await?;

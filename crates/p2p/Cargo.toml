@@ -38,6 +38,7 @@ strata-p2p-types.path = "../types"
 strata-p2p-wire.path = "../wire"
 
 [dev-dependencies]
+bitcoin = { workspace = true, features = ["serde", "rand"] }
 sled = "0.34.7"
 tokio = { workspace = true, features = ["rt", "rt-multi-thread"] }
 tokio-util.workspace = true
