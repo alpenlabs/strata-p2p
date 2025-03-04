@@ -518,6 +518,7 @@ impl<DB: RepositoryExt> P2P<DB> {
     ) -> P2PResult<()> {
         match event {
             RequestResponseEvent::Message { peer, message } => {
+                debug!(%peer, ?message, "Received message");
                 self.handle_message_event(peer, message).await?
             }
             RequestResponseEvent::OutboundFailure {
@@ -596,7 +597,7 @@ impl<DB: RepositoryExt> P2P<DB> {
                 response,
             } => {
                 if response.msg.is_empty() {
-                    error!(%request_id, "Received empty response");
+                    error!(%request_id, ?response, "Received empty response");
                     return Ok(());
                 }
 
@@ -679,21 +680,6 @@ impl<DB: RepositoryExt> P2P<DB> {
                 session_id,
                 operator_pk,
             } => {
-                let nonces = self.db.get_pub_nonces(&operator_pk, session_id).await?;
-
-                nonces.map(|v| proto::GossipsubMsg {
-                    body: Some(Body::Nonce(proto::Musig2NoncesExchange {
-                        session_id: session_id.to_vec(),
-                        pub_nonces: v.entry.iter().map(|n| n.serialize().to_vec()).collect(),
-                    })),
-                    signature: v.signature,
-                    key: v.key.into(),
-                })
-            }
-            v1::GetMessageRequest::Musig2NoncesExchange {
-                session_id,
-                operator_pk,
-            } => {
                 let sigs = self
                     .db
                     .get_partial_signatures(&operator_pk, session_id)
@@ -703,6 +689,21 @@ impl<DB: RepositoryExt> P2P<DB> {
                     body: Some(Body::Sigs(proto::Musig2SignaturesExchange {
                         session_id: session_id.to_vec(),
                         partial_sigs: v.entry.iter().map(|n| n.serialize().to_vec()).collect(),
+                    })),
+                    signature: v.signature,
+                    key: v.key.into(),
+                })
+            }
+            v1::GetMessageRequest::Musig2NoncesExchange {
+                session_id,
+                operator_pk,
+            } => {
+                let nonces = self.db.get_pub_nonces(&operator_pk, session_id).await?;
+
+                nonces.map(|v| proto::GossipsubMsg {
+                    body: Some(Body::Nonce(proto::Musig2NoncesExchange {
+                        session_id: session_id.to_vec(),
+                        pub_nonces: v.entry.iter().map(|n| n.serialize().to_vec()).collect(),
                     })),
                     signature: v.signature,
                     key: v.key.into(),

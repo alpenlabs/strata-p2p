@@ -135,14 +135,14 @@ impl GetMessageRequest {
             Self::Musig2SignaturesExchange {
                 session_id,
                 operator_pk,
-            } => ProtoGetMessageRequestBody::Nonces(Musig2RequestKey {
+            } => ProtoGetMessageRequestBody::Sigs(Musig2RequestKey {
                 session_id: session_id.to_vec(),
                 operator: operator_pk.into(),
             }),
             Self::Musig2NoncesExchange {
                 session_id,
                 operator_pk,
-            } => ProtoGetMessageRequestBody::Sigs(Musig2RequestKey {
+            } => ProtoGetMessageRequestBody::Nonces(Musig2RequestKey {
                 session_id: session_id.to_vec(),
                 operator: operator_pk.into(),
             }),
