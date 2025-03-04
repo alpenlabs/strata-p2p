@@ -1,7 +1,7 @@
 //! Commands for P2P implementation from operator implementation.
 
 use bitcoin::{OutPoint, XOnlyPublicKey};
-use libp2p::identity::secp256k1;
+use libp2p::{identity::secp256k1, Multiaddr, PeerId};
 use musig2::{PartialSignature, PubNonce};
 use strata_p2p_types::{OperatorPubKey, Scope, SessionId, StakeChainId, StakeData, WotsPublicKeys};
 use strata_p2p_wire::p2p::v1::{
@@ -19,6 +19,9 @@ pub enum Command {
 
     /// Cleans session, scopes from internal DB.
     CleanStorage(CleanStorageCommand),
+
+    /// Connects to a peer, whitelists peer, and adds peer to the swarm.
+    ConnectToPeer(ConnectToPeerCommand),
 }
 
 #[derive(Debug, Clone)]
@@ -154,6 +157,16 @@ impl From<PublishMessage> for Command {
     fn from(v: PublishMessage) -> Self {
         Self::PublishMessage(v)
     }
+}
+
+/// Connects to a peer.
+#[derive(Debug, Clone)]
+pub struct ConnectToPeerCommand {
+    /// Peer ID.
+    pub peer_id: PeerId,
+
+    /// Peer address.
+    pub peer_addr: Multiaddr,
 }
 
 /// Commands P2P to clean entries from internal key-value storage by

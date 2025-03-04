@@ -186,7 +186,7 @@ impl<DB: RepositoryExt> P2P<DB> {
                     let ConnectedPoint::Dialer { address, .. } = endpoint else {
                         continue;
                     };
-                    debug!(%address, "Establshed connection with peer");
+                    debug!(%address, "Established connection with peer");
                     is_not_connected.remove(&address);
                 }
                 _ => {}
@@ -278,7 +278,7 @@ impl<DB: RepositoryExt> P2P<DB> {
         let msg = match GossipsubMsg::from_bytes(&message.data) {
             Ok(msg) => msg,
             Err(err) => {
-                debug!(%err, "Got invalid message from peer, rejecting it.");
+                error!(%err, "Got invalid message from peer, rejecting it.");
                 // no error should appear in case of message rejection
                 let _ = self
                     .swarm
@@ -298,7 +298,7 @@ impl<DB: RepositoryExt> P2P<DB> {
             .source
             .expect("Message must have author as ValidationMode set to Permissive");
         if let Err(err) = self.validate_gossipsub_msg(&msg) {
-            debug!(reason=%err, "Message failed validation.");
+            error!(reason=%err, "Message failed validation.");
             // no error should appear in case of message rejection
             let _ = self
                 .swarm
@@ -331,7 +331,7 @@ impl<DB: RepositoryExt> P2P<DB> {
                 MessageAcceptance::Accept,
             )
             .inspect_err(
-                |err| debug!(%err, ?event, "failed to propagate accepted message further"),
+                |err| error!(%err, ?event, "failed to propagate accepted message further"),
             );
 
         // Do not broadcast new event to "handles" if it's not new.
@@ -426,7 +426,7 @@ impl<DB: RepositoryExt> P2P<DB> {
                     .behaviour_mut()
                     .gossipsub
                     .publish(TOPIC.hash(), msg.into_raw().encode_to_vec())
-                    .inspect_err(|err| debug!(%err, "Failed to publish msg through gossipsub"));
+                    .inspect_err(|err| error!(%err, "Failed to publish msg through gossipsub"));
 
                 Ok(())
             }
@@ -484,6 +484,27 @@ impl<DB: RepositoryExt> P2P<DB> {
 
                 Ok(())
             }
+            Command::ConnectToPeer(connect_to_peer_command) => {
+                // Whitelist peer
+                self.config.allowlist.push(connect_to_peer_command.peer_id);
+                self.config
+                    .connect_to
+                    .push(connect_to_peer_command.peer_addr.clone());
+
+                // Add peer to swarm
+                let _ = self.swarm.add_peer_address(
+                    connect_to_peer_command.peer_id,
+                    connect_to_peer_command.peer_addr.clone(),
+                );
+
+                // Connect to peer
+                let _ = self
+                    .swarm
+                    .dial(connect_to_peer_command.peer_addr)
+                    .inspect_err(|err| error!(%err, "Failed to connect to peer"));
+
+                Ok(())
+            }
         }
     }
 
@@ -502,14 +523,14 @@ impl<DB: RepositoryExt> P2P<DB> {
                 request_id,
                 error,
             } => {
-                debug!(%peer, %error, %request_id, "Outbound failure")
+                error!(%peer, %error, %request_id, "Outbound failure")
             }
             RequestResponseEvent::InboundFailure {
                 peer,
                 request_id,
                 error,
             } => {
-                debug!(%peer, %error, %request_id, "Inbound failure")
+                error!(%peer, %error, %request_id, "Inbound failure")
             }
             RequestResponseEvent::ResponseSent { peer, request_id } => {
                 debug!(%peer, %request_id, "Response sent")
@@ -534,14 +555,14 @@ impl<DB: RepositoryExt> P2P<DB> {
                 let empty_response = GetMessageResponse { msg: vec![] };
 
                 let Ok(req) = v1::GetMessageRequest::from_msg(request) else {
-                    debug!(%peer_id, "Peer sent invalid get message request, disconnecting it");
+                    error!(%peer_id, "Peer sent invalid get message request, disconnecting it");
                     let _ = self.swarm.disconnect_peer_id(peer_id);
                     let _ = self
                         .swarm
                         .behaviour_mut()
                         .request_response
                         .send_response(channel, empty_response)
-                        .inspect_err(|_| debug!("Failed to send response"));
+                        .inspect_err(|_| error!("Failed to send response"));
 
                     return Ok(());
                 };
@@ -553,7 +574,7 @@ impl<DB: RepositoryExt> P2P<DB> {
                         .behaviour_mut()
                         .request_response
                         .send_response(channel, empty_response)
-                        .inspect_err(|_| debug!("Failed to send response"));
+                        .inspect_err(|_| error!("Failed to send response"));
 
                     return Ok(());
                 };
@@ -565,7 +586,7 @@ impl<DB: RepositoryExt> P2P<DB> {
                     .behaviour_mut()
                     .request_response
                     .send_response(channel, response)
-                    .inspect_err(|_| debug!("Failed to send response"));
+                    .inspect_err(|_| error!("Failed to send response"));
             }
 
             request_response::Message::Response {
@@ -573,7 +594,7 @@ impl<DB: RepositoryExt> P2P<DB> {
                 response,
             } => {
                 if response.msg.is_empty() {
-                    debug!(%request_id, "Received empty response");
+                    error!(%request_id, "Received empty response");
                     return Ok(());
                 }
 
@@ -586,12 +607,12 @@ impl<DB: RepositoryExt> P2P<DB> {
                     let msg = match GossipsubMsg::from_proto(msg.clone()) {
                         Ok(msg) => msg,
                         Err(err) => {
-                            debug!(%peer_id, reason=%err, "Peer sent invalid message");
+                            error!(%peer_id, reason=%err, "Peer sent invalid message");
                             continue;
                         }
                     };
                     if let Err(err) = self.validate_gossipsub_msg(&msg) {
-                        debug!(%peer_id, reason=%err, "Message failed validation");
+                        error!(%peer_id, reason=%err, "Message failed validation");
                         continue;
                     }
 
