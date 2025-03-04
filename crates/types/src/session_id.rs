@@ -39,9 +39,9 @@ impl fmt::Display for SessionId {
     }
 }
 
-impl AsRef<[u8]> for SessionId {
-    fn as_ref(&self) -> &[u8] {
-        self.0.as_ref()
+impl AsRef<[u8; SessionId::SIZE]> for SessionId {
+    fn as_ref(&self) -> &[u8; SessionId::SIZE] {
+        &self.0
     }
 }
 
