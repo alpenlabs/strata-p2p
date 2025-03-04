@@ -85,11 +85,10 @@ pub(crate) struct Setup {
 }
 
 impl Setup {
-    /// Spawn N operators that are connected "all-to-all" with handles to them, task tracker
+    /// Spawn `n` operators that are connected "all-to-all" with handles to them, task tracker
     /// to stop control async tasks they are spawned in.
-    pub(crate) async fn all_to_all(number: usize) -> anyhow::Result<Self> {
-        let (keypairs, peer_ids, multiaddresses) =
-            Self::setup_keys_ids_addrs_of_n_operators(number);
+    pub(crate) async fn all_to_all(n: usize) -> anyhow::Result<Self> {
+        let (keypairs, peer_ids, multiaddresses) = Self::setup_keys_ids_addrs_of_n_operators(n);
 
         let cancel = CancellationToken::new();
         let mut operators = Vec::new();
@@ -126,14 +125,59 @@ impl Setup {
         })
     }
 
-    /// Create N random keypairs, peer ids from them and sequential in-memory
+    /// Spawn `n` operators that are connected "all-to-all" with handles to them, task tracker
+    /// to stop control async tasks they are spawned in with an extra signers allowlist.
+    pub(crate) async fn with_extra_signers(
+        number: usize,
+        extra_signers: Vec<OperatorPubKey>,
+    ) -> anyhow::Result<Self> {
+        let (keypairs, peer_ids, multiaddresses) =
+            Self::setup_keys_ids_addrs_of_n_operators(number);
+
+        let cancel = CancellationToken::new();
+        let mut operators = Vec::new();
+        let mut signers_allowlist: Vec<OperatorPubKey> = keypairs
+            .clone()
+            .into_iter()
+            .map(|kp| kp.public().clone().into())
+            .collect();
+
+        // Add the extra signers to the allowlist
+        signers_allowlist.extend(extra_signers);
+
+        for (idx, (keypair, addr)) in keypairs.iter().zip(&multiaddresses).enumerate() {
+            let mut other_addrs = multiaddresses.clone();
+            other_addrs.remove(idx);
+            let mut other_peerids = peer_ids.clone();
+            other_peerids.remove(idx);
+
+            let operator = Operator::new(
+                keypair.clone(),
+                other_peerids,
+                other_addrs,
+                addr.clone(),
+                cancel.child_token(),
+                signers_allowlist.clone(),
+            )?;
+
+            operators.push(operator);
+        }
+
+        let (operators, tasks) = Self::start_operators(operators).await;
+
+        Ok(Self {
+            cancel,
+            tasks,
+            operators,
+        })
+    }
+
+    /// Create `n` random keypairs, peer ids from them and sequential in-memory
     /// addresses.
     fn setup_keys_ids_addrs_of_n_operators(
-        number: usize,
+        n: usize,
     ) -> (Vec<SecpKeypair>, Vec<PeerId>, Vec<libp2p::Multiaddr>) {
-        let keypairs = (0..number)
-            .map(|_| SecpKeypair::generate())
-            .collect::<Vec<_>>();
+        let keypairs = (0..n).map(|_| SecpKeypair::generate()).collect::<Vec<_>>();
         let peer_ids = keypairs
             .iter()
             .map(|key| PeerId::from_public_key(&Keypair::from(key.clone()).public()))
