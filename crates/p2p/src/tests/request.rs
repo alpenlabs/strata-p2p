@@ -91,12 +91,11 @@ async fn request_response() -> anyhow::Result<()> {
         Command::PublishMessage(msg) => match msg.msg {
             UnsignedPublishMessage::StakeChainExchange {
                 stake_chain_id,
-                pre_stake_outpoint,
-                checkpoint_pubkeys,
-                stake_data,
+                pre_stake_txid,
+                pre_stake_vout,
             } => {
                 let entry = StakeChainEntry {
-                    entry: (pre_stake_outpoint, checkpoint_pubkeys, stake_data),
+                    entry: (pre_stake_txid, pre_stake_vout),
                     signature: msg.signature,
                     key: msg.key,
                 };
@@ -128,11 +127,20 @@ async fn request_response() -> anyhow::Result<()> {
     // put data in the last operator, so that he can respond it
     match mock_deposit_setup(&operators[OPERATORS_NUM - 1].kp.clone(), scope) {
         Command::PublishMessage(msg) => match msg.msg {
-            UnsignedPublishMessage::DepositSetup { scope, wots_pks } => {
+            UnsignedPublishMessage::DepositSetup {
+                scope,
+                hash,
+                funding_txid,
+                funding_vout,
+                wots_pks,
+            } => {
                 let entry = DepositSetupEntry {
-                    wots_pks,
                     signature: msg.signature,
                     key: msg.key,
+                    hash,
+                    funding_txid,
+                    funding_vout,
+                    wots_pks,
                 };
                 <AsyncDB as RepositoryExt>::set_deposit_setup_if_not_exists::<'_, '_>(
                     &operators[OPERATORS_NUM - 1].db,

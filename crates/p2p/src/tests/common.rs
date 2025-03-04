@@ -4,11 +4,12 @@ use std::{sync::Arc, time::Duration};
 
 use anyhow::bail;
 use bitcoin::{
+    hashes::{sha256, Hash},
     secp256k1::{
         rand::{rngs::OsRng, Rng},
         SecretKey,
     },
-    OutPoint,
+    Txid,
 };
 use futures::future::join_all;
 use libp2p::{
@@ -222,9 +223,8 @@ impl Setup {
 pub(crate) fn mock_stake_chain_info(kp: &SecpKeypair, stake_chain_id: StakeChainId) -> Command {
     let kind = UnsignedPublishMessage::StakeChainExchange {
         stake_chain_id,
-        pre_stake_outpoint: OutPoint::null(),
-        checkpoint_pubkeys: vec![],
-        stake_data: vec![],
+        pre_stake_txid: Txid::all_zeros(),
+        pre_stake_vout: 0,
     };
     kind.sign_secp256k1(kp).into()
 }
@@ -233,6 +233,9 @@ pub(crate) fn mock_deposit_setup(kp: &SecpKeypair, scope: Scope) -> Command {
     let mock_bytes = [0u8; 362_960];
     let unsigned = UnsignedPublishMessage::DepositSetup {
         scope,
+        hash: sha256::Hash::const_hash(b"hash me!"),
+        funding_txid: Txid::all_zeros(),
+        funding_vout: 0,
         wots_pks: WotsPublicKeys::from_flattened_bytes(&mock_bytes),
     };
     unsigned.sign_secp256k1(kp).into()

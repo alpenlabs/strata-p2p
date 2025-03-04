@@ -1,12 +1,10 @@
 //! Commands for P2P implementation from operator implementation.
 
-use bitcoin::{OutPoint, XOnlyPublicKey};
+use bitcoin::{hashes::sha256, Txid};
 use libp2p::{identity::secp256k1, Multiaddr, PeerId};
 use musig2::{PartialSignature, PubNonce};
-use strata_p2p_types::{OperatorPubKey, Scope, SessionId, StakeChainId, StakeData, WotsPublicKeys};
-use strata_p2p_wire::p2p::v1::{
-    GetMessageRequest, GossipsubMsg, StakeChainExchange, UnsignedGossipsubMsg,
-};
+use strata_p2p_types::{OperatorPubKey, Scope, SessionId, StakeChainId, WotsPublicKeys};
+use strata_p2p_wire::p2p::v1::{GetMessageRequest, GossipsubMsg, UnsignedGossipsubMsg};
 
 /// Ask P2P implementation to distribute some data across network.
 #[derive(Debug, Clone)]
@@ -44,15 +42,11 @@ pub enum UnsignedPublishMessage {
         /// 32-byte hash of some unique to stake chain data.
         stake_chain_id: StakeChainId,
 
-        /// [`OutPoint`] of the pre-stake transaction.
-        pre_stake_outpoint: OutPoint,
+        /// [`Txid`] of the pre-stake transaction.
+        pre_stake_txid: Txid,
 
-        /// Each operator `i = 0..N` sends a message with his Schnorr verification keys `Y_{i,j}`
-        /// for blocks `j = 0..M`.
-        checkpoint_pubkeys: Vec<XOnlyPublicKey>,
-
-        /// Stake data for a whole Stake Chain.
-        stake_data: Vec<StakeData>,
+        /// vout index of the pre-stake transaction.
+        pre_stake_vout: u32,
     },
 
     /// Deposit setup.
@@ -62,7 +56,20 @@ pub enum UnsignedPublishMessage {
         /// The deposit [`Scope`].
         scope: Scope,
 
-        /// Payload, WOTS PKs.
+        /// [`sha256::Hash`] hash of the deposit data.
+        hash: sha256::Hash,
+
+        /// Funding transaction ID.
+        ///
+        /// Used to cover the dust outputs in the transaction graph connectors.
+        funding_txid: Txid,
+
+        /// Funding transaction output index.
+        ///
+        /// Used to cover the dust outputs in the transaction graph connectors.
+        funding_vout: u32,
+
+        /// [`WotsPublicKeys`] of the deposit data.
         wots_pks: WotsPublicKeys,
     },
 
@@ -118,21 +125,27 @@ impl From<UnsignedPublishMessage> for UnsignedGossipsubMsg {
         match value {
             UnsignedPublishMessage::StakeChainExchange {
                 stake_chain_id,
-                pre_stake_outpoint,
-                checkpoint_pubkeys,
-                stake_data,
+                pre_stake_txid,
+                pre_stake_vout,
             } => UnsignedGossipsubMsg::StakeChainExchange {
                 stake_chain_id,
-                info: StakeChainExchange {
-                    checkpoint_pubkeys,
-                    pre_stake_outpoint,
-                    stake_data,
-                },
+                pre_stake_txid,
+                pre_stake_vout,
             },
 
-            UnsignedPublishMessage::DepositSetup { scope, wots_pks } => {
-                UnsignedGossipsubMsg::DepositSetup { scope, wots_pks }
-            }
+            UnsignedPublishMessage::DepositSetup {
+                scope,
+                hash,
+                funding_txid,
+                funding_vout,
+                wots_pks,
+            } => UnsignedGossipsubMsg::DepositSetup {
+                scope,
+                hash,
+                funding_txid,
+                funding_vout,
+                wots_pks,
+            },
 
             UnsignedPublishMessage::Musig2NoncesExchange {
                 session_id,

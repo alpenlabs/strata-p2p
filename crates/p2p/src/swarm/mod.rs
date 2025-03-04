@@ -355,28 +355,34 @@ impl<DB: RepositoryExt> P2P<DB> {
         match &msg.unsigned {
             v1::UnsignedGossipsubMsg::StakeChainExchange {
                 stake_chain_id,
-                info,
+                pre_stake_txid,
+                pre_stake_vout,
             } => {
                 self.db
                     .set_stake_chain_info_if_not_exists(
                         *stake_chain_id,
                         StakeChainEntry {
-                            entry: (
-                                info.pre_stake_outpoint,
-                                info.checkpoint_pubkeys.clone(),
-                                info.stake_data.clone(),
-                            ),
+                            entry: (*pre_stake_txid, *pre_stake_vout),
                             signature: msg.signature.clone(),
                             key: msg.key.clone(),
                         },
                     )
                     .await
             }
-            v1::UnsignedGossipsubMsg::DepositSetup { scope, wots_pks } => {
+            v1::UnsignedGossipsubMsg::DepositSetup {
+                scope,
+                hash,
+                funding_txid,
+                funding_vout,
+                wots_pks,
+            } => {
                 self.db
                     .set_deposit_setup_if_not_exists(
                         *scope,
                         DepositSetupEntry {
+                            hash: *hash,
+                            funding_txid: *funding_txid,
+                            funding_vout: *funding_vout,
                             wots_pks: wots_pks.clone(),
                             signature: msg.signature.clone(),
                             key: msg.key.clone(),
@@ -645,20 +651,8 @@ impl<DB: RepositoryExt> P2P<DB> {
                 info.map(|v| proto::GossipsubMsg {
                     body: Some(Body::StakeChain(proto::StakeChainExchange {
                         stake_chain_id: stake_chain_id.to_vec(),
-                        pre_stake_vout: v.entry.0.vout,
-                        pre_stake_txid: v.entry.0.txid.to_byte_array().to_vec(),
-                        checkpoint_pubkeys: v
-                            .entry
-                            .1
-                            .iter()
-                            .map(|k| k.serialize().to_vec())
-                            .collect(),
-                        stake_data: v
-                            .entry
-                            .2
-                            .iter()
-                            .map(|w| w.to_flattened_bytes().to_vec())
-                            .collect(),
+                        pre_stake_txid: v.entry.0.to_byte_array().to_vec(),
+                        pre_stake_vout: v.entry.1,
                     })),
                     signature: v.signature,
                     key: v.key.into(),
@@ -670,6 +664,9 @@ impl<DB: RepositoryExt> P2P<DB> {
                 setup.map(|v| proto::GossipsubMsg {
                     body: Some(Body::Setup(proto::DepositSetupExchange {
                         scope: scope.to_vec(),
+                        hash: v.hash.to_byte_array().to_vec(),
+                        funding_txid: v.funding_txid.to_byte_array().to_vec(),
+                        funding_vout: v.funding_vout,
                         wots_pks: v.wots_pks.to_flattened_bytes().to_vec(),
                     })),
                     signature: v.signature,

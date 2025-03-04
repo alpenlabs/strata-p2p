@@ -134,12 +134,11 @@ mod tests {
     use rand::{thread_rng, Rng, RngCore};
     use secp256k1::{All, Keypair, Secp256k1};
     use strata_p2p_types::{
-        OperatorPubKey, SessionId, StakeChainId, Wots160PublicKey, Wots256PublicKey,
+        OperatorPubKey, SessionId, StakeChainId, StakeData, Wots160PublicKey, Wots256PublicKey,
     };
 
     use crate::{
         sled::AsyncDB, NoncesEntry, PartialSignaturesEntry, RepositoryExt, StakeChainEntry,
-        StakeData,
     };
 
     #[tokio::test]
@@ -201,10 +200,8 @@ mod tests {
 
             let stake_chain_id = StakeChainId::hash(b"stake_chain_id");
             let outpoint = OutPoint::null();
-            let checkpoint_pubkeys = vec![generate_random_xonly(&secp); 10_000];
-            let stake_data = vec![generate_random_stake_data(); 10_000];
             let entry = StakeChainEntry {
-                entry: (outpoint, checkpoint_pubkeys.clone(), stake_data.clone()),
+                entry: (outpoint.txid, outpoint.vout),
                 signature: vec![],
                 key: operator_pk.clone(),
             };
@@ -214,16 +211,15 @@ mod tests {
                 .unwrap();
 
             let StakeChainEntry {
-                entry: (got_op, got_keys, got_stake_data),
+                entry: (got_txid, got_vout),
                 ..
             } = db
                 .get_stake_chain_info(&operator_pk, &stake_chain_id)
                 .await
                 .unwrap()
                 .unwrap();
-            assert_eq!(got_op, outpoint);
-            assert_eq!(got_keys, checkpoint_pubkeys);
-            assert_eq!(got_stake_data, stake_data);
+            assert_eq!(got_txid, outpoint.txid);
+            assert_eq!(got_vout, outpoint.vout);
 
             let retrieved_pub_nonces = db
                 .get_pub_nonces(&operator_pk, session_id)
@@ -236,6 +232,7 @@ mod tests {
         inner(&db).await
     }
 
+    #[allow(dead_code)]
     fn generate_random_xonly(ctx: &Secp256k1<All>) -> XOnlyPublicKey {
         let (_seckey, pubkey) = ctx.generate_keypair(&mut thread_rng());
         let (xonly, _parity) = pubkey.x_only_public_key();
@@ -252,6 +249,7 @@ mod tests {
         Wots160PublicKey::new(wots)
     }
 
+    #[allow(dead_code)]
     fn generate_random_wots256() -> Wots256PublicKey {
         let mut rng = thread_rng();
         let mut wots = [[0; 20]; Wots256PublicKey::SIZE];
@@ -261,6 +259,7 @@ mod tests {
         Wots256PublicKey::new(wots)
     }
 
+    #[allow(dead_code)]
     fn generate_random_hash() -> sha256::Hash {
         let mut rng = thread_rng();
         let mut hash = [0; 32];
@@ -268,6 +267,7 @@ mod tests {
         sha256::Hash::from_byte_array(hash)
     }
 
+    #[allow(dead_code)]
     fn generate_random_outpoint() -> OutPoint {
         let mut rng = thread_rng();
         let txid = Txid::from_slice(&generate_random_hash().to_byte_array()).unwrap();
@@ -275,6 +275,7 @@ mod tests {
         OutPoint::new(txid, vout)
     }
 
+    #[allow(dead_code)]
     fn generate_random_stake_data() -> StakeData {
         StakeData::new(
             generate_random_wots256(),
