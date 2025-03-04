@@ -3,11 +3,11 @@
 #![feature(generic_const_exprs)] // but necessary for using const generic bounds in
 
 use async_trait::async_trait;
-use bitcoin::{OutPoint, XOnlyPublicKey};
+use bitcoin::{hashes::sha256, Txid};
 use libp2p_identity::PeerId;
 use musig2::{PartialSignature, PubNonce};
 use serde::{de::DeserializeOwned, Serialize};
-use strata_p2p_types::{OperatorPubKey, Scope, SessionId, StakeChainId, StakeData, WotsPublicKeys};
+use strata_p2p_types::{OperatorPubKey, Scope, SessionId, StakeChainId, WotsPublicKeys};
 use thiserror::Error;
 
 mod prost_serde;
@@ -42,12 +42,11 @@ pub type PartialSignaturesEntry = AuthenticatedEntry<Vec<PartialSignature>>;
 /// A [`Vec`] of [`PubNonce`]s.
 pub type NoncesEntry = AuthenticatedEntry<Vec<PubNonce>>;
 
-/// A big tuple of:
+/// A tuple of:
 ///
-/// 1. [`OutPoint`] of the pre-stake transaction.
-/// 2. [`Vec`] of Schnorr verification keys `Y_{i,j}` for blocks `j = 0..M`.
-/// 3. [`Vec`] of [`StakeData`]s.
-pub type StakeChainEntry = AuthenticatedEntry<(OutPoint, Vec<XOnlyPublicKey>, Vec<StakeData>)>;
+/// 1. [`Txid`] of the pre-stake transaction.
+/// 2. vout index of the pre-stake transaction.
+pub type StakeChainEntry = AuthenticatedEntry<(Txid, u32)>;
 
 /// Basic functionality to get, set, and delete values from a Database.
 #[async_trait]
@@ -269,6 +268,9 @@ impl<T> RepositoryExt for T where T: Repository {}
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
 pub struct DepositSetupEntry {
     pub wots_pks: WotsPublicKeys,
+    pub hash: sha256::Hash,
+    pub funding_txid: Txid,
+    pub funding_vout: u32,
     pub signature: Vec<u8>,
     pub key: OperatorPubKey,
 }

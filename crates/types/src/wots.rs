@@ -16,18 +16,18 @@ pub const WOTS_SINGLE: usize = 20;
 
 /// The number of bits in an individual WOTS digit.
 // WARNING(proofofkeags): MUST BE A FACTOR OF 8 WITH CURRENT IMPLEMENTATION (1,2,4,8)
-pub const WOTS_DIGIT_WIDTH: usize = 4;
+pub(crate) const WOTS_DIGIT_WIDTH: usize = 4;
 
 /// The number of WOTS digits needed to commit a byte.
-pub const WOTS_DIGITS_PER_BYTE: usize = 8 / WOTS_DIGIT_WIDTH;
+pub(crate) const WOTS_DIGITS_PER_BYTE: usize = 8 / WOTS_DIGIT_WIDTH;
 
 /// The maximum number a WOTS digit can hold.
 #[allow(dead_code)]
-pub const WOTS_MAX_DIGIT: usize = (2 << WOTS_DIGIT_WIDTH) - 1;
+pub(crate) const WOTS_MAX_DIGIT: usize = (2 << WOTS_DIGIT_WIDTH) - 1;
 
 /// The number of WOTS digits required to represent a message for a given message length.
 #[allow(dead_code)]
-pub const fn wots_msg_digits(msg_len_bytes: usize) -> usize {
+pub(crate) const fn wots_msg_digits(msg_len_bytes: usize) -> usize {
     WOTS_DIGITS_PER_BYTE * msg_len_bytes
 }
 
@@ -36,7 +36,7 @@ pub const fn wots_msg_digits(msg_len_bytes: usize) -> usize {
 /// The checksum of a WOTS commitment is the sum of the digit values themselves which is then
 /// encoded as a base256 integer. That integer is then signed using the same WOTS scheme.
 #[allow(dead_code)]
-pub const fn wots_checksum_digits(msg_len_bytes: usize) -> usize {
+pub(crate) const fn wots_checksum_digits(msg_len_bytes: usize) -> usize {
     let max_checksum = wots_msg_digits(msg_len_bytes) * WOTS_MAX_DIGIT;
 
     // Compute how many bytes we need to represent the checksum itself
@@ -56,7 +56,7 @@ pub const fn wots_checksum_digits(msg_len_bytes: usize) -> usize {
 
 /// The total number of WOTS digit keys
 #[allow(dead_code)]
-pub const fn wots_total_digits(msg_len_bytes: usize) -> usize {
+pub(crate) const fn wots_total_digits(msg_len_bytes: usize) -> usize {
     wots_msg_digits(msg_len_bytes) + wots_checksum_digits(msg_len_bytes)
 }
 

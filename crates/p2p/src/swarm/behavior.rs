@@ -22,10 +22,11 @@ use super::{codec, TOPIC};
 
 /// Alias for request-response behaviour with messages serialized by using
 /// homebrewed codec implementation.
-pub type RequestResponseProtoBehaviour<Req, Resp> = RequestResponse<codec::Codec<Req, Resp>>;
+pub(crate) type RequestResponseProtoBehaviour<Req, Resp> = RequestResponse<codec::Codec<Req, Resp>>;
 
 /// Composite behaviour which consists of other ones used by swarm in P2P
 /// implementation.
+#[expect(missing_debug_implementations)]
 #[derive(NetworkBehaviour)]
 pub struct Behaviour {
     /// Gossipsub - pub/sub model for messages distribution.

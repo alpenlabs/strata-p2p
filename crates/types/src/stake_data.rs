@@ -9,13 +9,13 @@ use serde::{Deserialize, Serialize};
 use crate::{Wots256PublicKey, WOTS_SINGLE};
 
 /// Size of a [`sha256::Hash`] in bytes.
-pub const HASH_SIZE: usize = 32;
+pub(crate) const HASH_SIZE: usize = 32;
 
 /// Size of a [`Txid`](bitcoin::Txid) in bytes.
-pub const TXID_SIZE: usize = 32;
+pub(crate) const TXID_SIZE: usize = 32;
 
 /// Size of a vout in bytes.
-pub const VOUT_SIZE: usize = 4;
+pub(crate) const VOUT_SIZE: usize = 4;
 
 /// Size of Wots256PublicKey in arrays (2 * 32 + 4 = 68)
 const WOTS256_ARRAYS: usize = 68;
