@@ -20,6 +20,7 @@ use crate::{
     events::Event,
 };
 
+/// Tests the get message request-response flow.
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn request_response() -> anyhow::Result<()> {
     const OPERATORS_NUM: usize = 2;
