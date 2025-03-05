@@ -12,10 +12,10 @@ mod stake_chain_id;
 mod stake_data;
 mod wots;
 
-pub use deposit_data::WotsPublicKeys;
+pub use deposit_data::{Groth16PublicKeys, WotsPublicKeys};
 pub use operator::OperatorPubKey;
 pub use scope::Scope;
 pub use session_id::SessionId;
 pub use stake_chain_id::StakeChainId;
 pub use stake_data::StakeData;
-pub use wots::{Wots160PublicKey, Wots256PublicKey, WotsPublicKey, WOTS_SINGLE};
+pub use wots::{Wots160PublicKey, Wots256PublicKey, WOTS_SINGLE};

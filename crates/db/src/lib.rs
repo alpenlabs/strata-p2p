@@ -3,11 +3,11 @@
 #![feature(generic_const_exprs)] // but necessary for using const generic bounds in
 
 use async_trait::async_trait;
-use bitcoin::{OutPoint, XOnlyPublicKey};
+use bitcoin::{hashes::sha256, Txid, XOnlyPublicKey};
 use libp2p_identity::PeerId;
 use musig2::{PartialSignature, PubNonce};
-use serde::{de::DeserializeOwned, Serialize};
-use strata_p2p_types::{OperatorPubKey, Scope, SessionId, StakeChainId, StakeData, WotsPublicKeys};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use strata_p2p_types::{OperatorPubKey, Scope, SessionId, StakeChainId, WotsPublicKeys};
 use thiserror::Error;
 
 mod prost_serde;
@@ -29,7 +29,7 @@ impl From<serde_json::Error> for RepositoryError {
     }
 }
 
-#[derive(serde::Serialize, serde::Deserialize, Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct AuthenticatedEntry<T> {
     pub entry: T,
     pub signature: Vec<u8>,
@@ -42,12 +42,11 @@ pub type PartialSignaturesEntry = AuthenticatedEntry<Vec<PartialSignature>>;
 /// A [`Vec`] of [`PubNonce`]s.
 pub type NoncesEntry = AuthenticatedEntry<Vec<PubNonce>>;
 
-/// A big tuple of:
+/// A tuple of:
 ///
-/// 1. [`OutPoint`] of the pre-stake transaction.
-/// 2. [`Vec`] of Schnorr verification keys `Y_{i,j}` for blocks `j = 0..M`.
-/// 3. [`Vec`] of [`StakeData`]s.
-pub type StakeChainEntry = AuthenticatedEntry<(OutPoint, Vec<XOnlyPublicKey>, Vec<StakeData>)>;
+/// 1. [`Txid`] of the pre-stake transaction.
+/// 2. vout index of the pre-stake transaction.
+pub type StakeChainEntry = AuthenticatedEntry<(Txid, u32)>;
 
 /// Basic functionality to get, set, and delete values from a Database.
 #[async_trait]
@@ -266,9 +265,32 @@ pub trait RepositoryExt: Repository {
 
 impl<T> RepositoryExt for T where T: Repository {}
 
-#[derive(serde::Serialize, serde::Deserialize, Debug)]
+/// Information that is gossiped or requested by other nodes when a deposit occurs.
+#[derive(Debug, Serialize, Deserialize)]
 pub struct DepositSetupEntry {
+    /// [`sha256::Hash`] hash of the deposit data.
+    pub hash: sha256::Hash,
+
+    /// Funding transaction ID.
+    ///
+    /// Used to cover the dust outputs in the transaction graph connectors.
+    pub funding_txid: Txid,
+
+    /// Funding transaction output index.
+    ///
+    /// Used to cover the dust outputs in the transaction graph connectors.
+    pub funding_vout: u32,
+
+    /// Operator's X-only public key to construct a P2TR address to reimburse the
+    /// operator for a valid withdraw fulfillment.
+    pub operator_pk: XOnlyPublicKey,
+
+    /// Winternitz One-Time Signature (WOTS) public keys shared in a deposit.
     pub wots_pks: WotsPublicKeys,
+
+    /// Signature of the Operator's message using his [`OperatorPubKey`].
     pub signature: Vec<u8>,
+
+    /// The Operator's public key that the message came from.
     pub key: OperatorPubKey,
 }

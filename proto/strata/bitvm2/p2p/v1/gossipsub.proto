@@ -6,22 +6,28 @@ package strata.bitvm2.p2p.v1;
 message StakeChainExchange {
   /// 32-byte hash of some unique to stake chain data.
   bytes stake_chain_id = 1;
-  // Output number of pre stake tx.
-  uint32 pre_stake_vout = 2;
   // Transaction hash of pre stake tx.
-  bytes pre_stake_txid = 3;
-  // Keys `Y_{i, j}`.
-  repeated bytes checkpoint_pubkeys = 4;
-  // Stake data for each stake tx.
-  repeated bytes stake_data = 5;
+  bytes pre_stake_txid = 2;
+  // vout of pre stake tx.
+  uint32 pre_stake_vout = 3;
 }
 
 // Primarily used for the WOTS PKs for the Deposit.
 message DepositSetupExchange {
   // 32-byte hash of some unique to deposit data.
   bytes scope = 1;
-  // Deposit data with all WOTS 160- and 256-bit public keys.
-  bytes wots_pks = 2;
+  // Hash to use in the hashlock output from the Stake Chain
+  bytes hash = 2;
+  // Funding Txid to cover for operator costs in dust connector outputs
+  bytes funding_txid = 3;
+  // Funding vout to cover for operator costs in dust connector outputs
+  uint32 funding_vout = 4;
+  // Operator's X-only public key to construct a P2TR address to reimburse the
+  // operator for a valid withdraw fulfillment.
+  bytes operator_pk = 5;
+  // Deposit data and Withdraw fulfillment transaction data with
+  // all WOTS 160- and 256-bit public keys.
+  bytes wots_pks = 6;
 }
 
 // Musig2 first-round (public) nonces exchange.

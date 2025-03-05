@@ -54,6 +54,7 @@ static TOPIC: LazyLock<Sha256Topic> = LazyLock::new(|| Sha256Topic::new("bitvm2"
 const PROTOCOL_NAME: &str = "/strata-bitvm2";
 
 /// Configuration options for [`P2P`].
+#[derive(Debug, Clone)]
 pub struct P2PConfig {
     /// [`Keypair`] used as [`PeerId`].
     pub keypair: Keypair,
@@ -75,6 +76,7 @@ pub struct P2PConfig {
 }
 
 /// Implementation of p2p protocol for BitVM2 data exchange.
+#[expect(missing_debug_implementations)]
 pub struct P2P<Repository> {
     /// The swarm that handles the networking.
     swarm: Swarm<Behaviour>,
@@ -186,7 +188,7 @@ impl<DB: RepositoryExt> P2P<DB> {
                     let ConnectedPoint::Dialer { address, .. } = endpoint else {
                         continue;
                     };
-                    debug!(%address, "Establshed connection with peer");
+                    debug!(%address, "Established connection with peer");
                     is_not_connected.remove(&address);
                 }
                 _ => {}
@@ -278,7 +280,7 @@ impl<DB: RepositoryExt> P2P<DB> {
         let msg = match GossipsubMsg::from_bytes(&message.data) {
             Ok(msg) => msg,
             Err(err) => {
-                debug!(%err, "Got invalid message from peer, rejecting it.");
+                error!(%err, "Got invalid message from peer, rejecting it.");
                 // no error should appear in case of message rejection
                 let _ = self
                     .swarm
@@ -298,7 +300,7 @@ impl<DB: RepositoryExt> P2P<DB> {
             .source
             .expect("Message must have author as ValidationMode set to Permissive");
         if let Err(err) = self.validate_gossipsub_msg(&msg) {
-            debug!(reason=%err, "Message failed validation.");
+            error!(reason=%err, "Message failed validation.");
             // no error should appear in case of message rejection
             let _ = self
                 .swarm
@@ -331,7 +333,7 @@ impl<DB: RepositoryExt> P2P<DB> {
                 MessageAcceptance::Accept,
             )
             .inspect_err(
-                |err| debug!(%err, ?event, "failed to propagate accepted message further"),
+                |err| error!(%err, ?event, "failed to propagate accepted message further"),
             );
 
         // Do not broadcast new event to "handles" if it's not new.
@@ -353,28 +355,36 @@ impl<DB: RepositoryExt> P2P<DB> {
         match &msg.unsigned {
             v1::UnsignedGossipsubMsg::StakeChainExchange {
                 stake_chain_id,
-                info,
+                pre_stake_txid,
+                pre_stake_vout,
             } => {
                 self.db
                     .set_stake_chain_info_if_not_exists(
                         *stake_chain_id,
                         StakeChainEntry {
-                            entry: (
-                                info.pre_stake_outpoint,
-                                info.checkpoint_pubkeys.clone(),
-                                info.stake_data.clone(),
-                            ),
+                            entry: (*pre_stake_txid, *pre_stake_vout),
                             signature: msg.signature.clone(),
                             key: msg.key.clone(),
                         },
                     )
                     .await
             }
-            v1::UnsignedGossipsubMsg::DepositSetup { scope, wots_pks } => {
+            v1::UnsignedGossipsubMsg::DepositSetup {
+                scope,
+                hash,
+                funding_txid,
+                funding_vout,
+                operator_pk,
+                wots_pks,
+            } => {
                 self.db
                     .set_deposit_setup_if_not_exists(
                         *scope,
                         DepositSetupEntry {
+                            hash: *hash,
+                            funding_txid: *funding_txid,
+                            funding_vout: *funding_vout,
+                            operator_pk: *operator_pk,
                             wots_pks: wots_pks.clone(),
                             signature: msg.signature.clone(),
                             key: msg.key.clone(),
@@ -426,7 +436,7 @@ impl<DB: RepositoryExt> P2P<DB> {
                     .behaviour_mut()
                     .gossipsub
                     .publish(TOPIC.hash(), msg.into_raw().encode_to_vec())
-                    .inspect_err(|err| debug!(%err, "Failed to publish msg through gossipsub"));
+                    .inspect_err(|err| error!(%err, "Failed to publish msg through gossipsub"));
 
                 Ok(())
             }
@@ -484,6 +494,27 @@ impl<DB: RepositoryExt> P2P<DB> {
 
                 Ok(())
             }
+            Command::ConnectToPeer(connect_to_peer_command) => {
+                // Whitelist peer
+                self.config.allowlist.push(connect_to_peer_command.peer_id);
+                self.config
+                    .connect_to
+                    .push(connect_to_peer_command.peer_addr.clone());
+
+                // Add peer to swarm
+                self.swarm.add_peer_address(
+                    connect_to_peer_command.peer_id,
+                    connect_to_peer_command.peer_addr.clone(),
+                );
+
+                // Connect to peer
+                let _ = self
+                    .swarm
+                    .dial(connect_to_peer_command.peer_addr)
+                    .inspect_err(|err| error!(%err, "Failed to connect to peer"));
+
+                Ok(())
+            }
         }
     }
 
@@ -495,6 +526,7 @@ impl<DB: RepositoryExt> P2P<DB> {
     ) -> P2PResult<()> {
         match event {
             RequestResponseEvent::Message { peer, message } => {
+                debug!(%peer, ?message, "Received message");
                 self.handle_message_event(peer, message).await?
             }
             RequestResponseEvent::OutboundFailure {
@@ -502,14 +534,14 @@ impl<DB: RepositoryExt> P2P<DB> {
                 request_id,
                 error,
             } => {
-                debug!(%peer, %error, %request_id, "Outbound failure")
+                error!(%peer, %error, %request_id, "Outbound failure")
             }
             RequestResponseEvent::InboundFailure {
                 peer,
                 request_id,
                 error,
             } => {
-                debug!(%peer, %error, %request_id, "Inbound failure")
+                error!(%peer, %error, %request_id, "Inbound failure")
             }
             RequestResponseEvent::ResponseSent { peer, request_id } => {
                 debug!(%peer, %request_id, "Response sent")
@@ -534,14 +566,14 @@ impl<DB: RepositoryExt> P2P<DB> {
                 let empty_response = GetMessageResponse { msg: vec![] };
 
                 let Ok(req) = v1::GetMessageRequest::from_msg(request) else {
-                    debug!(%peer_id, "Peer sent invalid get message request, disconnecting it");
+                    error!(%peer_id, "Peer sent invalid get message request, disconnecting it");
                     let _ = self.swarm.disconnect_peer_id(peer_id);
                     let _ = self
                         .swarm
                         .behaviour_mut()
                         .request_response
                         .send_response(channel, empty_response)
-                        .inspect_err(|_| debug!("Failed to send response"));
+                        .inspect_err(|_| error!("Failed to send response"));
 
                     return Ok(());
                 };
@@ -553,7 +585,7 @@ impl<DB: RepositoryExt> P2P<DB> {
                         .behaviour_mut()
                         .request_response
                         .send_response(channel, empty_response)
-                        .inspect_err(|_| debug!("Failed to send response"));
+                        .inspect_err(|_| error!("Failed to send response"));
 
                     return Ok(());
                 };
@@ -565,7 +597,7 @@ impl<DB: RepositoryExt> P2P<DB> {
                     .behaviour_mut()
                     .request_response
                     .send_response(channel, response)
-                    .inspect_err(|_| debug!("Failed to send response"));
+                    .inspect_err(|_| error!("Failed to send response"));
             }
 
             request_response::Message::Response {
@@ -573,7 +605,7 @@ impl<DB: RepositoryExt> P2P<DB> {
                 response,
             } => {
                 if response.msg.is_empty() {
-                    debug!(%request_id, "Received empty response");
+                    error!(%request_id, ?response, "Received empty response");
                     return Ok(());
                 }
 
@@ -586,12 +618,12 @@ impl<DB: RepositoryExt> P2P<DB> {
                     let msg = match GossipsubMsg::from_proto(msg.clone()) {
                         Ok(msg) => msg,
                         Err(err) => {
-                            debug!(%peer_id, reason=%err, "Peer sent invalid message");
+                            error!(%peer_id, reason=%err, "Peer sent invalid message");
                             continue;
                         }
                     };
                     if let Err(err) = self.validate_gossipsub_msg(&msg) {
-                        debug!(%peer_id, reason=%err, "Message failed validation");
+                        error!(%peer_id, reason=%err, "Message failed validation");
                         continue;
                     }
 
@@ -621,20 +653,8 @@ impl<DB: RepositoryExt> P2P<DB> {
                 info.map(|v| proto::GossipsubMsg {
                     body: Some(Body::StakeChain(proto::StakeChainExchange {
                         stake_chain_id: stake_chain_id.to_vec(),
-                        pre_stake_vout: v.entry.0.vout,
-                        pre_stake_txid: v.entry.0.txid.to_byte_array().to_vec(),
-                        checkpoint_pubkeys: v
-                            .entry
-                            .1
-                            .iter()
-                            .map(|k| k.serialize().to_vec())
-                            .collect(),
-                        stake_data: v
-                            .entry
-                            .2
-                            .iter()
-                            .map(|w| w.to_flattened_bytes().to_vec())
-                            .collect(),
+                        pre_stake_txid: v.entry.0.to_byte_array().to_vec(),
+                        pre_stake_vout: v.entry.1,
                     })),
                     signature: v.signature,
                     key: v.key.into(),
@@ -646,6 +666,10 @@ impl<DB: RepositoryExt> P2P<DB> {
                 setup.map(|v| proto::GossipsubMsg {
                     body: Some(Body::Setup(proto::DepositSetupExchange {
                         scope: scope.to_vec(),
+                        hash: v.hash.to_byte_array().to_vec(),
+                        funding_txid: v.funding_txid.to_byte_array().to_vec(),
+                        funding_vout: v.funding_vout,
+                        operator_pk: v.operator_pk.serialize().to_vec(),
                         wots_pks: v.wots_pks.to_flattened_bytes().to_vec(),
                     })),
                     signature: v.signature,
@@ -653,21 +677,6 @@ impl<DB: RepositoryExt> P2P<DB> {
                 })
             }
             v1::GetMessageRequest::Musig2SignaturesExchange {
-                session_id,
-                operator_pk,
-            } => {
-                let nonces = self.db.get_pub_nonces(&operator_pk, session_id).await?;
-
-                nonces.map(|v| proto::GossipsubMsg {
-                    body: Some(Body::Nonce(proto::Musig2NoncesExchange {
-                        session_id: session_id.to_vec(),
-                        pub_nonces: v.entry.iter().map(|n| n.serialize().to_vec()).collect(),
-                    })),
-                    signature: v.signature,
-                    key: v.key.into(),
-                })
-            }
-            v1::GetMessageRequest::Musig2NoncesExchange {
                 session_id,
                 operator_pk,
             } => {
@@ -680,6 +689,21 @@ impl<DB: RepositoryExt> P2P<DB> {
                     body: Some(Body::Sigs(proto::Musig2SignaturesExchange {
                         session_id: session_id.to_vec(),
                         partial_sigs: v.entry.iter().map(|n| n.serialize().to_vec()).collect(),
+                    })),
+                    signature: v.signature,
+                    key: v.key.into(),
+                })
+            }
+            v1::GetMessageRequest::Musig2NoncesExchange {
+                session_id,
+                operator_pk,
+            } => {
+                let nonces = self.db.get_pub_nonces(&operator_pk, session_id).await?;
+
+                nonces.map(|v| proto::GossipsubMsg {
+                    body: Some(Body::Nonce(proto::Musig2NoncesExchange {
+                        session_id: session_id.to_vec(),
+                        pub_nonces: v.entry.iter().map(|n| n.serialize().to_vec()).collect(),
                     })),
                     signature: v.signature,
                     key: v.key.into(),

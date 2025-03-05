@@ -1,10 +1,11 @@
 //! Custom [`serde`] serializers and deserializers for [`prost`] messages.
-#![allow(dead_code)]
 
 use serde::{de::Error, Deserialize, Deserializer, Serializer};
 
 /// Serializes a [`prost`] message into a byte array.
-pub fn serialize<T, S>(value: &T, serializer: S) -> Result<S::Ok, S::Error>
+#[allow(unfulfilled_lint_expectations)]
+#[expect(dead_code)]
+pub(crate) fn serialize<T, S>(value: &T, serializer: S) -> Result<S::Ok, S::Error>
 where
     T: prost::Message,
     S: Serializer,
@@ -13,7 +14,9 @@ where
 }
 
 /// Deserializes a [`prost`] message from a byte array.
-pub fn deserialize<'de, T, D>(deserializer: D) -> Result<T, D::Error>
+#[allow(unfulfilled_lint_expectations)]
+#[expect(dead_code)]
+pub(crate) fn deserialize<'de, T, D>(deserializer: D) -> Result<T, D::Error>
 where
     D: Deserializer<'de>,
     T: prost::Message + Default,
