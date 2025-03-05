@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use bitcoin::{hashes::sha256, Txid};
 use libp2p_identity::PeerId;
 use musig2::{PartialSignature, PubNonce};
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use strata_p2p_types::{OperatorPubKey, Scope, SessionId, StakeChainId, WotsPublicKeys};
 use thiserror::Error;
 
@@ -29,7 +29,7 @@ impl From<serde_json::Error> for RepositoryError {
     }
 }
 
-#[derive(serde::Serialize, serde::Deserialize, Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct AuthenticatedEntry<T> {
     pub entry: T,
     pub signature: Vec<u8>,
@@ -265,12 +265,28 @@ pub trait RepositoryExt: Repository {
 
 impl<T> RepositoryExt for T where T: Repository {}
 
-#[derive(serde::Serialize, serde::Deserialize, Debug)]
+/// Information that is gossiped or requested by other nodes when a deposit occurs.
+#[derive(Debug, Serialize, Deserialize)]
 pub struct DepositSetupEntry {
-    pub wots_pks: WotsPublicKeys,
+    /// [`sha256::Hash`] hash of the deposit data.
     pub hash: sha256::Hash,
+
+    /// Funding transaction ID.
+    ///
+    /// Used to cover the dust outputs in the transaction graph connectors.
     pub funding_txid: Txid,
+
+    /// Funding transaction output index.
+    ///
+    /// Used to cover the dust outputs in the transaction graph connectors.
     pub funding_vout: u32,
+
+    /// [`WotsPublicKeys`] of the deposit data.
+    pub wots_pks: WotsPublicKeys,
+
+    /// Signature of the Operator's message using his [`OperatorPubKey`].
     pub signature: Vec<u8>,
+
+    /// The Operator's public key that the message came from.
     pub key: OperatorPubKey,
 }

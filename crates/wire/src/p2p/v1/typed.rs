@@ -23,7 +23,10 @@ use super::proto::{
 pub enum GetMessageRequest {
     /// Request Stake Chain info for this operator.
     StakeChainExchange {
+        /// 32-byte hash of some unique to stake chain data.
         stake_chain_id: StakeChainId,
+
+        /// The Operator's public key that the request came from.
         operator_pk: OperatorPubKey,
     },
 
@@ -31,19 +34,28 @@ pub enum GetMessageRequest {
     ///
     /// This is primarily used for the WOTS PKs.
     DepositSetup {
+        /// [`Scope`] of the deposit data.
         scope: Scope,
+
+        /// The Operator's public key that the request came from.
         operator_pk: OperatorPubKey,
     },
 
     /// Request MuSig2 (partial) signatures from operator and for [`SessionId`].
     Musig2SignaturesExchange {
+        /// [`SessionId`] of either the deposit data or the root deposit data.
         session_id: SessionId,
+
+        /// The Operator's public key that the request came from.
         operator_pk: OperatorPubKey,
     },
 
     /// Request MuSig2 (public) nonces from operator and for [`SessionId`].
     Musig2NoncesExchange {
+        /// [`SessionId`] of either the deposit data or the root deposit data.
         session_id: SessionId,
+
+        /// The Operator's public key that the request came from.
         operator_pk: OperatorPubKey,
     },
 }
@@ -243,7 +255,7 @@ pub enum UnsignedGossipsubMsg {
 
     /// Operators exchange (public) nonces before signing.
     Musig2NoncesExchange {
-        /// [`SessionId`] of the deposit data.
+        /// [`SessionId`] of either the deposit data or the root deposit data.
         session_id: SessionId,
 
         /// (Public) Nonces for each transaction.
@@ -252,7 +264,7 @@ pub enum UnsignedGossipsubMsg {
 
     /// Operators exchange (partial) signatures for the transaction graph.
     Musig2SignaturesExchange {
-        /// [`SessionId`] of the deposit data.
+        /// [`SessionId`] of either the deposit data or the root deposit data.
         session_id: SessionId,
 
         /// (Partial) Signatures for each transaction.
