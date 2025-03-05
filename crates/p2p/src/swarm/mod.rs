@@ -374,7 +374,8 @@ impl<DB: RepositoryExt> P2P<DB> {
                 hash,
                 funding_txid,
                 funding_vout,
-                wots_pks,
+                wots_pks_deposit,
+                wots_pks_withdrawal,
             } => {
                 self.db
                     .set_deposit_setup_if_not_exists(
@@ -383,7 +384,8 @@ impl<DB: RepositoryExt> P2P<DB> {
                             hash: *hash,
                             funding_txid: *funding_txid,
                             funding_vout: *funding_vout,
-                            wots_pks: wots_pks.clone(),
+                            wots_pks_deposit: wots_pks_deposit.clone(),
+                            wots_pks_withdrawal: wots_pks_withdrawal.clone(),
                             signature: msg.signature.clone(),
                             key: msg.key.clone(),
                         },
@@ -667,7 +669,8 @@ impl<DB: RepositoryExt> P2P<DB> {
                         hash: v.hash.to_byte_array().to_vec(),
                         funding_txid: v.funding_txid.to_byte_array().to_vec(),
                         funding_vout: v.funding_vout,
-                        wots_pks: v.wots_pks.to_flattened_bytes().to_vec(),
+                        wots_pks_deposit: v.wots_pks_deposit.to_flattened_bytes().to_vec(),
+                        wots_pks_withdrawal: v.wots_pks_withdrawal.to_flattened_bytes().to_vec(),
                     })),
                     signature: v.signature,
                     key: v.key.into(),

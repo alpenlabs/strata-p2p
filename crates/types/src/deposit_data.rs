@@ -33,6 +33,24 @@ pub struct WotsPublicKeys {
 
 impl WotsPublicKeys {
     /// Creates a new [`WotsPublicKeys`] instance.
+    ///
+    /// Note that you can create [`WotsPublicKeys`] that contains no public inputs, field elements,
+    /// or hashes. For example:
+    ///
+    /// ```
+    /// # use strata_p2p::types::WotsPublicKeys;
+    /// let empty_wots = WotsPublicKeys::new(vec![], vec![], vec![]);
+    /// # assert!(empty_wots.is_empty());
+    ///
+    /// let public_inputs = Wots256PublicKey::new([[1u8; 20]; 68]);
+    /// let just_public_inputs = WotsPublicKeys::new(public_inputs, vec![], vec![]);
+    ///
+    /// let field_elements = Wots256PublicKey::new([[2u8; 20]; 68]);
+    /// let just_field_elements = WotsPublicKeys::new(vec![], field_elements, vec![]);
+    ///
+    /// let hashes = Wots160PublicKey::new([[3u8; 20]; 44]);
+    /// let just_hashes = WotsPublicKeys::new(vec![], vec![], hashes);
+    /// ```
     pub fn new(
         public_inputs: Vec<Wots256PublicKey>,
         fqs: Vec<Wots256PublicKey>,

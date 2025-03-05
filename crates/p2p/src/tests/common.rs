@@ -236,7 +236,8 @@ pub(crate) fn mock_deposit_setup(kp: &SecpKeypair, scope: Scope) -> Command {
         hash: sha256::Hash::const_hash(b"hash me!"),
         funding_txid: Txid::all_zeros(),
         funding_vout: 0,
-        wots_pks: WotsPublicKeys::from_flattened_bytes(&mock_bytes),
+        wots_pks_deposit: WotsPublicKeys::from_flattened_bytes(&mock_bytes),
+        wots_pks_withdrawal: WotsPublicKeys::from_flattened_bytes(&mock_bytes),
     };
     unsigned.sign_secp256k1(kp).into()
 }

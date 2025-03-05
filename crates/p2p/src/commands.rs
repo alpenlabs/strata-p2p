@@ -7,6 +7,7 @@ use strata_p2p_types::{OperatorPubKey, Scope, SessionId, StakeChainId, WotsPubli
 use strata_p2p_wire::p2p::v1::{GetMessageRequest, GossipsubMsg, UnsignedGossipsubMsg};
 
 /// Ask P2P implementation to distribute some data across network.
+#[expect(clippy::large_enum_variant)]
 #[derive(Debug, Clone)]
 pub enum Command {
     /// Publishes message through gossip sub network of peers.
@@ -69,8 +70,11 @@ pub enum UnsignedPublishMessage {
         /// Used to cover the dust outputs in the transaction graph connectors.
         funding_vout: u32,
 
-        /// [`WotsPublicKeys`] of the deposit data.
-        wots_pks: WotsPublicKeys,
+        /// Deposit data with all WOTS 160- and 256-bit public keys.
+        wots_pks_deposit: WotsPublicKeys,
+
+        /// Withdrawal fulfillment transaction data with all WOTS 256-bit public keys.
+        wots_pks_withdrawal: WotsPublicKeys,
     },
 
     /// MuSig2 (public) nonces exchange.
@@ -138,13 +142,15 @@ impl From<UnsignedPublishMessage> for UnsignedGossipsubMsg {
                 hash,
                 funding_txid,
                 funding_vout,
-                wots_pks,
+                wots_pks_deposit,
+                wots_pks_withdrawal,
             } => UnsignedGossipsubMsg::DepositSetup {
                 scope,
                 hash,
                 funding_txid,
                 funding_vout,
-                wots_pks,
+                wots_pks_deposit,
+                wots_pks_withdrawal,
             },
 
             UnsignedPublishMessage::Musig2NoncesExchange {

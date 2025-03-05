@@ -281,8 +281,11 @@ pub struct DepositSetupEntry {
     /// Used to cover the dust outputs in the transaction graph connectors.
     pub funding_vout: u32,
 
-    /// [`WotsPublicKeys`] of the deposit data.
-    pub wots_pks: WotsPublicKeys,
+    /// Deposit data with all WOTS 160- and 256-bit public keys.
+    pub wots_pks_deposit: WotsPublicKeys,
+
+    /// Withdrawal fulfillment transaction data with all WOTS 256-bit public keys.
+    pub wots_pks_withdrawal: WotsPublicKeys,
 
     /// Signature of the Operator's message using his [`OperatorPubKey`].
     pub signature: Vec<u8>,
