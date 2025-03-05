@@ -91,12 +91,12 @@ where
     }
 
     /// Converts the public key to a byte array.
-    pub fn to_bytes(&self) -> [[u8; WOTS_SINGLE]; MSG_LEN_BYTES] {
+    pub fn to_bytes(self) -> [[u8; WOTS_SINGLE]; MSG_LEN_BYTES] {
         self.0
     }
 
     /// Converts the public key to a flattened byte array.
-    pub fn to_flattened_bytes(&self) -> Vec<u8> {
+    pub fn to_flattened_bytes(self) -> Vec<u8> {
         // Changed return type to Vec<u8>
         let mut bytes = Vec::with_capacity(WOTS_SINGLE * MSG_LEN_BYTES);
         for byte_array in &self.0 {

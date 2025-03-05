@@ -37,6 +37,7 @@ pub struct PublishMessage {
 
 /// Types of unsigned messages.
 #[derive(Debug, Clone)]
+#[expect(clippy::large_enum_variant)]
 pub enum UnsignedPublishMessage {
     /// Stake Chain information.
     StakeChainExchange {
@@ -70,11 +71,8 @@ pub enum UnsignedPublishMessage {
         /// Used to cover the dust outputs in the transaction graph connectors.
         funding_vout: u32,
 
-        /// Deposit data with all WOTS 160- and 256-bit public keys.
-        wots_pks_deposit: WotsPublicKeys,
-
-        /// Withdrawal fulfillment transaction data with all WOTS 256-bit public keys.
-        wots_pks_withdrawal: WotsPublicKeys,
+        /// Winternitz One-Time Signature (WOTS) public keys shared in a deposit.
+        wots_pks: WotsPublicKeys,
     },
 
     /// MuSig2 (public) nonces exchange.
@@ -142,15 +140,13 @@ impl From<UnsignedPublishMessage> for UnsignedGossipsubMsg {
                 hash,
                 funding_txid,
                 funding_vout,
-                wots_pks_deposit,
-                wots_pks_withdrawal,
+                wots_pks,
             } => UnsignedGossipsubMsg::DepositSetup {
                 scope,
                 hash,
                 funding_txid,
                 funding_vout,
-                wots_pks_deposit,
-                wots_pks_withdrawal,
+                wots_pks,
             },
 
             UnsignedPublishMessage::Musig2NoncesExchange {

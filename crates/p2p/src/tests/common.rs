@@ -230,14 +230,13 @@ pub(crate) fn mock_stake_chain_info(kp: &SecpKeypair, stake_chain_id: StakeChain
 }
 
 pub(crate) fn mock_deposit_setup(kp: &SecpKeypair, scope: Scope) -> Command {
-    let mock_bytes = [0u8; 362_960];
+    let mock_bytes = [0u8; 1_360 + 362_960];
     let unsigned = UnsignedPublishMessage::DepositSetup {
         scope,
         hash: sha256::Hash::const_hash(b"hash me!"),
         funding_txid: Txid::all_zeros(),
         funding_vout: 0,
-        wots_pks_deposit: WotsPublicKeys::from_flattened_bytes(&mock_bytes),
-        wots_pks_withdrawal: WotsPublicKeys::from_flattened_bytes(&mock_bytes),
+        wots_pks: WotsPublicKeys::from_flattened_bytes(&mock_bytes),
     };
     unsigned.sign_secp256k1(kp).into()
 }

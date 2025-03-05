@@ -171,9 +171,9 @@ impl GetMessageRequest {
 }
 
 /// New deposit request appeared, and operators exchanging setup data.
-///
-/// This is primarily used for the WOTS PKs.
 #[derive(Debug, Clone)]
+#[expect(clippy::large_enum_variant)]
+#[allow(unfulfilled_lint_expectations)]
 pub struct DepositSetup {
     /// [`sha256::Hash`] hash of the deposit data.
     pub hash: sha256::Hash,
@@ -188,11 +188,8 @@ pub struct DepositSetup {
     /// Used to cover the dust outputs in the transaction graph connectors.
     pub funding_vout: u32,
 
-    /// Deposit data with all WOTS 160- and 256-bit public keys.
-    pub wots_pks_deposit: WotsPublicKeys,
-
-    /// Withdrawal fulfillment transaction data with all WOTS 256-bit public keys.
-    pub wots_pks_withdrawal: WotsPublicKeys,
+    /// Winternitz One-Time Signature (WOTS) public keys shared in a deposit.
+    pub wots_pks: WotsPublicKeys,
 }
 
 impl DepositSetup {
@@ -203,15 +200,13 @@ impl DepositSetup {
         let funding_txid = consensus::deserialize(&proto.funding_txid)
             .map_err(|_| DecodeError::new("invalid length of bytes for funding txid"))?;
         let funding_vout = proto.funding_vout;
-        let wots_pks_deposit = WotsPublicKeys::from_flattened_bytes(&proto.wots_pks_deposit);
-        let wots_pks_withdrawal = WotsPublicKeys::from_flattened_bytes(&proto.wots_pks_withdrawal);
+        let wots_pks = WotsPublicKeys::from_flattened_bytes(&proto.wots_pks);
 
         Ok(Self {
             hash,
             funding_txid,
             funding_vout,
-            wots_pks_deposit,
-            wots_pks_withdrawal,
+            wots_pks,
         })
     }
 }
@@ -243,6 +238,7 @@ impl StakeChainExchange {
 
 /// Unsigned messages exchanged between operators.
 #[derive(Clone, Debug)]
+#[expect(clippy::large_enum_variant)]
 pub enum UnsignedGossipsubMsg {
     /// Operators exchange stake chain info.
     StakeChainExchange {
@@ -277,11 +273,8 @@ pub enum UnsignedGossipsubMsg {
         /// Used to cover the dust outputs in the transaction graph connectors.
         funding_vout: u32,
 
-        /// Deposit data with all WOTS 160- and 256-bit public keys
-        wots_pks_deposit: WotsPublicKeys,
-
-        /// Withdrawal fulfillment transaction data with all WOTS 256-bit public keys.
-        wots_pks_withdrawal: WotsPublicKeys,
+        /// Winternitz One-Time Signature (WOTS) public keys shared in a deposit.
+        wots_pks: WotsPublicKeys,
     },
 
     /// Operators exchange (public) nonces before signing.
@@ -335,18 +328,14 @@ impl UnsignedGossipsubMsg {
                 let funding_txid = consensus::deserialize(&proto.funding_txid)
                     .map_err(|_| DecodeError::new("invalid funding txid"))?;
                 let funding_vout = proto.funding_vout;
-                let wots_pks_deposit =
-                    WotsPublicKeys::from_flattened_bytes(&proto.wots_pks_deposit);
-                let wots_pks_withdrawal =
-                    WotsPublicKeys::from_flattened_bytes(&proto.wots_pks_withdrawal);
+                let wots_pks = WotsPublicKeys::from_flattened_bytes(&proto.wots_pks);
 
                 Self::DepositSetup {
                     scope,
                     hash,
                     funding_txid,
                     funding_vout,
-                    wots_pks_deposit,
-                    wots_pks_withdrawal,
+                    wots_pks,
                 }
             }
             ProtoGossipsubMsgBody::Nonce(proto) => {
@@ -413,15 +402,13 @@ impl UnsignedGossipsubMsg {
                 hash,
                 funding_txid,
                 funding_vout,
-                wots_pks_deposit,
-                wots_pks_withdrawal,
+                wots_pks,
             } => {
                 content.extend(scope.as_ref());
                 content.extend(hash.as_byte_array());
                 content.extend(funding_txid.as_byte_array());
                 content.extend(funding_vout.to_le_bytes());
-                content.extend(wots_pks_deposit.to_flattened_bytes());
-                content.extend(wots_pks_withdrawal.to_flattened_bytes());
+                content.extend(wots_pks.to_flattened_bytes());
             }
             Self::Musig2NoncesExchange { session_id, nonces } => {
                 content.extend(session_id.as_ref());
@@ -460,15 +447,13 @@ impl UnsignedGossipsubMsg {
                 hash,
                 funding_txid,
                 funding_vout,
-                wots_pks_deposit,
-                wots_pks_withdrawal,
+                wots_pks,
             } => ProtoGossipsubMsgBody::Setup(ProtoDepositSetup {
                 scope: scope.to_vec(),
                 hash: hash.as_byte_array().to_vec(),
                 funding_txid: funding_txid.to_byte_array().to_vec(),
                 funding_vout: *funding_vout,
-                wots_pks_deposit: wots_pks_deposit.to_flattened_bytes().to_vec(),
-                wots_pks_withdrawal: wots_pks_withdrawal.to_flattened_bytes().to_vec(),
+                wots_pks: wots_pks.to_flattened_bytes().to_vec(),
             }),
             Self::Musig2NoncesExchange { session_id, nonces } => {
                 ProtoGossipsubMsgBody::Nonce(ProtoMusig2NoncesExchange {
