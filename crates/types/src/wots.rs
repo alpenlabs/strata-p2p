@@ -184,6 +184,7 @@ where
         {
             type Value = WotsPublicKey<M>;
 
+            #[expect(elided_lifetimes_in_paths)]
             fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
                 formatter.write_str(&format!("a WotsPublicKey with {} bytes", WOTS_SINGLE * M))
             }
