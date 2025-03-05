@@ -232,14 +232,14 @@ mod tests {
         inner(&db).await
     }
 
-    #[allow(dead_code)]
+    #[expect(dead_code)]
     fn generate_random_xonly(ctx: &Secp256k1<All>) -> XOnlyPublicKey {
         let (_seckey, pubkey) = ctx.generate_keypair(&mut thread_rng());
         let (xonly, _parity) = pubkey.x_only_public_key();
         xonly
     }
 
-    #[allow(dead_code)]
+    #[expect(dead_code)]
     fn generate_random_wots160() -> Wots160PublicKey {
         let mut rng = thread_rng();
         let mut wots = [[0; 20]; Wots160PublicKey::SIZE];
@@ -249,7 +249,8 @@ mod tests {
         Wots160PublicKey::new(wots)
     }
 
-    #[allow(dead_code)]
+    #[allow(unfulfilled_lint_expectations)]
+    #[expect(dead_code)]
     fn generate_random_wots256() -> Wots256PublicKey {
         let mut rng = thread_rng();
         let mut wots = [[0; 20]; Wots256PublicKey::SIZE];
@@ -259,7 +260,8 @@ mod tests {
         Wots256PublicKey::new(wots)
     }
 
-    #[allow(dead_code)]
+    #[allow(unfulfilled_lint_expectations)]
+    #[expect(dead_code)]
     fn generate_random_hash() -> sha256::Hash {
         let mut rng = thread_rng();
         let mut hash = [0; 32];
@@ -267,7 +269,8 @@ mod tests {
         sha256::Hash::from_byte_array(hash)
     }
 
-    #[allow(dead_code)]
+    #[allow(unfulfilled_lint_expectations)]
+    #[expect(dead_code)]
     fn generate_random_outpoint() -> OutPoint {
         let mut rng = thread_rng();
         let txid = Txid::from_slice(&generate_random_hash().to_byte_array()).unwrap();
@@ -275,7 +278,8 @@ mod tests {
         OutPoint::new(txid, vout)
     }
 
-    #[allow(dead_code)]
+    #[allow(unfulfilled_lint_expectations)]
+    #[expect(dead_code)]
     fn generate_random_stake_data() -> StakeData {
         StakeData::new(
             generate_random_wots256(),
