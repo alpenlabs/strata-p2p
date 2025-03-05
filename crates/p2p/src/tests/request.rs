@@ -132,6 +132,7 @@ async fn request_response() -> anyhow::Result<()> {
                 hash,
                 funding_txid,
                 funding_vout,
+                operator_pk,
                 wots_pks,
             } => {
                 let entry = DepositSetupEntry {
@@ -140,6 +141,7 @@ async fn request_response() -> anyhow::Result<()> {
                     hash,
                     funding_txid,
                     funding_vout,
+                    operator_pk,
                     wots_pks,
                 };
                 <AsyncDB as RepositoryExt>::set_deposit_setup_if_not_exists::<'_, '_>(

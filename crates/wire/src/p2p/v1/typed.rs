@@ -3,7 +3,7 @@
 use bitcoin::{
     consensus,
     hashes::{sha256, Hash},
-    Txid,
+    Txid, XOnlyPublicKey,
 };
 use musig2::{PartialSignature, PubNonce};
 use prost::{DecodeError, Message};
@@ -188,6 +188,10 @@ pub struct DepositSetup {
     /// Used to cover the dust outputs in the transaction graph connectors.
     pub funding_vout: u32,
 
+    /// Operator's X-only public key to construct a P2TR address to refund the
+    /// operator for a valid withdraw fulfillment.
+    pub operator_pk: XOnlyPublicKey,
+
     /// Winternitz One-Time Signature (WOTS) public keys shared in a deposit.
     pub wots_pks: WotsPublicKeys,
 }
@@ -200,12 +204,15 @@ impl DepositSetup {
         let funding_txid = consensus::deserialize(&proto.funding_txid)
             .map_err(|_| DecodeError::new("invalid length of bytes for funding txid"))?;
         let funding_vout = proto.funding_vout;
+        let operator_pk = XOnlyPublicKey::from_slice(&proto.operator_pk)
+            .map_err(|_| DecodeError::new("invalid length of bytes for operator public key"))?;
         let wots_pks = WotsPublicKeys::from_flattened_bytes(&proto.wots_pks);
 
         Ok(Self {
             hash,
             funding_txid,
             funding_vout,
+            operator_pk,
             wots_pks,
         })
     }
@@ -273,6 +280,10 @@ pub enum UnsignedGossipsubMsg {
         /// Used to cover the dust outputs in the transaction graph connectors.
         funding_vout: u32,
 
+        /// Operator's X-only public key to construct a P2TR address to refund the
+        /// operator for a valid withdraw fulfillment.
+        operator_pk: XOnlyPublicKey,
+
         /// Winternitz One-Time Signature (WOTS) public keys shared in a deposit.
         wots_pks: WotsPublicKeys,
     },
@@ -328,6 +339,8 @@ impl UnsignedGossipsubMsg {
                 let funding_txid = consensus::deserialize(&proto.funding_txid)
                     .map_err(|_| DecodeError::new("invalid funding txid"))?;
                 let funding_vout = proto.funding_vout;
+                let operator_pk = XOnlyPublicKey::from_slice(&proto.operator_pk)
+                    .map_err(|_| DecodeError::new("invalid length of bytes for operator pk"))?;
                 let wots_pks = WotsPublicKeys::from_flattened_bytes(&proto.wots_pks);
 
                 Self::DepositSetup {
@@ -335,6 +348,7 @@ impl UnsignedGossipsubMsg {
                     hash,
                     funding_txid,
                     funding_vout,
+                    operator_pk,
                     wots_pks,
                 }
             }
@@ -402,12 +416,14 @@ impl UnsignedGossipsubMsg {
                 hash,
                 funding_txid,
                 funding_vout,
+                operator_pk,
                 wots_pks,
             } => {
                 content.extend(scope.as_ref());
                 content.extend(hash.as_byte_array());
                 content.extend(funding_txid.as_byte_array());
                 content.extend(funding_vout.to_le_bytes());
+                content.extend(operator_pk.serialize());
                 content.extend(wots_pks.to_flattened_bytes());
             }
             Self::Musig2NoncesExchange { session_id, nonces } => {
@@ -447,12 +463,14 @@ impl UnsignedGossipsubMsg {
                 hash,
                 funding_txid,
                 funding_vout,
+                operator_pk,
                 wots_pks,
             } => ProtoGossipsubMsgBody::Setup(ProtoDepositSetup {
                 scope: scope.to_vec(),
                 hash: hash.as_byte_array().to_vec(),
                 funding_txid: funding_txid.to_byte_array().to_vec(),
                 funding_vout: *funding_vout,
+                operator_pk: operator_pk.serialize().to_vec(),
                 wots_pks: wots_pks.to_flattened_bytes().to_vec(),
             }),
             Self::Musig2NoncesExchange { session_id, nonces } => {

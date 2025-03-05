@@ -22,8 +22,12 @@ message DepositSetupExchange {
   bytes funding_txid = 3;
   // Funding vout to cover for operator costs in dust connector outputs
   uint32 funding_vout = 4;
-  // Deposit data and Withdraw fulfillment transaction data with all WOTS 160- and 256-bit public keys.
-  bytes wots_pks = 5;
+  // Operator's X-only public key to construct a P2TR address to refund the
+  // operator for a valid withdraw fulfillment.
+  bytes operator_pk = 5;
+  // Deposit data and Withdraw fulfillment transaction data with
+  // all WOTS 160- and 256-bit public keys.
+  bytes wots_pks = 6;
 }
 
 // Musig2 first-round (public) nonces exchange.

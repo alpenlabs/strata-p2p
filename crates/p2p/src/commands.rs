@@ -1,6 +1,6 @@
 //! Commands for P2P implementation from operator implementation.
 
-use bitcoin::{hashes::sha256, Txid};
+use bitcoin::{hashes::sha256, Txid, XOnlyPublicKey};
 use libp2p::{identity::secp256k1, Multiaddr, PeerId};
 use musig2::{PartialSignature, PubNonce};
 use strata_p2p_types::{OperatorPubKey, Scope, SessionId, StakeChainId, WotsPublicKeys};
@@ -71,6 +71,10 @@ pub enum UnsignedPublishMessage {
         /// Used to cover the dust outputs in the transaction graph connectors.
         funding_vout: u32,
 
+        /// Operator's X-only public key to construct a P2TR address to refund the
+        /// operator for a valid withdraw fulfillment.
+        operator_pk: XOnlyPublicKey,
+
         /// Winternitz One-Time Signature (WOTS) public keys shared in a deposit.
         wots_pks: WotsPublicKeys,
     },
@@ -140,12 +144,14 @@ impl From<UnsignedPublishMessage> for UnsignedGossipsubMsg {
                 hash,
                 funding_txid,
                 funding_vout,
+                operator_pk,
                 wots_pks,
             } => UnsignedGossipsubMsg::DepositSetup {
                 scope,
                 hash,
                 funding_txid,
                 funding_vout,
+                operator_pk,
                 wots_pks,
             },
 

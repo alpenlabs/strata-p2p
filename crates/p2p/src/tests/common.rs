@@ -9,7 +9,7 @@ use bitcoin::{
         rand::{rngs::OsRng, Rng},
         SecretKey,
     },
-    Txid,
+    Txid, XOnlyPublicKey,
 };
 use futures::future::join_all;
 use libp2p::{
@@ -236,6 +236,7 @@ pub(crate) fn mock_deposit_setup(kp: &SecpKeypair, scope: Scope) -> Command {
         hash: sha256::Hash::const_hash(b"hash me!"),
         funding_txid: Txid::all_zeros(),
         funding_vout: 0,
+        operator_pk: XOnlyPublicKey::from_slice(&[2u8; 32]).unwrap(),
         wots_pks: WotsPublicKeys::from_flattened_bytes(&mock_bytes),
     };
     unsigned.sign_secp256k1(kp).into()
