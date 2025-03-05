@@ -22,7 +22,7 @@ message DepositSetupExchange {
   bytes funding_txid = 3;
   // Funding vout to cover for operator costs in dust connector outputs
   uint32 funding_vout = 4;
-  // Operator's X-only public key to construct a P2TR address to refund the
+  // Operator's X-only public key to construct a P2TR address to reimburse the
   // operator for a valid withdraw fulfillment.
   bytes operator_pk = 5;
   // Deposit data and Withdraw fulfillment transaction data with

@@ -71,7 +71,7 @@ pub enum UnsignedPublishMessage {
         /// Used to cover the dust outputs in the transaction graph connectors.
         funding_vout: u32,
 
-        /// Operator's X-only public key to construct a P2TR address to refund the
+        /// Operator's X-only public key to construct a P2TR address to reimburse the
         /// operator for a valid withdraw fulfillment.
         operator_pk: XOnlyPublicKey,
 
