@@ -19,13 +19,13 @@ pub enum Command {
     /// Cleans session, scopes from internal DB.
     CleanStorage(CleanStorageCommand),
 
-    /// Connects to a peer, whitelists peer, and adds peer to the swarm.
+    /// Connects to a peer, whitelists peer, and adds peer to the gossip sub network.
     ConnectToPeer(ConnectToPeerCommand),
 }
 
 #[derive(Debug, Clone)]
 pub struct PublishMessage {
-    /// Operator's public key.
+    /// Operator's P2P public key.
     pub key: OperatorPubKey,
 
     /// Operator's signature over the message.
@@ -58,7 +58,8 @@ pub enum UnsignedPublishMessage {
         /// The deposit [`Scope`].
         scope: Scope,
 
-        /// [`sha256::Hash`] hash of the deposit data.
+        /// [`sha256::Hash`] hash of the stake transaction that the preimage is revealed when
+        /// advancing the stake.
         hash: sha256::Hash,
 
         /// Funding transaction ID.
@@ -73,6 +74,7 @@ pub enum UnsignedPublishMessage {
 
         /// Operator's X-only public key to construct a P2TR address to reimburse the
         /// operator for a valid withdraw fulfillment.
+        // TODO: convert this a BOSD descriptor.
         operator_pk: XOnlyPublicKey,
 
         /// Winternitz One-Time Signature (WOTS) public keys shared in a deposit.
@@ -180,7 +182,7 @@ impl From<PublishMessage> for Command {
     }
 }
 
-/// Connects to a peer.
+/// Connects to a peer, whitelists peer, and adds peer to the gossip sub network.
 #[derive(Debug, Clone)]
 pub struct ConnectToPeerCommand {
     /// Peer ID.
@@ -200,7 +202,7 @@ pub struct CleanStorageCommand {
     /// [`SessionId`]s to clean.
     pub session_ids: Vec<SessionId>,
 
-    /// [`OperatorPubKey`]s to clean.
+    /// P2P [`OperatorPubKey`]s to clean.
     pub operators: Vec<OperatorPubKey>,
 }
 
@@ -218,7 +220,7 @@ impl CleanStorageCommand {
         }
     }
 
-    /// Clean entries only by [`Scope`] and [`OperatorPubKey`]s from storage.
+    /// Clean entries only by [`Scope`] and P2P [`OperatorPubKey`]s from storage.
     pub const fn with_scopes(scopes: Vec<Scope>, operators: Vec<OperatorPubKey>) -> Self {
         Self {
             scopes,
@@ -227,7 +229,7 @@ impl CleanStorageCommand {
         }
     }
 
-    /// Clean entries only by [`SessionId`]s and [`OperatorPubKey`]s from storage.
+    /// Clean entries only by [`SessionId`]s and P2P [`OperatorPubKey`]s from storage.
     pub const fn with_session_ids(
         session_ids: Vec<SessionId>,
         operators: Vec<OperatorPubKey>,

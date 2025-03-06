@@ -15,7 +15,7 @@ pub struct WotsPublicKeys {
     /// WOTS public key used for the Withdrawal Fulfillment transaction.
     pub withdrawal_fulfillment: Wots256PublicKey,
 
-    /// WOTS public keys used for the Assert transaction in the Groth16 proof.
+    /// WOTS public keys used for the Assert transaction in the Groth16 chunked proof.
     pub groth16: Groth16PublicKeys,
 }
 
@@ -119,19 +119,19 @@ pub struct Groth16PublicKeys {
     /// Number of public inputs.
     pub n_public_inputs: u8,
 
-    /// Public inputs.
+    /// Public inputs used when passing state in chunked Groth16 proofs.
     pub public_inputs: Vec<Wots256PublicKey>,
 
     /// Number of field elements.
     pub n_field_elements: u8,
 
-    /// Field Elements.
+    /// Field Elements used when passing state in chunked Groth16 proofs.
     pub fqs: Vec<Wots256PublicKey>,
 
     /// Number of hashes.
     pub n_hashes: u8,
 
-    /// Hashes.
+    /// Hashes used when passing state in chunked Groth16 proofs.
     pub hashes: Vec<Wots160PublicKey>,
 }
 

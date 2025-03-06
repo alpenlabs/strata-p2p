@@ -1,13 +1,14 @@
-//! Operators need to exchange (authenticated) messages which are signed with [`OperatorPubKey`].
+//! Operators need to exchange (authenticated) messages which are signed with P2P
+//! [`OperatorPubKey`].
 
 use std::fmt;
 
 use hex::ToHex;
 use libp2p_identity::secp256k1::PublicKey;
 
-/// [`OperatorPubKey`] serves as an identifier of protocol entity.
+/// P2P [`OperatorPubKey`] serves as an identifier of protocol entity.
 ///
-/// De facto this is a wrapper over [`bitcoin::secp256k1::PublicKey`].
+/// De facto this is a wrapper over [`PublicKey`].
 #[derive(
     serde::Serialize, serde::Deserialize, Debug, Clone, Eq, PartialEq, Hash, Ord, PartialOrd,
 )]
