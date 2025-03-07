@@ -1,16 +1,25 @@
 //! Entity to control P2P implementation, spawned in another async task,
 //! and listen to its events through channels.
 
-use std::fmt::Display;
+use std::{
+    fmt::Display,
+    pin::Pin,
+    task::{Context, Poll},
+};
 
 use futures::{FutureExt, Stream};
+use libp2p::identity::secp256k1::Keypair;
 use thiserror::Error;
 use tokio::sync::{
     broadcast::{self, error::RecvError},
     mpsc,
 };
+use tracing::warn;
 
-use crate::{commands::Command, events::Event};
+use crate::{
+    commands::{Command, PublishMessage, UnsignedPublishMessage},
+    events::Event,
+};
 
 #[derive(Debug, Clone, Error)]
 pub struct ErrDroppedMsgs(u64);
@@ -29,12 +38,23 @@ pub struct P2PHandle {
 
     /// Command channel for the swarm.
     commands: mpsc::Sender<Command>,
+
+    /// The Libp2p secp256k1 keypair used for signing messages.
+    keypair: Keypair,
 }
 
 impl P2PHandle {
     /// Creates a new [`P2PHandle`].
-    pub(crate) fn new(events: broadcast::Receiver<Event>, commands: mpsc::Sender<Command>) -> Self {
-        Self { events, commands }
+    pub(crate) fn new(
+        events: broadcast::Receiver<Event>,
+        commands: mpsc::Sender<Command>,
+        keypair: Keypair,
+    ) -> Self {
+        Self {
+            events,
+            commands,
+            keypair,
+        }
     }
 
     /// Sends command to P2P.
@@ -51,30 +71,36 @@ impl P2PHandle {
     pub fn events_is_empty(&self) -> bool {
         self.events.is_empty()
     }
+
+    /// Signs a message using the Libp2p secp256k1 keypair.
+    pub async fn sign_message(&self, msg: UnsignedPublishMessage) -> PublishMessage {
+        msg.sign_secp256k1(&self.keypair)
+    }
 }
 
 impl Clone for P2PHandle {
     fn clone(&self) -> Self {
-        Self::new(self.events.resubscribe(), self.commands.clone())
+        Self::new(
+            self.events.resubscribe(),
+            self.commands.clone(),
+            self.keypair.clone(),
+        )
     }
 }
 
 impl Stream for P2PHandle {
     type Item = Result<Event, ErrDroppedMsgs>;
 
-    fn poll_next(
-        mut self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Option<Self::Item>> {
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let poll = Box::pin(self.next_event()).poll_unpin(cx);
         match poll {
-            std::task::Poll::Ready(Ok(v)) => std::task::Poll::Ready(Some(Ok(v))),
-            std::task::Poll::Ready(Err(RecvError::Closed)) => std::task::Poll::Ready(None),
-            std::task::Poll::Ready(Err(RecvError::Lagged(skipped))) => {
-                tracing::warn!("P2P Stream lost {} messages", skipped);
-                std::task::Poll::Ready(Some(Err(ErrDroppedMsgs(skipped))))
+            Poll::Ready(Ok(v)) => Poll::Ready(Some(Ok(v))),
+            Poll::Ready(Err(RecvError::Closed)) => Poll::Ready(None),
+            Poll::Ready(Err(RecvError::Lagged(skipped))) => {
+                warn!(%skipped, "P2P Stream lost messages");
+                Poll::Ready(Some(Err(ErrDroppedMsgs(skipped))))
             }
-            std::task::Poll::Pending => std::task::Poll::Pending,
+            Poll::Pending => Poll::Pending,
         }
     }
 }
