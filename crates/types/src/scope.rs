@@ -8,8 +8,6 @@ use bitcoin::hashes::{sha256, Hash};
 use serde::{Deserialize, Serialize};
 
 /// A unique identifier of deposit setup made by hashing unique data related to it.
-///
-/// This is primarily used for WOTS PKs.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Deserialize, Serialize)]
 pub struct Scope([u8; Scope::SIZE]);
 

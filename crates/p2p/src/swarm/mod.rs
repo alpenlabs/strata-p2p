@@ -71,7 +71,7 @@ pub struct P2PConfig {
     /// Initial list of nodes to connect to at startup.
     pub connect_to: Vec<Multiaddr>,
 
-    /// List of signers' public keys, whose messages the node is allowed to accept.
+    /// List of signers' P2P public keys, whose messages the node is allowed to accept.
     pub signers_allowlist: Vec<OperatorPubKey>,
 }
 

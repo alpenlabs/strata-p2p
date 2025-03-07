@@ -109,7 +109,7 @@ pub trait Repository: Send + Sync + 'static {
 /// Musig2 (public) nonces and (partial) signatures; and peer id storage.
 #[async_trait]
 pub trait RepositoryExt: Repository {
-    /// Gets (partial) signatures for a given [`OperatorPubKey`] and [`SessionId`].
+    /// Gets (partial) signatures for a given a P2P [`OperatorPubKey`] and [`SessionId`].
     async fn get_partial_signatures(
         &self,
         operator_pk: &OperatorPubKey,
@@ -130,7 +130,7 @@ pub trait RepositoryExt: Repository {
     }
 
     /// Deletes multiple entries of partial signatures from storage by pairs of
-    /// [`OperatorPubKey`]s and [`SessionId`]s.
+    /// P2P [`OperatorPubKey`]s and [`SessionId`]s.
     async fn delete_partial_signatures(
         &self,
         keys: &[(&OperatorPubKey, &SessionId)],
@@ -142,7 +142,7 @@ pub trait RepositoryExt: Repository {
         self.delete_raw(keys).await
     }
 
-    /// Gets (public) nonces for a given [`OperatorPubKey`] and [`SessionId`].
+    /// Gets (public) nonces for a given P2P [`OperatorPubKey`] and [`SessionId`].
     async fn get_pub_nonces(
         &self,
         operator_pk: &OperatorPubKey,
@@ -163,7 +163,7 @@ pub trait RepositoryExt: Repository {
     }
 
     /// Delete multiple entries of (public) nonces from storage by pairs of
-    /// [`OperatorPubKey`]s and [`SessionId`]s.
+    /// P2P [`OperatorPubKey`]s and [`SessionId`]s.
     async fn delete_pub_nonces(&self, keys: &[(&OperatorPubKey, &SessionId)]) -> DBResult<()> {
         let keys = keys
             .iter()
@@ -172,7 +172,7 @@ pub trait RepositoryExt: Repository {
         self.delete_raw(keys).await
     }
 
-    /// Gets deposit setup for a given [`OperatorPubKey`] and [`Scope`].
+    /// Gets deposit setup for a given P2P [`OperatorPubKey`] and [`Scope`].
     ///
     /// This is primarily used for the WOTS PKs.
     async fn get_deposit_setup(
@@ -197,7 +197,7 @@ pub trait RepositoryExt: Repository {
     }
 
     /// Delete multiple entries of deposit setups from storage by pairs of
-    /// [`OperatorPubKey`]s and [`Scope`]s.
+    /// P2P [`OperatorPubKey`]s and [`Scope`]s.
     ///
     /// This is primarily used for the WOTS PKs.
     async fn delete_deposit_setups(&self, keys: &[(&OperatorPubKey, &Scope)]) -> DBResult<()> {
@@ -208,7 +208,7 @@ pub trait RepositoryExt: Repository {
         self.delete_raw(keys).await
     }
 
-    /// Gets stake chain info for a given [`OperatorPubKey`] and [`StakeChainId`].
+    /// Gets stake chain info for a given P2P [`OperatorPubKey`] and [`StakeChainId`].
     async fn get_stake_chain_info(
         &self,
         operator_pk: &OperatorPubKey,
@@ -229,7 +229,7 @@ pub trait RepositoryExt: Repository {
     }
 
     /// Deletes multiple entries of stake chains from storage by pairs of
-    /// [`OperatorPubKey`]s and [`StakeChainId`]s.
+    /// P2P [`OperatorPubKey`]s and [`StakeChainId`]s.
     async fn delete_stake_chains(&self, keys: &[(&OperatorPubKey, &StakeChainId)]) -> DBResult<()> {
         let keys = keys
             .iter()
@@ -242,7 +242,7 @@ pub trait RepositoryExt: Repository {
     id that publishes messages. These methods store and retrieve this
     mapping:  */
 
-    /// Get peer id of node, that distributed message signed by an [`OperatorPubKey`].
+    /// Get peer id of node, that distributed message signed by an P2P [`OperatorPubKey`].
     async fn get_peer_by_signer_pubkey(
         &self,
         operator_pk: &OperatorPubKey,
@@ -268,7 +268,8 @@ impl<T> RepositoryExt for T where T: Repository {}
 /// Information that is gossiped or requested by other nodes when a deposit occurs.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct DepositSetupEntry {
-    /// [`sha256::Hash`] hash of the deposit data.
+    /// [`sha256::Hash`] hash of the stake transaction that the preimage is revealed when advancing
+    /// the stake.
     pub hash: sha256::Hash,
 
     /// Funding transaction ID.
@@ -283,12 +284,13 @@ pub struct DepositSetupEntry {
 
     /// Operator's X-only public key to construct a P2TR address to reimburse the
     /// operator for a valid withdraw fulfillment.
+    // TODO: convert this a BOSD descriptor.
     pub operator_pk: XOnlyPublicKey,
 
     /// Winternitz One-Time Signature (WOTS) public keys shared in a deposit.
     pub wots_pks: WotsPublicKeys,
 
-    /// Signature of the Operator's message using his [`OperatorPubKey`].
+    /// Signature of the Operator's message using his P2P [`OperatorPubKey`].
     pub signature: Vec<u8>,
 
     /// The Operator's public key that the message came from.

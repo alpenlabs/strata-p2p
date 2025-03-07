@@ -134,7 +134,7 @@ mod tests {
     use rand::{thread_rng, Rng, RngCore};
     use secp256k1::{All, Keypair, Secp256k1};
     use strata_p2p_types::{
-        OperatorPubKey, SessionId, StakeChainId, StakeData, Wots160PublicKey, Wots256PublicKey,
+        OperatorPubKey, SessionId, StakeChainId, Wots160PublicKey, Wots256PublicKey,
     };
 
     use crate::{
@@ -276,15 +276,5 @@ mod tests {
         let txid = Txid::from_slice(&generate_random_hash().to_byte_array()).unwrap();
         let vout = rng.gen_range(0..u32::MAX);
         OutPoint::new(txid, vout)
-    }
-
-    #[allow(unfulfilled_lint_expectations)]
-    #[expect(dead_code)]
-    fn generate_random_stake_data() -> StakeData {
-        StakeData::new(
-            generate_random_wots256(),
-            generate_random_hash(),
-            generate_random_outpoint(),
-        )
     }
 }

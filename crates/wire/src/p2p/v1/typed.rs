@@ -26,18 +26,16 @@ pub enum GetMessageRequest {
         /// 32-byte hash of some unique to stake chain data.
         stake_chain_id: StakeChainId,
 
-        /// The Operator's public key that the request came from.
+        /// The P2P Operator's public key that the request came from.
         operator_pk: OperatorPubKey,
     },
 
     /// Request deposit setup info for [`Scope`] and operator.
-    ///
-    /// This is primarily used for the WOTS PKs.
     DepositSetup {
         /// [`Scope`] of the deposit data.
         scope: Scope,
 
-        /// The Operator's public key that the request came from.
+        /// The P2P Operator's public key that the request came from.
         operator_pk: OperatorPubKey,
     },
 
@@ -46,7 +44,7 @@ pub enum GetMessageRequest {
         /// [`SessionId`] of either the deposit data or the root deposit data.
         session_id: SessionId,
 
-        /// The Operator's public key that the request came from.
+        /// The P2P Operator's public key that the request came from.
         operator_pk: OperatorPubKey,
     },
 
@@ -55,7 +53,7 @@ pub enum GetMessageRequest {
         /// [`SessionId`] of either the deposit data or the root deposit data.
         session_id: SessionId,
 
-        /// The Operator's public key that the request came from.
+        /// The P2P Operator's public key that the request came from.
         operator_pk: OperatorPubKey,
     },
 }
@@ -159,7 +157,7 @@ impl GetMessageRequest {
         ProtoGetMessageRequest { body: Some(body) }
     }
 
-    /// Returns the [`OperatorPubKey`] with respect to this [`GetMessageRequest`].
+    /// Returns the P2P [`OperatorPubKey`] with respect to this [`GetMessageRequest`].
     pub fn operator_pubkey(&self) -> &OperatorPubKey {
         match self {
             Self::StakeChainExchange { operator_pk, .. }
@@ -175,7 +173,8 @@ impl GetMessageRequest {
 #[expect(clippy::large_enum_variant)]
 #[allow(unfulfilled_lint_expectations)]
 pub struct DepositSetup {
-    /// [`sha256::Hash`] hash of the deposit data.
+    /// [`sha256::Hash`] hash of the stake transaction that the preimage is revealed when advancing
+    /// the stake.
     pub hash: sha256::Hash,
 
     /// Funding transaction ID.
@@ -190,6 +189,7 @@ pub struct DepositSetup {
 
     /// Operator's X-only public key to construct a P2TR address to reimburse the
     /// operator for a valid withdraw fulfillment.
+    // TODO: convert this a BOSD descriptor.
     pub operator_pk: XOnlyPublicKey,
 
     /// Winternitz One-Time Signature (WOTS) public keys shared in a deposit.
@@ -267,7 +267,8 @@ pub enum UnsignedGossipsubMsg {
         /// [`Scope`] of the deposit data.
         scope: Scope,
 
-        /// [`sha256::Hash`] hash of the deposit data.
+        /// [`sha256::Hash`] hash of the stake transaction that the preimage is revealed when
+        /// advancing the stake.
         hash: sha256::Hash,
 
         /// Funding transaction ID.
@@ -282,6 +283,7 @@ pub enum UnsignedGossipsubMsg {
 
         /// Operator's X-only public key to construct a P2TR address to reimburse the
         /// operator for a valid withdraw fulfillment.
+        // TODO: convert this a BOSD descriptor.
         operator_pk: XOnlyPublicKey,
 
         /// Winternitz One-Time Signature (WOTS) public keys shared in a deposit.
@@ -496,7 +498,7 @@ pub struct GossipsubMsg {
     /// Operator's signature of the message.
     pub signature: Vec<u8>,
 
-    /// Operator's public key.
+    /// Operator's P2P public key.
     pub key: OperatorPubKey,
 
     /// Unsigned payload.
