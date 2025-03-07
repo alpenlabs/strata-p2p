@@ -73,7 +73,7 @@ impl P2PHandle {
     }
 
     /// Signs a message using the Libp2p secp256k1 keypair.
-    pub async fn sign_message(&self, msg: UnsignedPublishMessage) -> PublishMessage {
+    pub fn sign_message(&self, msg: UnsignedPublishMessage) -> PublishMessage {
         msg.sign_secp256k1(&self.keypair)
     }
 }
