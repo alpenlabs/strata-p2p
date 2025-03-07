@@ -22,7 +22,7 @@ use strata_p2p_db::{
     DBResult, DepositSetupEntry, NoncesEntry, PartialSignaturesEntry, RepositoryExt,
     StakeChainEntry,
 };
-use strata_p2p_types::OperatorPubKey;
+use strata_p2p_types::P2POperatorPubKey;
 use strata_p2p_wire::p2p::{
     v1,
     v1::{
@@ -72,7 +72,7 @@ pub struct P2PConfig {
     pub connect_to: Vec<Multiaddr>,
 
     /// List of signers' P2P public keys, whose messages the node is allowed to accept.
-    pub signers_allowlist: Vec<OperatorPubKey>,
+    pub signers_allowlist: Vec<P2POperatorPubKey>,
 }
 
 /// Implementation of p2p protocol for BitVM2 data exchange.

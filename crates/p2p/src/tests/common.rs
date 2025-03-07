@@ -19,7 +19,7 @@ use libp2p::{
 };
 use musig2::{NonceSeed, PartialSignature, PubNonce, SecNonce};
 use strata_p2p_db::sled::AsyncDB;
-use strata_p2p_types::{OperatorPubKey, Scope, SessionId, StakeChainId, WotsPublicKeys};
+use strata_p2p_types::{P2POperatorPubKey, Scope, SessionId, StakeChainId, WotsPublicKeys};
 use strata_p2p_wire::p2p::v1::{GossipsubMsg, UnsignedGossipsubMsg};
 use threadpool::ThreadPool;
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
@@ -45,7 +45,7 @@ impl Operator {
         connect_to: Vec<Multiaddr>,
         local_addr: Multiaddr,
         cancel: CancellationToken,
-        signers_allowlist: Vec<OperatorPubKey>,
+        signers_allowlist: Vec<P2POperatorPubKey>,
     ) -> anyhow::Result<Self> {
         let db = sled::Config::new().temporary(true).open()?;
 
@@ -93,7 +93,7 @@ impl Setup {
 
         let cancel = CancellationToken::new();
         let mut operators = Vec::new();
-        let signers_allowlist: Vec<OperatorPubKey> = keypairs
+        let signers_allowlist: Vec<P2POperatorPubKey> = keypairs
             .clone()
             .into_iter()
             .map(|kp| kp.public().clone().into())
@@ -130,14 +130,14 @@ impl Setup {
     /// to stop control async tasks they are spawned in with an extra signers allowlist.
     pub(crate) async fn with_extra_signers(
         number: usize,
-        extra_signers: Vec<OperatorPubKey>,
+        extra_signers: Vec<P2POperatorPubKey>,
     ) -> anyhow::Result<Self> {
         let (keypairs, peer_ids, multiaddresses) =
             Self::setup_keys_ids_addrs_of_n_operators(number);
 
         let cancel = CancellationToken::new();
         let mut operators = Vec::new();
-        let mut signers_allowlist: Vec<OperatorPubKey> = keypairs
+        let mut signers_allowlist: Vec<P2POperatorPubKey> = keypairs
             .clone()
             .into_iter()
             .map(|kp| kp.public().clone().into())

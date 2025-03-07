@@ -7,7 +7,7 @@ use bitcoin::{
 };
 use musig2::{PartialSignature, PubNonce};
 use prost::{DecodeError, Message};
-use strata_p2p_types::{OperatorPubKey, Scope, SessionId, StakeChainId, WotsPublicKeys};
+use strata_p2p_types::{P2POperatorPubKey, Scope, SessionId, StakeChainId, WotsPublicKeys};
 
 use super::proto::{
     get_message_request::Body as ProtoGetMessageRequestBody,
@@ -27,7 +27,7 @@ pub enum GetMessageRequest {
         stake_chain_id: StakeChainId,
 
         /// The P2P Operator's public key that the request came from.
-        operator_pk: OperatorPubKey,
+        operator_pk: P2POperatorPubKey,
     },
 
     /// Request deposit setup info for [`Scope`] and operator.
@@ -36,7 +36,7 @@ pub enum GetMessageRequest {
         scope: Scope,
 
         /// The P2P Operator's public key that the request came from.
-        operator_pk: OperatorPubKey,
+        operator_pk: P2POperatorPubKey,
     },
 
     /// Request MuSig2 (partial) signatures from operator and for [`SessionId`].
@@ -45,7 +45,7 @@ pub enum GetMessageRequest {
         session_id: SessionId,
 
         /// The P2P Operator's public key that the request came from.
-        operator_pk: OperatorPubKey,
+        operator_pk: P2POperatorPubKey,
     },
 
     /// Request MuSig2 (public) nonces from operator and for [`SessionId`].
@@ -54,7 +54,7 @@ pub enum GetMessageRequest {
         session_id: SessionId,
 
         /// The P2P Operator's public key that the request came from.
-        operator_pk: OperatorPubKey,
+        operator_pk: P2POperatorPubKey,
     },
 }
 
@@ -157,8 +157,8 @@ impl GetMessageRequest {
         ProtoGetMessageRequest { body: Some(body) }
     }
 
-    /// Returns the P2P [`OperatorPubKey`] with respect to this [`GetMessageRequest`].
-    pub fn operator_pubkey(&self) -> &OperatorPubKey {
+    /// Returns the P2P [`P2POperatorPubKey`] with respect to this [`GetMessageRequest`].
+    pub fn operator_pubkey(&self) -> &P2POperatorPubKey {
         match self {
             Self::StakeChainExchange { operator_pk, .. }
             | Self::DepositSetup { operator_pk, .. }
@@ -499,7 +499,7 @@ pub struct GossipsubMsg {
     pub signature: Vec<u8>,
 
     /// Operator's P2P public key.
-    pub key: OperatorPubKey,
+    pub key: P2POperatorPubKey,
 
     /// Unsigned payload.
     pub unsigned: UnsignedGossipsubMsg,

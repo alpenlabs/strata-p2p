@@ -1,7 +1,7 @@
 //! DB tests.
 
 use strata_p2p_db::{sled::AsyncDB, RepositoryExt};
-use strata_p2p_types::{OperatorPubKey, Scope, SessionId, StakeChainId};
+use strata_p2p_types::{P2POperatorPubKey, Scope, SessionId, StakeChainId};
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
 use super::common::{
@@ -34,7 +34,8 @@ async fn operator_cleans_entries_correctly_at_command() -> anyhow::Result<()> {
     exchange_deposit_nonces(&mut operators, OPERATORS_NUM, session_id).await?;
     exchange_deposit_sigs(&mut operators, OPERATORS_NUM, session_id).await?;
 
-    let other_operator_pubkey = OperatorPubKey::from(operators[0].kp.public().to_bytes().to_vec());
+    let other_operator_pubkey =
+        P2POperatorPubKey::from(operators[0].kp.public().to_bytes().to_vec());
     let last_operator = &mut operators[1];
     last_operator
         .handle

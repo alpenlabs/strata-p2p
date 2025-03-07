@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use anyhow::bail;
 use libp2p::{build_multiaddr, identity::secp256k1::Keypair as SecpKeypair, PeerId};
-use strata_p2p_types::{OperatorPubKey, StakeChainId};
+use strata_p2p_types::{P2POperatorPubKey, StakeChainId};
 use strata_p2p_wire::p2p::v1::UnsignedGossipsubMsg;
 use tokio::time::sleep;
 use tracing::info;
@@ -29,7 +29,7 @@ async fn gossip_new_operator() -> anyhow::Result<()> {
 
     // Generate a keypair for the new operator
     let new_operator_keypair = SecpKeypair::generate();
-    let new_operator_pubkey: OperatorPubKey = new_operator_keypair.public().clone().into();
+    let new_operator_pubkey: P2POperatorPubKey = new_operator_keypair.public().clone().into();
 
     // Create allowlist for all operators (including the new one)
     let mut signers_allowlist = vec![new_operator_pubkey.clone()];

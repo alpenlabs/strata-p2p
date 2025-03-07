@@ -134,7 +134,7 @@ mod tests {
     use rand::{thread_rng, Rng, RngCore};
     use secp256k1::{All, Keypair, Secp256k1};
     use strata_p2p_types::{
-        OperatorPubKey, SessionId, StakeChainId, Wots160PublicKey, Wots256PublicKey,
+        P2POperatorPubKey, SessionId, StakeChainId, Wots160PublicKey, Wots256PublicKey,
     };
 
     use crate::{
@@ -161,7 +161,7 @@ mod tests {
             );
             let pub_nonce = sec_nonce.public_nonce();
 
-            let operator_pk = OperatorPubKey::from(vec![0x8; 32]);
+            let operator_pk = P2POperatorPubKey::from(vec![0x8; 32]);
             let session_id = SessionId::hash(b"session_id");
 
             let nonces_entry = NoncesEntry {
