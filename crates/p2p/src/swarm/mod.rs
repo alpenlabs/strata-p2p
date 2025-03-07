@@ -22,7 +22,7 @@ use strata_p2p_db::{
     DBResult, DepositSetupEntry, NoncesEntry, PartialSignaturesEntry, RepositoryExt,
     StakeChainEntry,
 };
-use strata_p2p_types::OperatorPubKey;
+use strata_p2p_types::P2POperatorPubKey;
 use strata_p2p_wire::p2p::{
     v1,
     v1::{
@@ -72,7 +72,7 @@ pub struct P2PConfig {
     pub connect_to: Vec<Multiaddr>,
 
     /// List of signers' P2P public keys, whose messages the node is allowed to accept.
-    pub signers_allowlist: Vec<OperatorPubKey>,
+    pub signers_allowlist: Vec<P2POperatorPubKey>,
 }
 
 /// Implementation of p2p protocol for BitVM2 data exchange.
@@ -121,6 +121,8 @@ impl<DB: RepositoryExt> P2P<DB> {
             .listen_on(cfg.listening_addr.clone())
             .map_err(ProtocolError::Listen)?;
 
+        let keypair = cfg.keypair.clone();
+
         // WOTS PKs are biiiiiiiig
         let channel_size = channel_size.unwrap_or(400_000);
         let (events_tx, events_rx) = broadcast::channel(channel_size);
@@ -136,7 +138,7 @@ impl<DB: RepositoryExt> P2P<DB> {
                 cancellation_token: cancel,
                 config: cfg,
             },
-            P2PHandle::new(events_rx, cmds_tx),
+            P2PHandle::new(events_rx, cmds_tx, keypair),
         ))
     }
 
@@ -147,7 +149,11 @@ impl<DB: RepositoryExt> P2P<DB> {
 
     /// Creates a new subscribed handler.
     pub fn new_handle(&self) -> P2PHandle {
-        P2PHandle::new(self.events.subscribe(), self.commands_sender.clone())
+        P2PHandle::new(
+            self.events.subscribe(),
+            self.commands_sender.clone(),
+            self.config.keypair.clone(),
+        )
     }
 
     /// Waits until all connections are established and all peers are subscribed to

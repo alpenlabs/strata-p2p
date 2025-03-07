@@ -3,7 +3,7 @@
 use bitcoin::{hashes::sha256, Txid, XOnlyPublicKey};
 use libp2p::{identity::secp256k1, Multiaddr, PeerId};
 use musig2::{PartialSignature, PubNonce};
-use strata_p2p_types::{OperatorPubKey, Scope, SessionId, StakeChainId, WotsPublicKeys};
+use strata_p2p_types::{P2POperatorPubKey, Scope, SessionId, StakeChainId, WotsPublicKeys};
 use strata_p2p_wire::p2p::v1::{GetMessageRequest, GossipsubMsg, UnsignedGossipsubMsg};
 
 /// Ask P2P implementation to distribute some data across network.
@@ -26,7 +26,7 @@ pub enum Command {
 #[derive(Debug, Clone)]
 pub struct PublishMessage {
     /// Operator's P2P public key.
-    pub key: OperatorPubKey,
+    pub key: P2POperatorPubKey,
 
     /// Operator's signature over the message.
     pub signature: Vec<u8>,
@@ -202,8 +202,8 @@ pub struct CleanStorageCommand {
     /// [`SessionId`]s to clean.
     pub session_ids: Vec<SessionId>,
 
-    /// P2P [`OperatorPubKey`]s to clean.
-    pub operators: Vec<OperatorPubKey>,
+    /// P2P [`P2POperatorPubKey`]s to clean.
+    pub operators: Vec<P2POperatorPubKey>,
 }
 
 impl CleanStorageCommand {
@@ -211,7 +211,7 @@ impl CleanStorageCommand {
     pub const fn new(
         scopes: Vec<Scope>,
         session_ids: Vec<SessionId>,
-        operators: Vec<OperatorPubKey>,
+        operators: Vec<P2POperatorPubKey>,
     ) -> Self {
         Self {
             scopes,
@@ -220,8 +220,8 @@ impl CleanStorageCommand {
         }
     }
 
-    /// Clean entries only by [`Scope`] and P2P [`OperatorPubKey`]s from storage.
-    pub const fn with_scopes(scopes: Vec<Scope>, operators: Vec<OperatorPubKey>) -> Self {
+    /// Clean entries only by [`Scope`] and P2P [`P2POperatorPubKey`]s from storage.
+    pub const fn with_scopes(scopes: Vec<Scope>, operators: Vec<P2POperatorPubKey>) -> Self {
         Self {
             scopes,
             session_ids: Vec::new(),
@@ -229,10 +229,10 @@ impl CleanStorageCommand {
         }
     }
 
-    /// Clean entries only by [`SessionId`]s and P2P [`OperatorPubKey`]s from storage.
+    /// Clean entries only by [`SessionId`]s and P2P [`P2POperatorPubKey`]s from storage.
     pub const fn with_session_ids(
         session_ids: Vec<SessionId>,
-        operators: Vec<OperatorPubKey>,
+        operators: Vec<P2POperatorPubKey>,
     ) -> Self {
         Self {
             scopes: Vec::new(),

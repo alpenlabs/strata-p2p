@@ -12,7 +12,7 @@ mod stake_chain_id;
 mod wots;
 
 pub use deposit_data::{Groth16PublicKeys, WotsPublicKeys};
-pub use operator::OperatorPubKey;
+pub use operator::P2POperatorPubKey;
 pub use scope::Scope;
 pub use session_id::SessionId;
 pub use stake_chain_id::StakeChainId;

@@ -7,7 +7,7 @@ use bitcoin::{hashes::sha256, Txid, XOnlyPublicKey};
 use libp2p_identity::PeerId;
 use musig2::{PartialSignature, PubNonce};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use strata_p2p_types::{OperatorPubKey, Scope, SessionId, StakeChainId, WotsPublicKeys};
+use strata_p2p_types::{P2POperatorPubKey, Scope, SessionId, StakeChainId, WotsPublicKeys};
 use thiserror::Error;
 
 mod prost_serde;
@@ -33,7 +33,7 @@ impl From<serde_json::Error> for RepositoryError {
 pub struct AuthenticatedEntry<T> {
     pub entry: T,
     pub signature: Vec<u8>,
-    pub key: OperatorPubKey,
+    pub key: P2POperatorPubKey,
 }
 
 /// A [`Vec`] of [`PartialSignature`]s.
@@ -109,10 +109,10 @@ pub trait Repository: Send + Sync + 'static {
 /// Musig2 (public) nonces and (partial) signatures; and peer id storage.
 #[async_trait]
 pub trait RepositoryExt: Repository {
-    /// Gets (partial) signatures for a given a P2P [`OperatorPubKey`] and [`SessionId`].
+    /// Gets (partial) signatures for a given a P2P [`P2POperatorPubKey`] and [`SessionId`].
     async fn get_partial_signatures(
         &self,
-        operator_pk: &OperatorPubKey,
+        operator_pk: &P2POperatorPubKey,
         session_id: SessionId,
     ) -> DBResult<Option<PartialSignaturesEntry>> {
         let key = format!("sigs-{operator_pk}_{session_id}");
@@ -130,10 +130,10 @@ pub trait RepositoryExt: Repository {
     }
 
     /// Deletes multiple entries of partial signatures from storage by pairs of
-    /// P2P [`OperatorPubKey`]s and [`SessionId`]s.
+    /// P2P [`P2POperatorPubKey`]s and [`SessionId`]s.
     async fn delete_partial_signatures(
         &self,
-        keys: &[(&OperatorPubKey, &SessionId)],
+        keys: &[(&P2POperatorPubKey, &SessionId)],
     ) -> DBResult<()> {
         let keys = keys
             .iter()
@@ -142,10 +142,10 @@ pub trait RepositoryExt: Repository {
         self.delete_raw(keys).await
     }
 
-    /// Gets (public) nonces for a given P2P [`OperatorPubKey`] and [`SessionId`].
+    /// Gets (public) nonces for a given P2P [`P2POperatorPubKey`] and [`SessionId`].
     async fn get_pub_nonces(
         &self,
-        operator_pk: &OperatorPubKey,
+        operator_pk: &P2POperatorPubKey,
         session_id: SessionId,
     ) -> DBResult<Option<NoncesEntry>> {
         let key = format!("nonces-{operator_pk}_{session_id}");
@@ -163,8 +163,8 @@ pub trait RepositoryExt: Repository {
     }
 
     /// Delete multiple entries of (public) nonces from storage by pairs of
-    /// P2P [`OperatorPubKey`]s and [`SessionId`]s.
-    async fn delete_pub_nonces(&self, keys: &[(&OperatorPubKey, &SessionId)]) -> DBResult<()> {
+    /// P2P [`P2POperatorPubKey`]s and [`SessionId`]s.
+    async fn delete_pub_nonces(&self, keys: &[(&P2POperatorPubKey, &SessionId)]) -> DBResult<()> {
         let keys = keys
             .iter()
             .map(|(key, id)| format!("nonces-{key}_{id}"))
@@ -172,12 +172,12 @@ pub trait RepositoryExt: Repository {
         self.delete_raw(keys).await
     }
 
-    /// Gets deposit setup for a given P2P [`OperatorPubKey`] and [`Scope`].
+    /// Gets deposit setup for a given P2P [`P2POperatorPubKey`] and [`Scope`].
     ///
     /// This is primarily used for the WOTS PKs.
     async fn get_deposit_setup(
         &self,
-        operator_pk: &OperatorPubKey,
+        operator_pk: &P2POperatorPubKey,
         scope: Scope,
     ) -> DBResult<Option<DepositSetupEntry>> {
         let key = format!("setup-{operator_pk}_{scope}");
@@ -197,10 +197,10 @@ pub trait RepositoryExt: Repository {
     }
 
     /// Delete multiple entries of deposit setups from storage by pairs of
-    /// P2P [`OperatorPubKey`]s and [`Scope`]s.
+    /// P2P [`P2POperatorPubKey`]s and [`Scope`]s.
     ///
     /// This is primarily used for the WOTS PKs.
-    async fn delete_deposit_setups(&self, keys: &[(&OperatorPubKey, &Scope)]) -> DBResult<()> {
+    async fn delete_deposit_setups(&self, keys: &[(&P2POperatorPubKey, &Scope)]) -> DBResult<()> {
         let keys = keys
             .iter()
             .map(|(key, scope)| format!("setup-{key}_{scope}"))
@@ -208,10 +208,10 @@ pub trait RepositoryExt: Repository {
         self.delete_raw(keys).await
     }
 
-    /// Gets stake chain info for a given P2P [`OperatorPubKey`] and [`StakeChainId`].
+    /// Gets stake chain info for a given P2P [`P2POperatorPubKey`] and [`StakeChainId`].
     async fn get_stake_chain_info(
         &self,
-        operator_pk: &OperatorPubKey,
+        operator_pk: &P2POperatorPubKey,
         stake_chain_id: &StakeChainId,
     ) -> DBResult<Option<StakeChainEntry>> {
         let key = format!("stake-chain-{operator_pk}_{stake_chain_id}");
@@ -229,8 +229,11 @@ pub trait RepositoryExt: Repository {
     }
 
     /// Deletes multiple entries of stake chains from storage by pairs of
-    /// P2P [`OperatorPubKey`]s and [`StakeChainId`]s.
-    async fn delete_stake_chains(&self, keys: &[(&OperatorPubKey, &StakeChainId)]) -> DBResult<()> {
+    /// P2P [`P2POperatorPubKey`]s and [`StakeChainId`]s.
+    async fn delete_stake_chains(
+        &self,
+        keys: &[(&P2POperatorPubKey, &StakeChainId)],
+    ) -> DBResult<()> {
         let keys = keys
             .iter()
             .map(|(key, id)| format!("stake-chain-{key}_{id}"))
@@ -242,10 +245,10 @@ pub trait RepositoryExt: Repository {
     id that publishes messages. These methods store and retrieve this
     mapping:  */
 
-    /// Get peer id of node, that distributed message signed by an P2P [`OperatorPubKey`].
+    /// Get peer id of node, that distributed message signed by an P2P [`P2POperatorPubKey`].
     async fn get_peer_by_signer_pubkey(
         &self,
-        operator_pk: &OperatorPubKey,
+        operator_pk: &P2POperatorPubKey,
     ) -> DBResult<Option<PeerId>> {
         let key = format!("signers=>peerid-{}", operator_pk);
         self.get(key).await
@@ -255,7 +258,7 @@ pub trait RepositoryExt: Repository {
     /// operator.
     async fn set_peer_for_signer_pubkey(
         &self,
-        operator_pk: &OperatorPubKey,
+        operator_pk: &P2POperatorPubKey,
         peer_id: PeerId,
     ) -> DBResult<()> {
         let key = format!("signers=>peerid-{}", operator_pk);
@@ -290,9 +293,9 @@ pub struct DepositSetupEntry {
     /// Winternitz One-Time Signature (WOTS) public keys shared in a deposit.
     pub wots_pks: WotsPublicKeys,
 
-    /// Signature of the Operator's message using his P2P [`OperatorPubKey`].
+    /// Signature of the Operator's message using his P2P [`P2POperatorPubKey`].
     pub signature: Vec<u8>,
 
     /// The Operator's public key that the message came from.
-    pub key: OperatorPubKey,
+    pub key: P2POperatorPubKey,
 }
