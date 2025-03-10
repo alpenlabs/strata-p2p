@@ -12,7 +12,7 @@ use libp2p_identity::secp256k1::PublicKey;
 #[derive(
     serde::Serialize, serde::Deserialize, Debug, Clone, Eq, PartialEq, Hash, Ord, PartialOrd,
 )]
-pub struct P2POperatorPubKey(Vec<u8>);
+pub struct P2POperatorPubKey(#[serde(with = "hex::serde")] Vec<u8>);
 
 impl fmt::Display for P2POperatorPubKey {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -51,5 +51,32 @@ impl P2POperatorPubKey {
             Ok(key) => key.verify(message, signature),
             Err(_) => false,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use bitcoin::hex::DisplayHex;
+    use secp256k1::rand::{rngs::OsRng, Rng};
+
+    use super::*;
+
+    #[test]
+    fn test_p2p_operator_pub_key() {
+        let random_bytes: [u8; 32] = OsRng.gen();
+        let hex_encoded_bytes = random_bytes.to_lower_hex_string();
+
+        let json_string = format!("\"{}\"", hex_encoded_bytes);
+
+        let deserialized = serde_json::from_str::<P2POperatorPubKey>(&json_string);
+
+        assert!(
+            deserialized.is_ok(),
+            "must be able to deserialize hex-encoded string to P2POperatorPubKey"
+        );
+        assert!(
+            deserialized.unwrap() == P2POperatorPubKey(random_bytes.to_vec()),
+            "deserialized value must be equal to original"
+        );
     }
 }
