@@ -12,7 +12,8 @@ bitcoin = { version = "0.32.5", features = [ # keep in sync with secp256k1
 ] }
 futures = "0.3.31"
 hex = "0.4.3"
-libp2p = { version = "0.54.1", features = [
+# FIXME: tag a new release to solve RUSTSEC-2025-0009
+libp2p = { git = "https://github.com/libp2p/rust-libp2p.git", rev = "b685b63dc6b98355d75234ff83a935ffa23d8eac", features = [
   "noise",
   "gossipsub",
   "tcp",
@@ -24,7 +25,8 @@ libp2p = { version = "0.54.1", features = [
   "yamux",
   "identify",
 ] }
-libp2p-identity = { version = "0.2.10", default-features = false, features = [
+# FIXME: tag a new release to solve RUSTSEC-2025-0009
+libp2p-identity = { git = "https://github.com/libp2p/rust-libp2p.git", rev = "b685b63dc6b98355d75234ff83a935ffa23d8eac", default-features = false, features = [
   "secp256k1",
   "peerid",
   "rand",

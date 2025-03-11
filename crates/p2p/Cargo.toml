@@ -11,7 +11,7 @@ rust.unused_must_use = "deny"
 rust.rust_2018_idioms = { level = "deny", priority = -1 }
 
 [dependencies]
-libp2p = { version = "0.54.1", features = [
+libp2p = { workspace = true, features = [
   "noise",
   "gossipsub",
   "tcp",
