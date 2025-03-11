@@ -4,7 +4,7 @@
 
 use async_trait::async_trait;
 use bitcoin::{hashes::sha256, Txid, XOnlyPublicKey};
-use libp2p_identity::PeerId;
+use libp2p::identity::PeerId;
 use musig2::{PartialSignature, PubNonce};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use strata_p2p_types::{P2POperatorPubKey, Scope, SessionId, StakeChainId, WotsPublicKeys};
