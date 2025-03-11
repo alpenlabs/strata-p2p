@@ -329,7 +329,7 @@ impl<DB: RepositoryExt> P2P<DB> {
 
         let event = Event::from(msg);
 
-        let _ = self
+        let propagation_result = self
             .swarm
             .behaviour_mut()
             .gossipsub
@@ -337,10 +337,11 @@ impl<DB: RepositoryExt> P2P<DB> {
                 &message_id,
                 &propagation_source,
                 MessageAcceptance::Accept,
-            )
-            .inspect_err(
-                |err| error!(%err, ?event, "failed to propagate accepted message further"),
             );
+
+        if !propagation_result {
+            error!(?event, "failed to propagate accepted message further");
+        }
 
         // Do not broadcast new event to "handles" if it's not new.
         if !new_event {
@@ -531,7 +532,7 @@ impl<DB: RepositoryExt> P2P<DB> {
         event: RequestResponseEvent<GetMessageRequest, GetMessageResponse>,
     ) -> P2PResult<()> {
         match event {
-            RequestResponseEvent::Message { peer, message } => {
+            RequestResponseEvent::Message { peer, message, .. } => {
                 debug!(%peer, ?message, "Received message");
                 self.handle_message_event(peer, message).await?
             }
@@ -539,6 +540,7 @@ impl<DB: RepositoryExt> P2P<DB> {
                 peer,
                 request_id,
                 error,
+                ..
             } => {
                 error!(%peer, %error, %request_id, "Outbound failure")
             }
@@ -546,10 +548,13 @@ impl<DB: RepositoryExt> P2P<DB> {
                 peer,
                 request_id,
                 error,
+                ..
             } => {
                 error!(%peer, %error, %request_id, "Inbound failure")
             }
-            RequestResponseEvent::ResponseSent { peer, request_id } => {
+            RequestResponseEvent::ResponseSent {
+                peer, request_id, ..
+            } => {
                 debug!(%peer, %request_id, "Response sent")
             }
         }
