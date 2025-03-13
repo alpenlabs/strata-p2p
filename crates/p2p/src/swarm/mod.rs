@@ -38,7 +38,10 @@ use tokio::{
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, instrument};
 
-use crate::{commands::Command, events::Event};
+use crate::{
+    commands::{Command, QueryP2PStateCommand},
+    events::Event,
+};
 
 mod behavior;
 mod codec;
@@ -522,6 +525,21 @@ impl<DB: RepositoryExt> P2P<DB> {
 
                 Ok(())
             }
+            Command::QueryP2PState(query) => match query {
+                QueryP2PStateCommand::IsConnected {
+                    peer_id,
+                    response_sender,
+                } => {
+                    let is_connected = self.swarm.is_connected(&peer_id);
+                    let _ = response_sender.send(is_connected);
+                    Ok(())
+                }
+                QueryP2PStateCommand::GetConnectedPeers { response_sender } => {
+                    let peers = self.swarm.connected_peers().cloned().collect();
+                    let _ = response_sender.send(peers);
+                    Ok(())
+                }
+            },
         }
     }
 
