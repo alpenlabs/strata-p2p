@@ -71,6 +71,9 @@ pub struct WotsPublicKey<const MSG_LEN_BYTES: usize>(pub [[u8; WOTS_SINGLE]; MSG
 where
     [(); MSG_LEN_BYTES]: Sized;
 
+/// 128-bit Winternitz One-Time Signature (WOTS) public key.
+pub type Wots128PublicKey = WotsPublicKey<36>;
+
 /// 160-bit Winternitz One-Time Signature (WOTS) public key.
 pub type Wots160PublicKey = WotsPublicKey<44>;
 
@@ -85,7 +88,7 @@ where
     /// The size of this WOTS public key in bytes.
     pub const SIZE: usize = MSG_LEN_BYTES;
 
-    /// Creates a new WOTS 160-bit public key from a byte array.
+    /// Creates a new WOTS public key from a byte array.
     pub fn new(bytes: [[u8; WOTS_SINGLE]; MSG_LEN_BYTES]) -> Self {
         Self(bytes)
     }
@@ -253,47 +256,60 @@ mod tests {
 
     #[test]
     fn flattened_bytes_roundtrip() {
+        let key128 = Wots128PublicKey::new([[1u8; WOTS_SINGLE]; 36]); // 2 * 16 + 4
         let key160 = Wots160PublicKey::new([[1u8; WOTS_SINGLE]; 44]); // 2 * 20 + 4
         let key256 = Wots256PublicKey::new([[1u8; WOTS_SINGLE]; 68]); // 2 * 32 + 4
 
         // Test flattened bytes roundtrip
+        let flattened128 = key128.to_flattened_bytes();
         let flattened160 = key160.to_flattened_bytes();
         let flattened256 = key256.to_flattened_bytes();
 
+        let deserialized128 = Wots128PublicKey::from_flattened_bytes(&flattened128);
         let deserialized160 = Wots160PublicKey::from_flattened_bytes(&flattened160);
         let deserialized256 = Wots256PublicKey::from_flattened_bytes(&flattened256);
 
+        assert_eq!(key128, deserialized128);
         assert_eq!(key160, deserialized160);
         assert_eq!(key256, deserialized256);
     }
 
     #[test]
     fn json_serialization() {
+        let key128 = Wots128PublicKey::new([[1u8; WOTS_SINGLE]; 36]); // 2 * 16 + 4
         let key160 = Wots160PublicKey::new([[1u8; WOTS_SINGLE]; 44]); // 2 * 20 + 4
         let key256 = Wots256PublicKey::new([[1u8; WOTS_SINGLE]; 68]); // 2 * 32 + 4
 
         // Test JSON serialization
+        let serialized128 = serde_json::to_string(&key128).unwrap();
         let serialized160 = serde_json::to_string(&key160).unwrap();
         let serialized256 = serde_json::to_string(&key256).unwrap();
+        let deserialized128: Wots128PublicKey = serde_json::from_str(&serialized128).unwrap();
         let deserialized160: Wots160PublicKey = serde_json::from_str(&serialized160).unwrap();
         let deserialized256: Wots256PublicKey = serde_json::from_str(&serialized256).unwrap();
 
+        assert_eq!(key128, deserialized128);
         assert_eq!(key160, deserialized160);
         assert_eq!(key256, deserialized256);
     }
 
     #[test]
     fn bincode_serialization() {
+        let key128 = Wots128PublicKey::new([[1u8; WOTS_SINGLE]; 36]); // 2 * 16 + 4
         let key160 = Wots160PublicKey::new([[1u8; WOTS_SINGLE]; 44]); // 2 * 20 + 4
         let key256 = Wots256PublicKey::new([[1u8; WOTS_SINGLE]; 68]); // 2 * 32 + 4
 
         // Test bincode serialization
+        let serialized128 = bincode::serialize(&key128).unwrap();
+        let deserialized128: Wots128PublicKey = bincode::deserialize(&serialized128).unwrap();
+
         let serialized160 = bincode::serialize(&key160).unwrap();
         let deserialized160: Wots160PublicKey = bincode::deserialize(&serialized160).unwrap();
 
         let serialized256 = bincode::serialize(&key256).unwrap();
         let deserialized256: Wots256PublicKey = bincode::deserialize(&serialized256).unwrap();
 
+        assert_eq!(key128, deserialized128);
         assert_eq!(key160, deserialized160);
         assert_eq!(key256, deserialized256);
     }
@@ -302,8 +318,25 @@ mod tests {
     #[should_panic]
     fn deserialize_too_few_elements() {
         let json = "[[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]]"; // Only one array
+        let _: Wots128PublicKey = serde_json::from_str(json).unwrap();
         let _: Wots160PublicKey = serde_json::from_str(json).unwrap();
         let _: Wots256PublicKey = serde_json::from_str(json).unwrap();
+    }
+
+    #[test]
+    #[should_panic]
+    fn deserialize_too_many_elements128() {
+        // Create JSON string with 37 arrays
+        let mut json = String::from("[");
+        for i in 0..37 {
+            json.push_str("[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]");
+            if i < 36 {
+                json.push(',');
+            }
+        }
+        json.push(']');
+
+        let _: Wots128PublicKey = serde_json::from_str(&json).unwrap();
     }
 
     #[test]
@@ -340,6 +373,26 @@ mod tests {
 
     #[test]
     #[should_panic]
+    fn deserialize_invalid_array_length36() {
+        // Create JSON with one array having wrong length (19 instead of 20)
+        let mut json = String::from("[");
+        for i in 0..WotsPublicKey::<36>::SIZE {
+            if i == 8 {
+                json.push_str("[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]"); // 19 elements
+            } else {
+                json.push_str("[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]");
+            }
+            if i < WotsPublicKey::<36>::SIZE - 1 {
+                json.push(',');
+            }
+        }
+        json.push(']');
+
+        let _: Wots160PublicKey = serde_json::from_str(&json).unwrap();
+    }
+
+    #[test]
+    #[should_panic]
     fn deserialize_invalid_array_length44() {
         // Create JSON with one array having wrong length (19 instead of 20)
         let mut json = String::from("[");
@@ -349,7 +402,7 @@ mod tests {
             } else {
                 json.push_str("[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]");
             }
-            if i < WotsPublicKey::<20>::SIZE - 1 {
+            if i < WotsPublicKey::<44>::SIZE - 1 {
                 json.push(',');
             }
         }
@@ -383,6 +436,13 @@ mod tests {
         #![proptest_config(ProptestConfig::with_cases(1_000))]
 
         #[test]
+        fn proptest_serde_json_roundtrip128(key: Wots128PublicKey) {
+            let serialized = serde_json::to_string(&key).unwrap();
+            let deserialized: Wots128PublicKey = serde_json::from_str(&serialized).unwrap();
+            prop_assert_eq!(key, deserialized);
+        }
+
+        #[test]
         fn proptest_serde_json_roundtrip160(key: Wots160PublicKey) {
             let serialized = serde_json::to_string(&key).unwrap();
             let deserialized: Wots160PublicKey = serde_json::from_str(&serialized).unwrap();
@@ -393,6 +453,13 @@ mod tests {
         fn proptest_serde_json_roundtrip256(key: Wots256PublicKey) {
             let serialized = serde_json::to_string(&key).unwrap();
             let deserialized: Wots256PublicKey = serde_json::from_str(&serialized).unwrap();
+            prop_assert_eq!(key, deserialized);
+        }
+
+        #[test]
+        fn proptest_bincode_roundtrip128(key: Wots128PublicKey) {
+            let serialized = bincode::serialize(&key).unwrap();
+            let deserialized: Wots128PublicKey = bincode::deserialize(&serialized).unwrap();
             prop_assert_eq!(key, deserialized);
         }
 
@@ -408,6 +475,18 @@ mod tests {
             let serialized = bincode::serialize(&key).unwrap();
             let deserialized: Wots256PublicKey = bincode::deserialize(&serialized).unwrap();
             prop_assert_eq!(key, deserialized);
+        }
+
+        #[test]
+        fn proptest_deref_operations128(key: Wots128PublicKey) {
+            let mut key_copy = key;
+
+            // Test Deref
+            prop_assert_eq!(&key.0, &*key);
+
+            // Test DerefMut
+            (*key_copy)[0] = [34u8; WOTS_SINGLE];
+            prop_assert_eq!(key_copy.0[0], [34u8; WOTS_SINGLE]);
         }
 
         #[test]
@@ -435,6 +514,12 @@ mod tests {
         }
 
         #[test]
+        fn proptest_new_constructor128(bytes: [[u8; WOTS_SINGLE]; 36]) { // 2 * 18 + 4
+            let key = Wots128PublicKey::new(bytes);
+            prop_assert_eq!(key.0, bytes);
+        }
+
+        #[test]
         fn proptest_new_constructor160(bytes: [[u8; WOTS_SINGLE]; 44]) { // 2 * 20 + 4
             let key = Wots160PublicKey::new(bytes);
             prop_assert_eq!(key.0, bytes);
@@ -444,6 +529,20 @@ mod tests {
         fn proptest_new_constructor256(bytes: [[u8; WOTS_SINGLE]; 68]) { // 2 * 32 + 4
             let key = Wots256PublicKey::new(bytes);
             prop_assert_eq!(key.0, bytes);
+        }
+
+        #[test]
+        fn proptest_to_flattened_bytes128(key: Wots128PublicKey) {
+            let flattened = key.to_flattened_bytes();
+
+            // Verify the length is correct
+            prop_assert_eq!(flattened.len(), WOTS_SINGLE * 36);
+
+            // Verify each segment matches the original arrays
+            for (i, original_array) in key.0.iter().enumerate() {
+                let segment = &flattened[i * WOTS_SINGLE..(i + 1) * WOTS_SINGLE];
+                prop_assert_eq!(segment, original_array.as_slice());
+            }
         }
 
         #[test]

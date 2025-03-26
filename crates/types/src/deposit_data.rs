@@ -6,7 +6,7 @@
 use proptest_derive::Arbitrary;
 use serde::{Deserialize, Serialize};
 
-use crate::{Wots160PublicKey, Wots256PublicKey, WOTS_SINGLE};
+use crate::{wots::Wots128PublicKey, Wots256PublicKey, WOTS_SINGLE};
 
 /// Winternitz One-Time Signature (WOTS) public keys shared in a deposit.
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Serialize, Deserialize)]
@@ -25,7 +25,7 @@ impl WotsPublicKeys {
     /// # Examples
     ///
     /// ```
-    /// # use strata_p2p_types::{WotsPublicKeys, Wots256PublicKey, Wots160PublicKey, Groth16PublicKeys};
+    /// # use strata_p2p_types::{WotsPublicKeys, Wots256PublicKey, Wots128PublicKey, Groth16PublicKeys};
     /// let withdrawal_key = Wots256PublicKey::new([[1u8; 20]; 68]);
     ///
     /// // Create a WotsPublicKeys with empty Groth16 parts
@@ -39,7 +39,7 @@ impl WotsPublicKeys {
     /// // Create a WotsPublicKeys with some Groth16 parts
     /// let public_inputs = Wots256PublicKey::new([[2u8; 20]; 68]);
     /// let field_elements = Wots256PublicKey::new([[3u8; 20]; 68]);
-    /// let hashes = Wots160PublicKey::new([[4u8; 20]; 44]);
+    /// let hashes = Wots128PublicKey::new([[4u8; 20]; 36]);
     ///
     /// let wots_keys = WotsPublicKeys::new(
     ///     withdrawal_key,
@@ -52,7 +52,7 @@ impl WotsPublicKeys {
         withdrawal_fulfillment: Wots256PublicKey,
         public_inputs: Vec<Wots256PublicKey>,
         fqs: Vec<Wots256PublicKey>,
-        hashes: Vec<Wots160PublicKey>,
+        hashes: Vec<Wots128PublicKey>,
     ) -> Self {
         Self {
             withdrawal_fulfillment,
@@ -132,7 +132,7 @@ pub struct Groth16PublicKeys {
     pub n_hashes: u8,
 
     /// Hashes used when passing state in chunked Groth16 proofs.
-    pub hashes: Vec<Wots160PublicKey>,
+    pub hashes: Vec<Wots128PublicKey>,
 }
 
 impl Groth16PublicKeys {
@@ -142,7 +142,7 @@ impl Groth16PublicKeys {
     /// elements, or hashes. For example:
     ///
     /// ```
-    /// # use strata_p2p_types::{Groth16PublicKeys, Wots256PublicKey, Wots160PublicKey};
+    /// # use strata_p2p_types::{Groth16PublicKeys, Wots256PublicKey, Wots128PublicKey};
     /// let empty_wots = Groth16PublicKeys::new(vec![], vec![], vec![]);
     /// # assert!(empty_wots.is_empty());
     ///
@@ -152,13 +152,13 @@ impl Groth16PublicKeys {
     /// let field_elements = Wots256PublicKey::new([[2u8; 20]; 68]);
     /// let just_field_elements = Groth16PublicKeys::new(vec![], vec![field_elements], vec![]);
     ///
-    /// let hashes = Wots160PublicKey::new([[3u8; 20]; 44]);
+    /// let hashes = Wots128PublicKey::new([[3u8; 20]; 36]);
     /// let just_hashes = Groth16PublicKeys::new(vec![], vec![], vec![hashes]);
     /// ```
     pub fn new(
         public_inputs: Vec<Wots256PublicKey>,
         fqs: Vec<Wots256PublicKey>,
-        hashes: Vec<Wots160PublicKey>,
+        hashes: Vec<Wots128PublicKey>,
     ) -> Self {
         Self {
             n_public_inputs: public_inputs.len() as u8,
@@ -193,7 +193,7 @@ impl Groth16PublicKeys {
     ///   public input.
     /// - The next `self.n_field_elements * 256 * 20` bytes represent the flattened bytes of each
     ///   field element.
-    /// - The next `self.n_hashes * 160 * 20` bytes represent the flattened bytes of each hash.
+    /// - The next `self.n_hashes * 128 * 20` bytes represent the flattened bytes of each hash.
     pub fn to_flattened_bytes(&self) -> Vec<u8> {
         // space for number of public_inputs, field_elements, and hashes as well as the length of
         // each
@@ -225,7 +225,7 @@ impl Groth16PublicKeys {
         bytes
     }
 
-    /// Creates the [`Wots160PublicKey`] from a flattened byte array.
+    /// Creates the [`Groth16PublicKeys`] from a flattened byte array.
     ///
     /// If you already have structured arrays then you should use [`WotsPublicKeys::new`].
     ///
@@ -240,7 +240,7 @@ impl Groth16PublicKeys {
     ///   public input.
     /// - The next `self.n_field_elements * 256 * 20` bytes represent the flattened bytes of each
     ///   field element.
-    /// - The next `self.n_hashes * 160 * 20` bytes represent the flattened bytes of each hash.
+    /// - The next `self.n_hashes * 128 * 20` bytes represent the flattened bytes of each hash.
     pub fn from_flattened_bytes(bytes: &[u8]) -> Self {
         let mut offset = 0;
 
@@ -272,9 +272,9 @@ impl Groth16PublicKeys {
 
         // Read hashes
         for _ in 0..n_hashes {
-            let slice = &bytes[offset..offset + WOTS_SINGLE * Wots160PublicKey::SIZE];
-            hashes.push(Wots160PublicKey::from_flattened_bytes(slice));
-            offset += WOTS_SINGLE * Wots160PublicKey::SIZE;
+            let slice = &bytes[offset..offset + WOTS_SINGLE * Wots128PublicKey::SIZE];
+            hashes.push(Wots128PublicKey::from_flattened_bytes(slice));
+            offset += WOTS_SINGLE * Wots128PublicKey::SIZE;
         }
 
         Self {
@@ -302,7 +302,7 @@ mod tests {
         let test_data = Groth16PublicKeys::new(
             vec![Wots256PublicKey::new([[1u8; WOTS_SINGLE]; wots_total_digits(32)]); 2], /* 2 * 32 + 4 = 68 */
             vec![Wots256PublicKey::new([[2u8; WOTS_SINGLE]; wots_total_digits(32)]); 3], /* 2 * 32 + 4 = 68 */
-            vec![Wots160PublicKey::new([[3u8; WOTS_SINGLE]; wots_total_digits(20)]); 4], /* 2 * 20 + 4 = 44 */
+            vec![Wots128PublicKey::new([[3u8; WOTS_SINGLE]; wots_total_digits(16)]); 4], /* 2 * 16 + 4 = 36 */
         );
 
         // Convert to flattened bytes
@@ -312,7 +312,7 @@ mod tests {
         let expected_len = 3 + // 3 bytes for counts
             (2 * WOTS_SINGLE * Wots256PublicKey::SIZE) + // public inputs
             (3 * WOTS_SINGLE * Wots256PublicKey::SIZE) + // field elements
-            (4 * WOTS_SINGLE * Wots160PublicKey::SIZE); // hashes
+            (4 * WOTS_SINGLE * Wots128PublicKey::SIZE); // hashes
         assert_eq!(flattened.len(), expected_len);
 
         // Verify the counts are correct
@@ -342,7 +342,7 @@ mod tests {
         let groth16 = Groth16PublicKeys::new(
             vec![Wots256PublicKey::new([[1u8; WOTS_SINGLE]; wots_total_digits(32)]); 2],
             vec![Wots256PublicKey::new([[2u8; WOTS_SINGLE]; wots_total_digits(32)]); 3],
-            vec![Wots160PublicKey::new([[3u8; WOTS_SINGLE]; wots_total_digits(20)]); 4],
+            vec![Wots128PublicKey::new([[3u8; WOTS_SINGLE]; wots_total_digits(16)]); 4],
         );
 
         // Create the WotsPublicKeys
@@ -361,7 +361,7 @@ mod tests {
             3 + // 3 bytes for counts
             (2 * WOTS_SINGLE * Wots256PublicKey::SIZE) + // public inputs
             (3 * WOTS_SINGLE * Wots256PublicKey::SIZE) + // field elements
-            (4 * WOTS_SINGLE * Wots160PublicKey::SIZE); // hashes
+            (4 * WOTS_SINGLE * Wots128PublicKey::SIZE); // hashes
         assert_eq!(flattened.len(), expected_len);
 
         // Check that the first part is the withdrawal fulfillment key
@@ -408,7 +408,7 @@ mod tests {
             let test_data = Groth16PublicKeys::new(
                 vec![Wots256PublicKey::new([[value; WOTS_SINGLE]; Wots256PublicKey::SIZE]); n_inputs as usize],
                 vec![Wots256PublicKey::new([[value; WOTS_SINGLE]; Wots256PublicKey::SIZE]); n_fqs as usize],
-                vec![Wots160PublicKey::new([[value; WOTS_SINGLE]; Wots160PublicKey::SIZE]); n_hashes as usize],
+                vec![Wots128PublicKey::new([[value; WOTS_SINGLE]; Wots128PublicKey::SIZE]); n_hashes as usize],
             );
 
             let flattened = test_data.to_flattened_bytes();
@@ -438,7 +438,7 @@ mod tests {
             let groth16 = Groth16PublicKeys::new(
                 vec![Wots256PublicKey::new([[groth16_value; WOTS_SINGLE]; Wots256PublicKey::SIZE]); n_inputs as usize],
                 vec![Wots256PublicKey::new([[groth16_value; WOTS_SINGLE]; Wots256PublicKey::SIZE]); n_fqs as usize],
-                vec![Wots160PublicKey::new([[groth16_value; WOTS_SINGLE]; Wots160PublicKey::SIZE]); n_hashes as usize],
+                vec![Wots128PublicKey::new([[groth16_value; WOTS_SINGLE]; Wots128PublicKey::SIZE]); n_hashes as usize],
             );
 
             let wots_keys = WotsPublicKeys::new(
