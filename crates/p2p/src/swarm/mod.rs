@@ -3,11 +3,9 @@
 use std::{collections::HashSet, sync::LazyLock, time::Duration};
 
 use behavior::{Behaviour, BehaviourEvent};
-use bitcoin::hashes::Hash;
 use errors::{P2PResult, ProtocolError, ValidationError};
 use futures::StreamExt as _;
 use handle::P2PHandle;
-use itertools::iproduct;
 use libp2p::{
     core::{muxing::StreamMuxerBox, transport::MemoryTransport, ConnectedPoint},
     gossipsub::{Event as GossipsubEvent, Message, MessageAcceptance, MessageId, Sha256Topic},
@@ -18,16 +16,11 @@ use libp2p::{
     yamux, Multiaddr, PeerId, Swarm, SwarmBuilder, Transport,
 };
 use prost::Message as ProtoMsg;
-use strata_p2p_db::{
-    DBResult, DepositSetupEntry, NoncesEntry, PartialSignaturesEntry, RepositoryExt,
-    StakeChainEntry,
-};
 use strata_p2p_types::P2POperatorPubKey;
 use strata_p2p_wire::p2p::{
     v1,
     v1::{
-        proto,
-        proto::{gossipsub_msg::Body, GetMessageRequest, GetMessageResponse},
+        proto::{GetMessageRequest, GetMessageResponse},
         GossipsubMsg,
     },
 };
@@ -80,7 +73,7 @@ pub struct P2PConfig {
 
 /// Implementation of p2p protocol for BitVM2 data exchange.
 #[expect(missing_debug_implementations)]
-pub struct P2P<Repository> {
+pub struct P2P {
     /// The swarm that handles the networking.
     swarm: Swarm<Behaviour>,
 
@@ -98,9 +91,6 @@ pub struct P2P<Repository> {
     /// only sender is [`Clone`]able.
     commands_sender: mpsc::Sender<Command>,
 
-    /// The database instance.
-    db: Repository,
-
     /// Cancellation token for the swarm.
     cancellation_token: CancellationToken,
 
@@ -109,17 +99,16 @@ pub struct P2P<Repository> {
 }
 
 /// Alias for P2P and P2PHandle tuple.
-pub type P2PWithHandle<Repository> = (P2P<Repository>, P2PHandle);
+pub type P2PWithHandle = (P2P, P2PHandle);
 
-impl<DB: RepositoryExt> P2P<DB> {
+impl P2P {
     /// Creates a new P2P instance from the given configuration.
     pub fn from_config(
         cfg: P2PConfig,
         cancel: CancellationToken,
-        db: DB,
         mut swarm: Swarm<Behaviour>,
         channel_size: Option<usize>,
-    ) -> P2PResult<P2PWithHandle<DB>> {
+    ) -> P2PResult<P2PWithHandle> {
         swarm
             .listen_on(cfg.listening_addr.clone())
             .map_err(ProtocolError::Listen)?;
@@ -137,7 +126,6 @@ impl<DB: RepositoryExt> P2P<DB> {
                 events: events_tx,
                 commands: cmds_rx,
                 commands_sender: cmds_tx.clone(),
-                db,
                 cancellation_token: cancel,
                 config: cfg,
             },
@@ -309,7 +297,7 @@ impl<DB: RepositoryExt> P2P<DB> {
             .source
             .expect("Message must have author as ValidationMode set to Permissive");
         if let Err(err) = self.validate_gossipsub_msg(&msg) {
-            error!(reason=%err, "Message failed validation.");
+            error!(reason=%err, %source, "Message failed validation.");
             // no error should appear in case of message rejection
             let _ = self
                 .swarm
@@ -322,13 +310,6 @@ impl<DB: RepositoryExt> P2P<DB> {
                 );
             return Ok(());
         }
-
-        let new_event = self.add_msg_if_not_exists(&msg).await?;
-
-        // For each message we get, take track of peers from which
-        // this message was sent from, so we can request directly from
-        // them something, knowing signer's (operator's) node peer id.
-        self.db.set_peer_for_signer_pubkey(&msg.key, source).await?;
 
         let event = Event::from(msg);
 
@@ -346,11 +327,6 @@ impl<DB: RepositoryExt> P2P<DB> {
             error!(?event, "failed to propagate accepted message further");
         }
 
-        // Do not broadcast new event to "handles" if it's not new.
-        if !new_event {
-            return Ok(());
-        }
-
         self.events
             .send(event)
             .map_err(|e| ProtocolError::EventsChannelClosed(e.into()))?;
@@ -358,87 +334,12 @@ impl<DB: RepositoryExt> P2P<DB> {
         Ok(())
     }
 
-    /// Adds data received from external source to DB if it wasn't there before.
-    ///
-    /// Returns a `bool` indicating if the data was already presented or not.
-    async fn add_msg_if_not_exists(&mut self, msg: &GossipsubMsg) -> DBResult<bool> {
-        match &msg.unsigned {
-            v1::UnsignedGossipsubMsg::StakeChainExchange {
-                stake_chain_id,
-                pre_stake_txid,
-                pre_stake_vout,
-            } => {
-                self.db
-                    .set_stake_chain_info_if_not_exists(
-                        *stake_chain_id,
-                        StakeChainEntry {
-                            entry: (*pre_stake_txid, *pre_stake_vout),
-                            signature: msg.signature.clone(),
-                            key: msg.key.clone(),
-                        },
-                    )
-                    .await
-            }
-            v1::UnsignedGossipsubMsg::DepositSetup {
-                scope,
-                hash,
-                funding_txid,
-                funding_vout,
-                operator_pk,
-                wots_pks,
-            } => {
-                self.db
-                    .set_deposit_setup_if_not_exists(
-                        *scope,
-                        DepositSetupEntry {
-                            hash: *hash,
-                            funding_txid: *funding_txid,
-                            funding_vout: *funding_vout,
-                            operator_pk: *operator_pk,
-                            wots_pks: wots_pks.clone(),
-                            signature: msg.signature.clone(),
-                            key: msg.key.clone(),
-                        },
-                    )
-                    .await
-            }
-            v1::UnsignedGossipsubMsg::Musig2NoncesExchange { session_id, nonces } => {
-                self.db
-                    .set_pub_nonces_if_not_exist(
-                        *session_id,
-                        NoncesEntry {
-                            entry: nonces.clone(),
-                            signature: msg.signature.clone(),
-                            key: msg.key.clone(),
-                        },
-                    )
-                    .await
-            }
-            v1::UnsignedGossipsubMsg::Musig2SignaturesExchange {
-                session_id,
-                signatures,
-            } => {
-                self.db
-                    .set_partial_signatures_if_not_exists(
-                        *session_id,
-                        PartialSignaturesEntry {
-                            entry: signatures.clone(),
-                            signature: msg.signature.clone(),
-                            key: msg.key.clone(),
-                        },
-                    )
-                    .await
-            }
-        }
-    }
-
     /// Handles command sent through channel by P2P implementation user.
     async fn handle_command(&mut self, cmd: Command) -> P2PResult<()> {
         match cmd {
             Command::PublishMessage(send_message) => {
-                let msg = send_message.into();
-
-                self.add_msg_if_not_exists(&msg).await?;
+                let msg: GossipsubMsg = send_message.into();
+                debug!(?msg, "Publishing message");
 
                 // TODO(Velnbur): add retry mechanism later, instead of skipping the error
                 let _ = self
@@ -452,22 +353,18 @@ impl<DB: RepositoryExt> P2P<DB> {
             }
             Command::RequestMessage(request) => {
                 let request_target_pubkey = request.operator_pubkey();
-
-                let maybe_distributor = self
-                    .db
-                    .get_peer_by_signer_pubkey(request_target_pubkey)
-                    .await?;
+                let request_target_peer_id = request.peer_id();
+                info!(%request_target_pubkey, %request_target_peer_id, "Got request message");
+                debug!(?request, "Got request message");
 
                 let request = request.into_msg();
 
-                if let Some(distributor_peer_id) = maybe_distributor {
-                    if self.swarm.is_connected(&distributor_peer_id) {
-                        self.swarm
-                            .behaviour_mut()
-                            .request_response
-                            .send_request(&distributor_peer_id, request);
-                        return Ok(());
-                    } // TODO: try to establish connection?
+                if self.swarm.is_connected(&request_target_peer_id) {
+                    self.swarm
+                        .behaviour_mut()
+                        .request_response
+                        .send_request(&request_target_peer_id, request);
+                    return Ok(());
                 }
 
                 let connected_peers = self.swarm.connected_peers().cloned().collect::<Vec<_>>();
@@ -476,30 +373,6 @@ impl<DB: RepositoryExt> P2P<DB> {
                         .behaviour_mut()
                         .request_response
                         .send_request(&peer, request.clone());
-                }
-
-                Ok(())
-            }
-            Command::CleanStorage(cmd) => {
-                // Get cartesian product of all provided operators and session ids
-                let operator_session_id_pairs =
-                    iproduct!(&cmd.operators, &cmd.session_ids).collect::<Vec<_>>();
-
-                if !operator_session_id_pairs.is_empty() {
-                    self.db
-                        .delete_partial_signatures(&operator_session_id_pairs)
-                        .await?;
-                    self.db
-                        .delete_pub_nonces(&operator_session_id_pairs)
-                        .await?;
-                }
-
-                // Get cartesian product of all provided operators and scopes
-                let operator_scope_pairs =
-                    iproduct!(&cmd.operators, &cmd.scopes).collect::<Vec<_>>();
-
-                if !operator_scope_pairs.is_empty() {
-                    self.db.delete_deposit_setups(&operator_scope_pairs).await?;
                 }
 
                 Ok(())
@@ -530,11 +403,13 @@ impl<DB: RepositoryExt> P2P<DB> {
                     peer_id,
                     response_sender,
                 } => {
+                    info!(%peer_id, "Querying if peer is connected");
                     let is_connected = self.swarm.is_connected(&peer_id);
                     let _ = response_sender.send(is_connected);
                     Ok(())
                 }
                 QueryP2PStateCommand::GetConnectedPeers { response_sender } => {
+                    info!("Querying connected peers");
                     let peers = self.swarm.connected_peers().cloned().collect();
                     let _ = response_sender.send(peers);
                     Ok(())
@@ -588,15 +463,12 @@ impl<DB: RepositoryExt> P2P<DB> {
     ) -> P2PResult<()> {
         match msg {
             request_response::Message::Request {
-                request_id,
-                request,
-                channel,
+                request, channel, ..
             } => {
                 let empty_response = GetMessageResponse { msg: vec![] };
 
                 let Ok(req) = v1::GetMessageRequest::from_msg(request) else {
-                    error!(%peer_id, "Peer sent invalid get message request, disconnecting it");
-                    let _ = self.swarm.disconnect_peer_id(peer_id);
+                    error!(%peer_id, "Peer sent invalid get message request, replying with empty response");
                     let _ = self
                         .swarm
                         .behaviour_mut()
@@ -607,26 +479,13 @@ impl<DB: RepositoryExt> P2P<DB> {
                     return Ok(());
                 };
 
-                let Some(msg) = self.handle_get_message_request(req).await? else {
-                    debug!(%request_id, "Have no needed data");
-                    let _ = self
-                        .swarm
-                        .behaviour_mut()
-                        .request_response
-                        .send_response(channel, empty_response)
-                        .inspect_err(|_| error!("Failed to send response"));
-
-                    return Ok(());
-                };
-
-                let response = GetMessageResponse { msg: vec![msg] };
-
+                let event = Event::ReceivedRequest(req);
                 let _ = self
-                    .swarm
-                    .behaviour_mut()
-                    .request_response
-                    .send_response(channel, response)
-                    .inspect_err(|_| error!("Failed to send response"));
+                    .events
+                    .send(event)
+                    .map_err(|e| ProtocolError::EventsChannelClosed(e.into()))?;
+
+                Ok(())
             }
 
             request_response::Message::Response {
@@ -656,106 +515,15 @@ impl<DB: RepositoryExt> P2P<DB> {
                         continue;
                     }
 
-                    self.handle_get_message_response(msg).await?
+                    let event = Event::ReceivedMessage(msg);
+                    let _ = self
+                        .events
+                        .send(event)
+                        .map_err(|e| ProtocolError::EventsChannelClosed(e.into()))?;
                 }
+                Ok(())
             }
-        };
-
-        Ok(())
-    }
-
-    /// Handles [`v1::GetMessageRequest`] from the swarm.
-    async fn handle_get_message_request(
-        &mut self,
-        request: v1::GetMessageRequest,
-    ) -> P2PResult<Option<proto::GossipsubMsg>> {
-        let msg = match request {
-            v1::GetMessageRequest::StakeChainExchange {
-                stake_chain_id,
-                operator_pk,
-            } => {
-                let info = self
-                    .db
-                    .get_stake_chain_info(&operator_pk, &stake_chain_id)
-                    .await?;
-
-                info.map(|v| proto::GossipsubMsg {
-                    body: Some(Body::StakeChain(proto::StakeChainExchange {
-                        stake_chain_id: stake_chain_id.to_vec(),
-                        pre_stake_txid: v.entry.0.to_byte_array().to_vec(),
-                        pre_stake_vout: v.entry.1,
-                    })),
-                    signature: v.signature,
-                    key: v.key.into(),
-                })
-            }
-            v1::GetMessageRequest::DepositSetup { scope, operator_pk } => {
-                let setup = self.db.get_deposit_setup(&operator_pk, scope).await?;
-
-                setup.map(|v| proto::GossipsubMsg {
-                    body: Some(Body::Setup(proto::DepositSetupExchange {
-                        scope: scope.to_vec(),
-                        hash: v.hash.to_byte_array().to_vec(),
-                        funding_txid: v.funding_txid.to_byte_array().to_vec(),
-                        funding_vout: v.funding_vout,
-                        operator_pk: v.operator_pk.serialize().to_vec(),
-                        wots_pks: v.wots_pks.to_flattened_bytes().to_vec(),
-                    })),
-                    signature: v.signature,
-                    key: v.key.into(),
-                })
-            }
-            v1::GetMessageRequest::Musig2SignaturesExchange {
-                session_id,
-                operator_pk,
-            } => {
-                let sigs = self
-                    .db
-                    .get_partial_signatures(&operator_pk, session_id)
-                    .await?;
-
-                sigs.map(|v| proto::GossipsubMsg {
-                    body: Some(Body::Sigs(proto::Musig2SignaturesExchange {
-                        session_id: session_id.to_vec(),
-                        partial_sigs: v.entry.iter().map(|n| n.serialize().to_vec()).collect(),
-                    })),
-                    signature: v.signature,
-                    key: v.key.into(),
-                })
-            }
-            v1::GetMessageRequest::Musig2NoncesExchange {
-                session_id,
-                operator_pk,
-            } => {
-                let nonces = self.db.get_pub_nonces(&operator_pk, session_id).await?;
-
-                nonces.map(|v| proto::GossipsubMsg {
-                    body: Some(Body::Nonce(proto::Musig2NoncesExchange {
-                        session_id: session_id.to_vec(),
-                        pub_nonces: v.entry.iter().map(|n| n.serialize().to_vec()).collect(),
-                    })),
-                    signature: v.signature,
-                    key: v.key.into(),
-                })
-            }
-        };
-
-        Ok(msg)
-    }
-
-    /// Handles [`v1::GetMessageResponse`] from the swarm.
-    async fn handle_get_message_response(&mut self, msg: GossipsubMsg) -> P2PResult<()> {
-        let new_event = self.add_msg_if_not_exists(&msg).await?;
-
-        if new_event {
-            let event = Event::from(msg);
-
-            self.events
-                .send(event)
-                .map_err(|e| ProtocolError::EventsChannelClosed(e.into()))?;
         }
-
-        Ok(())
     }
 
     /// Checks gossip sub message for validity by protocol rules.

@@ -144,6 +144,7 @@ async fn gossip_new_operator() -> anyhow::Result<()> {
                     }
                     _ => bail!("Unexpected message type"),
                 },
+                _ => bail!("Unexpected event type"),
             }
         }
     }

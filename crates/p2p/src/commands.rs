@@ -8,17 +8,14 @@ use strata_p2p_wire::p2p::v1::{GetMessageRequest, GossipsubMsg, UnsignedGossipsu
 use tokio::sync::oneshot;
 
 /// Ask P2P implementation to distribute some data across network.
-#[expect(clippy::large_enum_variant)]
 #[derive(Debug)]
+#[expect(clippy::large_enum_variant)]
 pub enum Command {
     /// Publishes message through gossip sub network of peers.
     PublishMessage(PublishMessage),
 
     /// Requests some message directly from other operator by peer id.
     RequestMessage(GetMessageRequest),
-
-    /// Cleans session, scopes from internal DB.
-    CleanStorage(CleanStorageCommand),
 
     /// Connects to a peer, whitelists peer, and adds peer to the gossip sub network.
     ConnectToPeer(ConnectToPeerCommand),
@@ -223,61 +220,5 @@ pub enum QueryP2PStateCommand {
 impl From<QueryP2PStateCommand> for Command {
     fn from(v: QueryP2PStateCommand) -> Self {
         Self::QueryP2PState(v)
-    }
-}
-
-/// Commands P2P to clean entries from internal key-value storage by
-/// session IDs, scopes and operator pubkeys.
-#[derive(Debug, Clone)]
-pub struct CleanStorageCommand {
-    /// [`Scope`]s to clean.
-    pub scopes: Vec<Scope>,
-
-    /// [`SessionId`]s to clean.
-    pub session_ids: Vec<SessionId>,
-
-    /// P2P [`P2POperatorPubKey`]s to clean.
-    pub operators: Vec<P2POperatorPubKey>,
-}
-
-impl CleanStorageCommand {
-    /// Creates a new [`CleanStorageCommand`].
-    pub const fn new(
-        scopes: Vec<Scope>,
-        session_ids: Vec<SessionId>,
-        operators: Vec<P2POperatorPubKey>,
-    ) -> Self {
-        Self {
-            scopes,
-            session_ids,
-            operators,
-        }
-    }
-
-    /// Clean entries only by [`Scope`] and P2P [`P2POperatorPubKey`]s from storage.
-    pub const fn with_scopes(scopes: Vec<Scope>, operators: Vec<P2POperatorPubKey>) -> Self {
-        Self {
-            scopes,
-            session_ids: Vec::new(),
-            operators,
-        }
-    }
-
-    /// Clean entries only by [`SessionId`]s and P2P [`P2POperatorPubKey`]s from storage.
-    pub const fn with_session_ids(
-        session_ids: Vec<SessionId>,
-        operators: Vec<P2POperatorPubKey>,
-    ) -> Self {
-        Self {
-            scopes: Vec::new(),
-            session_ids,
-            operators,
-        }
-    }
-}
-
-impl From<CleanStorageCommand> for Command {
-    fn from(v: CleanStorageCommand) -> Self {
-        Self::CleanStorage(v)
     }
 }
