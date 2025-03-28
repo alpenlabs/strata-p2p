@@ -5,6 +5,10 @@ use bitcoin::{
     hashes::{sha256, Hash},
     Txid, XOnlyPublicKey,
 };
+use libp2p::{
+    PeerId,
+    identity::{secp256k1::PublicKey as LibP2pSecp256k1PublicKey, PublicKey as LibP2pPublicKey},
+};
 use musig2::{PartialSignature, PubNonce};
 use prost::{DecodeError, Message};
 use strata_p2p_types::{P2POperatorPubKey, Scope, SessionId, StakeChainId, WotsPublicKeys};
@@ -164,6 +168,21 @@ impl GetMessageRequest {
             | Self::DepositSetup { operator_pk, .. }
             | Self::Musig2NoncesExchange { operator_pk, .. }
             | Self::Musig2SignaturesExchange { operator_pk, .. } => operator_pk,
+        }
+    }
+
+    /// Returns the [`PeerId`] with respect to this [`GetMessageRequest`].
+    pub fn peer_id(&self) -> PeerId {
+        match self {
+            Self::StakeChainExchange { operator_pk, .. }
+            | Self::DepositSetup { operator_pk, .. }
+            | Self::Musig2NoncesExchange { operator_pk, .. }
+            | Self::Musig2SignaturesExchange { operator_pk, .. } => {
+                // convert P2POperatorPubKey into LibP2P secp256k1 PK
+                let pk = LibP2pSecp256k1PublicKey::try_from_bytes(operator_pk.as_ref()).expect("infallible");
+                let pk: LibP2pPublicKey = pk.into();
+                pk.into()
+            }
         }
     }
 }

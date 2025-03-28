@@ -3,7 +3,6 @@
 use std::io;
 
 use libp2p::TransportError;
-use strata_p2p_db::RepositoryError;
 use thiserror::Error;
 
 /// P2P result type.
@@ -12,10 +11,6 @@ pub type P2PResult<T> = Result<T, Error>;
 /// Swarm errors.
 #[derive(Debug, Error)]
 pub enum Error {
-    /// Database errors.
-    #[error("Database error")]
-    Repository(#[from] RepositoryError),
-
     // Validation errors.
     #[error("Validation error")]
     Validation(#[from] ValidationError),
