@@ -8,8 +8,8 @@ use strata_p2p_wire::p2p::v1::{GetMessageRequest, GossipsubMsg, UnsignedGossipsu
 use tokio::sync::oneshot;
 
 /// Ask P2P implementation to distribute some data across network.
-#[expect(clippy::large_enum_variant)]
 #[derive(Debug)]
+#[expect(clippy::large_enum_variant)]
 pub enum Command {
     /// Publishes message through gossip sub network of peers.
     PublishMessage(PublishMessage),

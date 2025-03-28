@@ -38,10 +38,16 @@ pub enum ValidationError {
 pub enum ProtocolError {
     #[error("Failed to listen: {0}")]
     Listen(#[from] TransportError<io::Error>),
+
     #[error("Events channel closed: {0}")]
     EventsChannelClosed(Box<dyn std::error::Error + Sync + Send>),
+
     #[error("Failed to initialize transport: {0}")]
     TransportInitialization(Box<dyn std::error::Error + Sync + Send>),
+
     #[error("Failed to initialize behaviour: {0}")]
     BehaviourInitialization(Box<dyn std::error::Error + Sync + Send>),
+
+    #[error("Failed to send response: {0}")]
+    ResponseError(String),
 }

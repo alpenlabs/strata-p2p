@@ -588,9 +588,9 @@ impl<DB: RepositoryExt> P2P<DB> {
     ) -> P2PResult<()> {
         match msg {
             request_response::Message::Request {
-                request_id,
                 request,
                 channel,
+                ..
             } => {
                 let empty_response = GetMessageResponse { msg: vec![] };
 
@@ -606,26 +606,10 @@ impl<DB: RepositoryExt> P2P<DB> {
                     return Ok(());
                 };
 
-                let Some(msg) = self.handle_get_message_request(req).await? else {
-                    debug!(%request_id, "Have no needed data");
-                    let _ = self
-                        .swarm
-                        .behaviour_mut()
-                        .request_response
-                        .send_response(channel, empty_response)
-                        .inspect_err(|_| error!("Failed to send response"));
+                let event = Event::ReceivedRequest(req);
+                let _ = self.events.send(event).map_err(|e| ProtocolError::EventsChannelClosed(e.into()))?;
 
-                    return Ok(());
-                };
-
-                let response = GetMessageResponse { msg: vec![msg] };
-
-                let _ = self
-                    .swarm
-                    .behaviour_mut()
-                    .request_response
-                    .send_response(channel, response)
-                    .inspect_err(|_| error!("Failed to send response"));
+                Ok(())
             }
 
             request_response::Message::Response {
@@ -655,15 +639,16 @@ impl<DB: RepositoryExt> P2P<DB> {
                         continue;
                     }
 
-                    self.handle_get_message_response(msg).await?
+                    let event = Event::ReceivedMessage(msg);
+                    let _ = self.events.send(event).map_err(|e| ProtocolError::EventsChannelClosed(e.into()))?;
                 }
+                Ok(())
             }
-        };
-
-        Ok(())
+        }
     }
 
     /// Handles [`v1::GetMessageRequest`] from the swarm.
+    #[expect(dead_code)] // leaving this here for now
     async fn handle_get_message_request(
         &mut self,
         request: v1::GetMessageRequest,
@@ -743,6 +728,7 @@ impl<DB: RepositoryExt> P2P<DB> {
     }
 
     /// Handles [`v1::GetMessageResponse`] from the swarm.
+    #[expect(dead_code)] // leaving this here for now
     async fn handle_get_message_response(&mut self, msg: GossipsubMsg) -> P2PResult<()> {
         let new_event = self.add_msg_if_not_exists(&msg).await?;
 
