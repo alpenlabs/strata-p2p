@@ -11,10 +11,7 @@ use super::common::{
     exchange_stake_chain_info, mock_deposit_nonces, mock_deposit_setup, mock_deposit_sigs,
     mock_stake_chain_info, Setup,
 };
-use crate::{
-    commands::Command,
-    events::Event,
-};
+use crate::{commands::Command, events::Event};
 
 /// Tests the get message request-response flow.
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
@@ -83,8 +80,11 @@ async fn request_response() -> anyhow::Result<()> {
         });
 
     // Send stake chain request and handle response from the last operator
-    operators[OPERATORS_NUM - 1].handle.send_command(command_stake_chain).await;
-    
+    operators[OPERATORS_NUM - 1]
+        .handle
+        .send_command(command_stake_chain)
+        .await;
+
     // Wait for request on the first operator
     let event = operators[0].handle.next_event().await?;
     match event {
@@ -96,7 +96,10 @@ async fn request_response() -> anyhow::Result<()> {
                 // Construct and send response
                 let mock_msg = mock_stake_chain_info(&operators[0].kp.clone(), stake_chain_id);
                 if let Command::PublishMessage(msg) = mock_msg {
-                    operators[0].handle.send_command(Command::PublishMessage(msg)).await;
+                    operators[0]
+                        .handle
+                        .send_command(Command::PublishMessage(msg))
+                        .await;
                 }
             }
             _ => bail!("Got unexpected request in the first operator"),
@@ -120,8 +123,11 @@ async fn request_response() -> anyhow::Result<()> {
     }
 
     // Send deposit setup request and handle response from the last operator
-    operators[OPERATORS_NUM - 1].handle.send_command(command_deposit_setup).await;
-    
+    operators[OPERATORS_NUM - 1]
+        .handle
+        .send_command(command_deposit_setup)
+        .await;
+
     // Wait for request on the first operator
     let event = operators[0].handle.next_event().await?;
     match event {
@@ -133,7 +139,10 @@ async fn request_response() -> anyhow::Result<()> {
                 // Construct and send response
                 let mock_msg = mock_deposit_setup(&operators[0].kp.clone(), scope);
                 if let Command::PublishMessage(msg) = mock_msg {
-                    operators[0].handle.send_command(Command::PublishMessage(msg)).await;
+                    operators[0]
+                        .handle
+                        .send_command(Command::PublishMessage(msg))
+                        .await;
                 }
             }
             _ => bail!("Got unexpected request in the first operator"),
@@ -157,8 +166,11 @@ async fn request_response() -> anyhow::Result<()> {
     }
 
     // Send deposit nonces request and handle response from the last operator
-    operators[OPERATORS_NUM - 1].handle.send_command(command_deposit_nonces).await;
-    
+    operators[OPERATORS_NUM - 1]
+        .handle
+        .send_command(command_deposit_nonces)
+        .await;
+
     // Wait for request on the first operator
     let event = operators[0].handle.next_event().await?;
     match event {
@@ -170,7 +182,10 @@ async fn request_response() -> anyhow::Result<()> {
                 // Construct and send response
                 let mock_msg = mock_deposit_nonces(&operators[0].kp.clone(), session_id);
                 if let Command::PublishMessage(msg) = mock_msg {
-                    operators[0].handle.send_command(Command::PublishMessage(msg)).await;
+                    operators[0]
+                        .handle
+                        .send_command(Command::PublishMessage(msg))
+                        .await;
                 }
             }
             _ => bail!("Got unexpected request in the first operator"),
@@ -194,8 +209,11 @@ async fn request_response() -> anyhow::Result<()> {
     }
 
     // Send deposit signatures request and handle response from the last operator
-    operators[OPERATORS_NUM - 1].handle.send_command(command_deposit_sigs).await;
-    
+    operators[OPERATORS_NUM - 1]
+        .handle
+        .send_command(command_deposit_sigs)
+        .await;
+
     // Wait for request on the first operator
     let event = operators[0].handle.next_event().await?;
     match event {
@@ -207,7 +225,10 @@ async fn request_response() -> anyhow::Result<()> {
                 // Construct and send response
                 let mock_msg = mock_deposit_sigs(&operators[0].kp.clone(), session_id);
                 if let Command::PublishMessage(msg) = mock_msg {
-                    operators[0].handle.send_command(Command::PublishMessage(msg)).await;
+                    operators[0]
+                        .handle
+                        .send_command(Command::PublishMessage(msg))
+                        .await;
                 }
             }
             _ => bail!("Got unexpected request in the first operator"),

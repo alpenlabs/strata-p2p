@@ -1,6 +1,6 @@
 //! Events emitted from P2P.
 
-use strata_p2p_wire::p2p::v1::{GossipsubMsg, GetMessageRequest};
+use strata_p2p_wire::p2p::v1::{GetMessageRequest, GossipsubMsg};
 
 /// Events emitted from P2P to handle from operator side.
 ///

@@ -20,8 +20,8 @@ use strata_p2p_types::P2POperatorPubKey;
 use strata_p2p_wire::p2p::{
     v1,
     v1::{
-        GossipsubMsg,
         proto::{GetMessageRequest, GetMessageResponse},
+        GossipsubMsg,
     },
 };
 use tokio::{
@@ -463,9 +463,7 @@ impl P2P {
     ) -> P2PResult<()> {
         match msg {
             request_response::Message::Request {
-                request,
-                channel,
-                ..
+                request, channel, ..
             } => {
                 let empty_response = GetMessageResponse { msg: vec![] };
 
@@ -482,7 +480,10 @@ impl P2P {
                 };
 
                 let event = Event::ReceivedRequest(req);
-                let _ = self.events.send(event).map_err(|e| ProtocolError::EventsChannelClosed(e.into()))?;
+                let _ = self
+                    .events
+                    .send(event)
+                    .map_err(|e| ProtocolError::EventsChannelClosed(e.into()))?;
 
                 Ok(())
             }
@@ -515,13 +516,15 @@ impl P2P {
                     }
 
                     let event = Event::ReceivedMessage(msg);
-                    let _ = self.events.send(event).map_err(|e| ProtocolError::EventsChannelClosed(e.into()))?;
+                    let _ = self
+                        .events
+                        .send(event)
+                        .map_err(|e| ProtocolError::EventsChannelClosed(e.into()))?;
                 }
                 Ok(())
             }
         }
     }
-
 
     /// Checks gossip sub message for validity by protocol rules.
     fn validate_gossipsub_msg(&self, msg: &GossipsubMsg) -> P2PResult<()> {
