@@ -595,8 +595,7 @@ impl<DB: RepositoryExt> P2P<DB> {
                 let empty_response = GetMessageResponse { msg: vec![] };
 
                 let Ok(req) = v1::GetMessageRequest::from_msg(request) else {
-                    error!(%peer_id, "Peer sent invalid get message request, disconnecting it");
-                    let _ = self.swarm.disconnect_peer_id(peer_id);
+                    error!(%peer_id, "Peer sent invalid get message request, replying with empty response");
                     let _ = self
                         .swarm
                         .behaviour_mut()
