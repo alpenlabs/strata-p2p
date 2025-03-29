@@ -8,6 +8,7 @@ import "strata/bitvm2/p2p/v1/gossipsub.proto";
 message DepositRequestKey {
   // 32-byte hash of the deposit data.
   bytes scope = 1;
+
   // Public key of target operator.
   bytes operator = 2;
 }
@@ -16,6 +17,7 @@ message DepositRequestKey {
 message Musig2RequestKey {
   // 32-byte hash of the deposit data.
   bytes session_id = 1;
+
   // Public key of target operator.
   bytes operator = 2;
 }
@@ -24,6 +26,7 @@ message Musig2RequestKey {
 message StakeChainRequestKey {
   // 32-byte hash of the stake chain data.
   bytes stake_chain_id = 1;
+
   // Public key of target operator.
   bytes operator = 2;
 }
