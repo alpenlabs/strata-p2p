@@ -59,6 +59,9 @@ pub enum UnsignedPublishMessage {
         /// The deposit [`Scope`].
         scope: Scope,
 
+        /// Index of the deposit.
+        index: u32,
+
         /// [`sha256::Hash`] hash of the stake transaction that the preimage is revealed when
         /// advancing the stake.
         hash: sha256::Hash,
@@ -144,6 +147,7 @@ impl From<UnsignedPublishMessage> for UnsignedGossipsubMsg {
 
             UnsignedPublishMessage::DepositSetup {
                 scope,
+                index,
                 hash,
                 funding_txid,
                 funding_vout,
@@ -151,6 +155,7 @@ impl From<UnsignedPublishMessage> for UnsignedGossipsubMsg {
                 wots_pks,
             } => UnsignedGossipsubMsg::DepositSetup {
                 scope,
+                index,
                 hash,
                 funding_txid,
                 funding_vout,

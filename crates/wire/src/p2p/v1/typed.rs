@@ -287,6 +287,9 @@ pub enum UnsignedGossipsubMsg {
         /// [`Scope`] of the deposit data.
         scope: Scope,
 
+        /// Index of the deposit.
+        index: u32,
+
         /// [`sha256::Hash`] hash of the stake transaction that the preimage is revealed when
         /// advancing the stake.
         hash: sha256::Hash,
@@ -356,6 +359,7 @@ impl UnsignedGossipsubMsg {
                     .try_into()
                     .map_err(|_| DecodeError::new("invalid length of bytes for scope"))?;
                 let scope = Scope::from_bytes(bytes);
+                let index = proto.index;
                 let hash = sha256::Hash::from_slice(&proto.hash)
                     .map_err(|_| DecodeError::new("invalid length of bytes for hash"))?;
                 let funding_txid = consensus::deserialize(&proto.funding_txid)
@@ -367,6 +371,7 @@ impl UnsignedGossipsubMsg {
 
                 Self::DepositSetup {
                     scope,
+                    index,
                     hash,
                     funding_txid,
                     funding_vout,
@@ -435,6 +440,7 @@ impl UnsignedGossipsubMsg {
             }
             Self::DepositSetup {
                 scope,
+                index,
                 hash,
                 funding_txid,
                 funding_vout,
@@ -442,6 +448,7 @@ impl UnsignedGossipsubMsg {
                 wots_pks,
             } => {
                 content.extend(scope.as_ref());
+                content.extend(index.to_le_bytes());
                 content.extend(hash.as_byte_array());
                 content.extend(funding_txid.as_byte_array());
                 content.extend(funding_vout.to_le_bytes());
@@ -482,6 +489,7 @@ impl UnsignedGossipsubMsg {
             }),
             Self::DepositSetup {
                 scope,
+                index,
                 hash,
                 funding_txid,
                 funding_vout,
@@ -489,6 +497,7 @@ impl UnsignedGossipsubMsg {
                 wots_pks,
             } => ProtoGossipsubMsgBody::Setup(ProtoDepositSetup {
                 scope: scope.to_vec(),
+                index: *index,
                 hash: hash.as_byte_array().to_vec(),
                 funding_txid: funding_txid.to_byte_array().to_vec(),
                 funding_vout: *funding_vout,
