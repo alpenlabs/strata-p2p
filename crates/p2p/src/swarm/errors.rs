@@ -12,11 +12,11 @@ pub type P2PResult<T> = Result<T, Error>;
 #[derive(Debug, Error)]
 pub enum Error {
     // Validation errors.
-    #[error("Validation error")]
+    #[error("Validation error {0}")]
     Validation(#[from] ValidationError),
 
     /// Protocol errors.
-    #[error("Protocol error")]
+    #[error("Protocol error {0}")]
     Protocol(#[from] ProtocolError),
 }
 
