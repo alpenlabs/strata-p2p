@@ -45,6 +45,9 @@ pub mod handle;
 // TODO(Velnbur): make this configurable later
 static TOPIC: LazyLock<Sha256Topic> = LazyLock::new(|| Sha256Topic::new("bitvm2"));
 
+/// Global MAX_TRANSMIT_SIZE for gossipsub messages.
+const MAX_TRANSMIT_SIZE: usize = 512 * 1024;
+
 /// Global name of the protocol
 // TODO(Velnbur): make this configurable later
 const PROTOCOL_NAME: &str = "/strata-bitvm2";

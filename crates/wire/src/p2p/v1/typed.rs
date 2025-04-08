@@ -190,8 +190,6 @@ impl GetMessageRequest {
 
 /// New deposit request appeared, and operators exchanging setup data.
 #[derive(Debug, Clone)]
-#[expect(clippy::large_enum_variant)]
-#[allow(unfulfilled_lint_expectations)]
 pub struct DepositSetup {
     /// [`sha256::Hash`] hash of the stake transaction that the preimage is revealed when advancing
     /// the stake.
