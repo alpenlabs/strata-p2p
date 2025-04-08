@@ -18,7 +18,7 @@ use libp2p::{
 };
 use strata_p2p_wire::p2p::v1::proto::{GetMessageRequest, GetMessageResponse};
 
-use super::{codec, TOPIC};
+use super::{codec, MAX_TRANSMIT_SIZE, TOPIC};
 
 /// Alias for request-response behaviour with messages serialized by using
 /// homebrewed codec implementation.
@@ -66,6 +66,7 @@ impl Behaviour {
                 gossipsub::ConfigBuilder::default()
                     .validation_mode(gossipsub::ValidationMode::Permissive)
                     .validate_messages()
+                    .max_transmit_size(MAX_TRANSMIT_SIZE)
                     .build()
                     .expect("gossipsub config at this stage must be valid"),
                 None,
