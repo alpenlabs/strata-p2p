@@ -118,10 +118,9 @@ impl P2P {
 
         let keypair = cfg.keypair.clone();
 
-        // WOTS PKs are biiiiiiiig
-        let channel_size = channel_size.unwrap_or(400_000);
+        let channel_size = channel_size.unwrap_or(256);
         let (events_tx, events_rx) = broadcast::channel(channel_size);
-        let (cmds_tx, cmds_rx) = mpsc::channel(50_000);
+        let (cmds_tx, cmds_rx) = mpsc::channel(64);
 
         Ok((
             Self {
