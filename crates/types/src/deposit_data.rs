@@ -117,19 +117,19 @@ impl WotsPublicKeys {
 #[cfg_attr(feature = "proptest", derive(Arbitrary))]
 pub struct Groth16PublicKeys {
     /// Number of public inputs.
-    pub n_public_inputs: u8,
+    pub n_public_inputs: u16,
 
     /// Public inputs used when passing state in chunked Groth16 proofs.
     pub public_inputs: Vec<Wots256PublicKey>,
 
     /// Number of field elements.
-    pub n_field_elements: u8,
+    pub n_field_elements: u16,
 
     /// Field Elements used when passing state in chunked Groth16 proofs.
     pub fqs: Vec<Wots256PublicKey>,
 
     /// Number of hashes.
-    pub n_hashes: u8,
+    pub n_hashes: u16,
 
     /// Hashes used when passing state in chunked Groth16 proofs.
     pub hashes: Vec<Wots128PublicKey>,
@@ -161,11 +161,11 @@ impl Groth16PublicKeys {
         hashes: Vec<Wots128PublicKey>,
     ) -> Self {
         Self {
-            n_public_inputs: public_inputs.len() as u8,
+            n_public_inputs: public_inputs.len() as u16,
             public_inputs,
-            n_field_elements: fqs.len() as u8,
+            n_field_elements: fqs.len() as u16,
             fqs,
-            n_hashes: hashes.len() as u8,
+            n_hashes: hashes.len() as u16,
             hashes,
         }
     }
@@ -200,9 +200,9 @@ impl Groth16PublicKeys {
         let mut bytes = vec![];
 
         // Copy the number of public inputs, field elements, and hashes
-        bytes.push(self.n_public_inputs);
-        bytes.push(self.n_field_elements);
-        bytes.push(self.n_hashes);
+        bytes.extend_from_slice(&self.n_public_inputs.to_le_bytes());
+        bytes.extend_from_slice(&self.n_field_elements.to_le_bytes());
+        bytes.extend_from_slice(&self.n_hashes.to_le_bytes());
 
         // Copy public_inputs bytes
         for public_input in &self.public_inputs {
@@ -245,12 +245,12 @@ impl Groth16PublicKeys {
         let mut offset = 0;
 
         // Read lengths
-        let n_public_inputs = bytes[offset];
-        offset += 1;
-        let n_field_elements = bytes[offset];
-        offset += 1;
-        let n_hashes = bytes[offset];
-        offset += 1;
+        let n_public_inputs = u16::from_le_bytes([bytes[offset], bytes[offset + 1]]);
+        offset += 2;
+        let n_field_elements = u16::from_le_bytes([bytes[offset], bytes[offset + 1]]);
+        offset += 2;
+        let n_hashes = u16::from_le_bytes([bytes[offset], bytes[offset + 1]]);
+        offset += 2;
 
         let mut public_inputs = Vec::with_capacity(n_public_inputs as usize);
         let mut fqs = Vec::with_capacity(n_field_elements as usize);
@@ -309,7 +309,7 @@ mod tests {
         let flattened = test_data.to_flattened_bytes();
 
         // Verify the length matches what we expect
-        let expected_len = 3 + // 3 bytes for counts
+        let expected_len = 6 + // 6 bytes for counts (2 bytes each for u16)
             (2 * WOTS_SINGLE * Wots256PublicKey::SIZE) + // public inputs
             (3 * WOTS_SINGLE * Wots256PublicKey::SIZE) + // field elements
             (4 * WOTS_SINGLE * Wots128PublicKey::SIZE); // hashes
@@ -317,8 +317,11 @@ mod tests {
 
         // Verify the counts are correct
         assert_eq!(flattened[0], 2); // n_public_inputs
-        assert_eq!(flattened[1], 3); // n_field_elements
-        assert_eq!(flattened[2], 4); // n_hashes
+        assert_eq!(flattened[1], 0); // n_public_inputs (u16)
+        assert_eq!(flattened[2], 3); // n_field_elements
+        assert_eq!(flattened[3], 0); // n_field_elements (u16)
+        assert_eq!(flattened[4], 4); // n_hashes
+        assert_eq!(flattened[5], 0); // n_hashes (u16)
 
         // Convert back from flattened bytes
         let reconstructed = Groth16PublicKeys::from_flattened_bytes(&flattened);
@@ -358,7 +361,7 @@ mod tests {
 
         // Verify the length matches what we expect
         let expected_len = (WOTS_SINGLE * Wots256PublicKey::SIZE) + // withdrawal_fulfillment
-            3 + // 3 bytes for counts
+            6 + // 6 bytes for counts (2 bytes each for u16)
             (2 * WOTS_SINGLE * Wots256PublicKey::SIZE) + // public inputs
             (3 * WOTS_SINGLE * Wots256PublicKey::SIZE) + // field elements
             (4 * WOTS_SINGLE * Wots128PublicKey::SIZE); // hashes
