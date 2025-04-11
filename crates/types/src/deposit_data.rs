@@ -352,10 +352,7 @@ mod tests {
         let _ = Groth16PublicKeys::new(
             vec![Wots256PublicKey::from_flattened_bytes(&[2u8; 68 * 20]); N_PUBLIC_INPUTS],
             vec![Wots256PublicKey::from_flattened_bytes(&[3u8; 68 * 20]); N_FIELD_ELEMENTS],
-            vec![
-                Wots128PublicKey::from_flattened_bytes(&[4u8; 36 * 20]);
-                u16::MAX as usize + 1
-            ],
+            vec![Wots128PublicKey::from_flattened_bytes(&[4u8; 36 * 20]); u16::MAX as usize + 1],
         );
     }
 
