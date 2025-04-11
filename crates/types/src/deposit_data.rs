@@ -54,9 +54,17 @@ impl WotsPublicKeys {
         fqs: Vec<Wots256PublicKey>,
         hashes: Vec<Wots128PublicKey>,
     ) -> Self {
+        let groth16 = Groth16PublicKeys::new(public_inputs, fqs, hashes);
+
+        // Verify the Groth16 public keys are not too large
+        assert!(
+            groth16.len() <= u16::MAX as usize,
+            "Groth16 public keys are too large, max is {}",
+            u16::MAX
+        );
         Self {
             withdrawal_fulfillment,
-            groth16: Groth16PublicKeys::new(public_inputs, fqs, hashes),
+            groth16,
         }
     }
 
@@ -81,6 +89,13 @@ impl WotsPublicKeys {
 
         // Parse the Groth16 public keys from the remaining bytes
         let groth16 = Groth16PublicKeys::from_flattened_bytes(&bytes[withdrawal_key_size..]);
+
+        // Verify the Groth16 public keys are not too large
+        assert!(
+            groth16.len() <= u16::MAX as usize,
+            "Groth16 public keys are too large, max is {}",
+            u16::MAX
+        );
 
         Self {
             withdrawal_fulfillment,
@@ -160,6 +175,23 @@ impl Groth16PublicKeys {
         fqs: Vec<Wots256PublicKey>,
         hashes: Vec<Wots128PublicKey>,
     ) -> Self {
+        // Verify the Groth16 public keys are not too large
+        assert!(
+            public_inputs.len() <= u16::MAX as usize,
+            "Public inputs are too large, max is {}",
+            u16::MAX
+        );
+        assert!(
+            fqs.len() <= u16::MAX as usize,
+            "Field elements are too large, max is {}",
+            u16::MAX
+        );
+        assert!(
+            hashes.len() <= u16::MAX as usize,
+            "Hashes are too large, max is {}",
+            u16::MAX
+        );
+
         Self {
             n_public_inputs: public_inputs.len() as u16,
             public_inputs,
@@ -170,7 +202,7 @@ impl Groth16PublicKeys {
         }
     }
 
-    /// Length of [`WotsPublicKeys`]
+    /// Length of [`Groth16PublicKeys`].
     pub fn len(&self) -> usize {
         (self.n_public_inputs + self.n_field_elements + self.n_hashes) as usize
     }
@@ -295,6 +327,37 @@ mod tests {
 
     use super::*;
     use crate::wots::wots_total_digits;
+
+    const N_PUBLIC_INPUTS: usize = 1;
+    const N_FIELD_ELEMENTS: usize = 14;
+    const N_HASHES: usize = 363;
+
+    fn big_groth16_public_keys() -> Groth16PublicKeys {
+        Groth16PublicKeys::new(
+            vec![Wots256PublicKey::from_flattened_bytes(&[2u8; 68 * 20]); N_PUBLIC_INPUTS],
+            vec![Wots256PublicKey::from_flattened_bytes(&[3u8; 68 * 20]); N_FIELD_ELEMENTS],
+            vec![Wots128PublicKey::from_flattened_bytes(&[4u8; 36 * 20]); N_HASHES],
+        )
+    }
+
+    #[test]
+    fn big_groth16_public_keys_len() {
+        let keys = big_groth16_public_keys();
+        assert_eq!(keys.len(), N_PUBLIC_INPUTS + N_FIELD_ELEMENTS + N_HASHES);
+    }
+
+    #[test]
+    #[should_panic(expected = "Hashes are too large, max is 65535")]
+    fn big_groth16_public_keys_len_panic() {
+        let _ = Groth16PublicKeys::new(
+            vec![Wots256PublicKey::from_flattened_bytes(&[2u8; 68 * 20]); N_PUBLIC_INPUTS],
+            vec![Wots256PublicKey::from_flattened_bytes(&[3u8; 68 * 20]); N_FIELD_ELEMENTS],
+            vec![
+                Wots128PublicKey::from_flattened_bytes(&[4u8; 36 * 20]);
+                u16::MAX as usize + 1
+            ],
+        );
+    }
 
     #[test]
     fn groth16_wots_flattened_bytes_roundtrip() {

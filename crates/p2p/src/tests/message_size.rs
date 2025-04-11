@@ -17,14 +17,18 @@ use crate::{
     tests::common::Setup,
 };
 
+const N_PUBLIC_INPUTS: usize = 1;
+const N_FIELD_ELEMENTS: usize = 14;
+const N_HASHES: usize = 363;
+
 fn real_deposit_setup() -> anyhow::Result<UnsignedPublishMessage> {
     let scope = Scope::hash(b"scope");
     let wots_pks = WotsPublicKeys {
         withdrawal_fulfillment: Wots256PublicKey::from_flattened_bytes(&[1u8; 68 * 20]),
         groth16: Groth16PublicKeys::new(
-            vec![Wots256PublicKey::from_flattened_bytes(&[2u8; 68 * 20])],
-            vec![Wots256PublicKey::from_flattened_bytes(&[3u8; 68 * 20]); 14],
-            vec![Wots128PublicKey::from_flattened_bytes(&[4u8; 36 * 20]); 363],
+            vec![Wots256PublicKey::from_flattened_bytes(&[2u8; 68 * 20]); N_PUBLIC_INPUTS],
+            vec![Wots256PublicKey::from_flattened_bytes(&[3u8; 68 * 20]); N_FIELD_ELEMENTS],
+            vec![Wots128PublicKey::from_flattened_bytes(&[4u8; 36 * 20]); N_HASHES],
         ),
     };
     Ok(UnsignedPublishMessage::DepositSetup {
