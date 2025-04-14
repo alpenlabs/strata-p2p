@@ -67,6 +67,8 @@ impl Behaviour {
                     .validation_mode(gossipsub::ValidationMode::Permissive)
                     .validate_messages()
                     .max_transmit_size(MAX_TRANSMIT_SIZE)
+                    // Avoids spamming the network and nodes with messages
+                    .idontwant_on_publish(true)
                     .build()
                     .expect("gossipsub config at this stage must be valid"),
                 None,
