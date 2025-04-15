@@ -1,6 +1,6 @@
 //! Request-Response [`Behaviour`] and [`NetworkBehaviour`] for the P2P protocol.
 
-use std::collections::HashSet;
+use std::{collections::HashSet, time::Duration};
 
 use libp2p::{
     allow_block_list::{AllowedPeers, Behaviour as AllowListBehaviour},
@@ -68,7 +68,15 @@ impl Behaviour {
                     .validate_messages()
                     .max_transmit_size(MAX_TRANSMIT_SIZE)
                     // Avoids spamming the network and nodes with messages
-                    .idontwant_on_publish(true)
+                    .duplicate_cache_time(Duration::from_secs(60 * 5)) // default is 1 min
+                    .published_message_ids_cache_time(Duration::from_secs(60)) // default is 10
+                    .max_ihave_messages(100) // default is 10
+                    .gossip_retransimission(1) // default is 3
+                    .iwant_followup_time(Duration::from_secs(2)) // default is 3
+                    .gossip_lazy(2) // default is 6
+                    .gossip_factor(0.1) // default is 0.25
+                    .history_gossip(1) // default is 3
+                    .history_length(3) // default is 5
                     .build()
                     .expect("gossipsub config at this stage must be valid"),
                 None,
