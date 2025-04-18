@@ -64,7 +64,7 @@ impl Behaviour {
                     &libp2p::identity::PublicKey::from(keypair.public().clone()),
                 )),
                 gossipsub::ConfigBuilder::default()
-                    .validation_mode(gossipsub::ValidationMode::Strict)
+                    .validation_mode(gossipsub::ValidationMode::Permissive)
                     .gossip_retransimission(1)
                     .allow_self_origin(true) // TODO: (@Rajil1213) make this configurable
                     .duplicate_cache_time(Duration::from_secs(20))
