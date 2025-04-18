@@ -3308,6 +3308,7 @@ dependencies = [
  "bitcoin",
  "blake3",
  "futures",
+ "hex",
  "libp2p",
  "musig2",
  "prost",

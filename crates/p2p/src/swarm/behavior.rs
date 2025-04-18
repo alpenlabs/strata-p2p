@@ -69,9 +69,14 @@ impl Behaviour {
                     .allow_self_origin(true) // TODO: (@Rajil1213) make this configurable
                     .duplicate_cache_time(Duration::from_secs(20))
                     .message_id_fn(|msg| {
-                        let msg = &msg.data;
+                        let data = &msg.data;
                         let mut hasher = blake3::Hasher::new();
-                        hasher.update(msg);
+                        hasher.update(data);
+
+                        if let Some(peer_id) = msg.source {
+                            hasher.update(peer_id.to_bytes().as_ref());
+                        }
+
                         let hashed_msg = hasher.finalize();
 
                         MessageId::from(hashed_msg.as_bytes())
