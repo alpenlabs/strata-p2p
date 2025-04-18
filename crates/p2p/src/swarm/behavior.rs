@@ -67,20 +67,7 @@ impl Behaviour {
                     .validation_mode(gossipsub::ValidationMode::Permissive)
                     .gossip_retransimission(3)
                     .allow_self_origin(true) // TODO: (@Rajil1213) make this configurable
-                    .duplicate_cache_time(Duration::from_secs(20))
-                    .message_id_fn(|msg| {
-                        let data = &msg.data;
-                        let mut hasher = blake3::Hasher::new();
-                        hasher.update(data);
-
-                        if let Some(peer_id) = msg.source {
-                            hasher.update(peer_id.to_bytes().as_ref());
-                        }
-
-                        let hashed_msg = hasher.finalize();
-
-                        MessageId::from(hashed_msg.as_bytes())
-                    })
+                    .duplicate_cache_time(Duration::from_secs(60 * 60))
                     .validate_messages()
                     .max_transmit_size(MAX_TRANSMIT_SIZE)
                     .build()
