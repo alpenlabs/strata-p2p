@@ -5,7 +5,7 @@ use std::{collections::HashSet, time::Duration};
 use libp2p::{
     allow_block_list::{AllowedPeers, Behaviour as AllowListBehaviour},
     gossipsub::{
-        self, Behaviour as Gossipsub, IdentityTransform, MessageAuthenticity,
+        self, Behaviour as Gossipsub, IdentityTransform, MessageAuthenticity, MessageId,
         WhitelistSubscriptionFilter,
     },
     identify::{Behaviour as Identify, Config},
@@ -68,6 +68,14 @@ impl Behaviour {
                     .gossip_retransimission(1)
                     .allow_self_origin(true) // TODO: (@Rajil1213) make this configurable
                     .duplicate_cache_time(Duration::from_secs(20))
+                    .message_id_fn(|msg| {
+                        let msg = &msg.data;
+                        let mut hasher = blake3::Hasher::new();
+                        hasher.update(msg);
+                        let hashed_msg = hasher.finalize();
+
+                        MessageId::from(hashed_msg.as_bytes())
+                    })
                     .validate_messages()
                     .max_transmit_size(MAX_TRANSMIT_SIZE)
                     .build()
