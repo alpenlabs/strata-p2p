@@ -65,7 +65,7 @@ impl Behaviour {
                 )),
                 gossipsub::ConfigBuilder::default()
                     .validation_mode(gossipsub::ValidationMode::Permissive)
-                    .gossip_retransimission(1)
+                    .gossip_retransimission(3)
                     .allow_self_origin(true) // TODO: (@Rajil1213) make this configurable
                     .duplicate_cache_time(Duration::from_secs(20))
                     .message_id_fn(|msg| {
