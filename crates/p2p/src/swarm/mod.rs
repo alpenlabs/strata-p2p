@@ -341,7 +341,8 @@ impl P2P {
         match cmd {
             Command::PublishMessage(send_message) => {
                 let msg: GossipsubMsg = send_message.into();
-                debug!(?msg, "Publishing message");
+                let sender = self.local_peer_id();
+                debug!(?msg, ?sender, "Publishing message");
 
                 // TODO(Velnbur): add retry mechanism later, instead of skipping the error
                 let _ = self
