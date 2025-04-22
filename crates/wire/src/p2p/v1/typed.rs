@@ -270,6 +270,9 @@ pub enum UnsignedGossipsubMsg {
         /// 32-byte hash of some unique to stake chain data.
         stake_chain_id: StakeChainId,
 
+        /// 32-byte x-only public key of the operator used to advance the stake chain.
+        operator_pk: XOnlyPublicKey,
+
         /// [`Txid`] of the pre-stake transaction.
         pre_stake_txid: Txid,
 
@@ -341,11 +344,14 @@ impl UnsignedGossipsubMsg {
                         DecodeError::new("invalid length of bytes for stake chain id")
                     })?;
                 let stake_chain_id = StakeChainId::from_bytes(bytes);
+                let operator_pk = XOnlyPublicKey::from_slice(&proto.operator_pk)
+                    .map_err(|_| DecodeError::new("invalid length of bytes for operator pk"))?;
                 let pre_stake_txid = consensus::deserialize(&proto.pre_stake_txid)
                     .map_err(|_| DecodeError::new("invalid length of bytes for pre-stake txid"))?;
                 let pre_stake_vout = proto.pre_stake_vout;
                 Self::StakeChainExchange {
                     stake_chain_id,
+                    operator_pk,
                     pre_stake_txid,
                     pre_stake_vout,
                 }
@@ -429,10 +435,12 @@ impl UnsignedGossipsubMsg {
         match &self {
             Self::StakeChainExchange {
                 stake_chain_id,
+                operator_pk,
                 pre_stake_txid,
                 pre_stake_vout,
             } => {
                 content.extend(stake_chain_id.as_ref());
+                content.extend(operator_pk.serialize());
                 content.extend(pre_stake_txid.as_byte_array());
                 content.extend(pre_stake_vout.to_le_bytes());
             }
@@ -478,10 +486,12 @@ impl UnsignedGossipsubMsg {
         match self {
             Self::StakeChainExchange {
                 stake_chain_id,
+                operator_pk,
                 pre_stake_txid,
                 pre_stake_vout,
             } => ProtoGossipsubMsgBody::StakeChain(ProtoStakeChainExchange {
                 stake_chain_id: stake_chain_id.to_vec(),
+                operator_pk: operator_pk.serialize().to_vec(),
                 pre_stake_txid: pre_stake_txid.to_byte_array().to_vec(),
                 pre_stake_vout: *pre_stake_vout,
             }),

@@ -7,11 +7,14 @@ message StakeChainExchange {
   /// 32-byte hash of some unique to stake chain data.
   bytes stake_chain_id = 1;
 
+  /// 32-byte operator x-only pk used to advance the stake chain.
+  bytes operator_pk = 2;
+
   // Transaction hash of pre stake tx.
-  bytes pre_stake_txid = 2;
+  bytes pre_stake_txid = 3;
 
   // vout of pre stake tx.
-  uint32 pre_stake_vout = 3;
+  uint32 pre_stake_vout = 4;
 }
 
 // Primarily used for the WOTS PKs for the Deposit.

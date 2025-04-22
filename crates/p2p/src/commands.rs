@@ -45,6 +45,9 @@ pub enum UnsignedPublishMessage {
         /// 32-byte hash of some unique to stake chain data.
         stake_chain_id: StakeChainId,
 
+        /// 32-byte x-only public key of the operator used to advance the stake chain.
+        operator_pk: XOnlyPublicKey,
+
         /// [`Txid`] of the pre-stake transaction.
         pre_stake_txid: Txid,
 
@@ -137,10 +140,12 @@ impl From<UnsignedPublishMessage> for UnsignedGossipsubMsg {
         match value {
             UnsignedPublishMessage::StakeChainExchange {
                 stake_chain_id,
+                operator_pk,
                 pre_stake_txid,
                 pre_stake_vout,
             } => UnsignedGossipsubMsg::StakeChainExchange {
                 stake_chain_id,
+                operator_pk,
                 pre_stake_txid,
                 pre_stake_vout,
             },
