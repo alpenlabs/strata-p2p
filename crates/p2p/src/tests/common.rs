@@ -47,6 +47,7 @@ impl Operator {
         let config = P2PConfig {
             keypair: keypair.clone(),
             idle_connection_timeout: Duration::from_secs(30),
+            max_retries: None,
             listening_addr: local_addr,
             allowlist,
             connect_to,

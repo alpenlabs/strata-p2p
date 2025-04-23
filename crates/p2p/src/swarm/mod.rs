@@ -29,7 +29,7 @@ use tokio::{
     sync::{broadcast, mpsc},
 };
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, error, info, instrument};
+use tracing::{debug, error, info, instrument, warn};
 
 use crate::{
     commands::{Command, QueryP2PStateCommand},
@@ -52,6 +52,9 @@ const MAX_TRANSMIT_SIZE: usize = 512 * 1024;
 // TODO(Velnbur): make this configurable later
 const PROTOCOL_NAME: &str = "/strata-bitvm2";
 
+/// Global default retry count for connection attempts.
+pub const DEFAULT_MAX_RETRIES: usize = 3;
+
 /// Configuration options for [`P2P`].
 #[derive(Debug, Clone)]
 pub struct P2PConfig {
@@ -60,6 +63,11 @@ pub struct P2PConfig {
 
     /// Idle connection timeout.
     pub idle_connection_timeout: Duration,
+
+    /// Max retry count for connections.
+    ///
+    /// The default is [`DEFAULT_MAX_RETRIES`].
+    pub max_retries: Option<usize>,
 
     /// The node's address.
     pub listening_addr: Multiaddr,
@@ -152,27 +160,59 @@ impl P2P {
     /// Waits until all connections are established and all peers are subscribed to
     /// current one.
     pub async fn establish_connections(&mut self) {
+        let max_retry_count = self.config.max_retries.unwrap_or(DEFAULT_MAX_RETRIES);
+
         let mut is_not_connected = HashSet::new();
+
+        let mut num_retries = 0;
         for addr in &self.config.connect_to {
-            // TODO(Velnbur): add retry mechanism later...
-            let _ = self
-                .swarm
-                .dial(addr.clone())
-                .inspect_err(|err| error!(%err, %addr, "Failed to dial peer"));
+            loop {
+                match self.swarm.dial(addr.clone()) {
+                    Ok(_) => {
+                        info!(%addr, "dialed peer");
+                        break;
+                    }
+                    Err(err) => {
+                        warn!(%err, %addr, %num_retries, "failed to connect to peer, retrying...");
+                    }
+                }
+
+                num_retries += 1;
+
+                if num_retries > max_retry_count {
+                    error!(%addr, %num_retries, "failed to connect to peer after max retries");
+                    break;
+                }
+            }
+
             is_not_connected.insert(addr);
         }
 
-        // TODO(Velnbur): add retry mechanism later...
-        let _ = self
-            .swarm
-            .behaviour_mut()
-            .gossipsub
-            .subscribe(&TOPIC)
-            .inspect_err(|err| error!(%err, "Failed to subscribe for events"));
+        let mut num_retries = 0;
+        loop {
+            match self.swarm.behaviour_mut().gossipsub.subscribe(&TOPIC) {
+                Ok(_) => {
+                    info!(topic=%TOPIC.to_string(), "subscribed to topic successfully");
+                    break;
+                }
+                Err(err) => {
+                    error!(%err, %num_retries, "failed to subscribe to topic, retrying...");
+                }
+            }
+
+            num_retries += 1;
+
+            if num_retries > max_retry_count {
+                error!(%num_retries, "failed to subscribe to topic after max retries");
+                break;
+            }
+        }
 
         let mut subscriptions = 0;
 
         while let Some(event) = self.swarm.next().await {
+            debug!(?event, "received event from swarm");
+
             match event {
                 SwarmEvent::Behaviour(BehaviourEvent::Gossipsub(GossipsubEvent::Subscribed {
                     peer_id,
@@ -181,13 +221,15 @@ impl P2P {
                     if self.config.allowlist.contains(&peer_id) {
                         subscriptions += 1;
                     }
-                    debug!(%peer_id, "Got subscription");
+                    debug!(%peer_id, "got subscription");
                 }
-                SwarmEvent::ConnectionEstablished { endpoint, .. } => {
+                SwarmEvent::ConnectionEstablished {
+                    peer_id, endpoint, ..
+                } => {
                     let ConnectedPoint::Dialer { address, .. } = endpoint else {
                         continue;
                     };
-                    debug!(%address, "Established connection with peer");
+                    info!(%address, %peer_id, "established connection with peer");
                     is_not_connected.remove(&address);
                 }
                 _ => {}
@@ -198,7 +240,7 @@ impl P2P {
             }
         }
 
-        info!("Established all connections and subscriptions");
+        info!("established all connections and subscriptions");
     }
 
     /// Starts listening and handling events from the network and commands from
