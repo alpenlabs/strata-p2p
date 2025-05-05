@@ -25,6 +25,7 @@ libp2p = { workspace = true, features = [
 
 async-trait.workspace = true
 bitcoin = { workspace = true, features = ["serde"] }
+blake3 = "1.8.2"
 futures.workspace = true
 musig2 = { workspace = true, features = ["serde"] }
 prost.workspace = true
