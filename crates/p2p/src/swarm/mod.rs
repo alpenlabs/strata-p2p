@@ -29,7 +29,7 @@ use tokio::{
     sync::{broadcast, mpsc},
 };
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, error, info, instrument, warn};
+use tracing::{debug, error, info, instrument, trace, warn};
 
 use crate::{
     commands::{Command, QueryP2PStateCommand},
@@ -211,7 +211,8 @@ impl P2P {
         let mut subscriptions = 0;
 
         while let Some(event) = self.swarm.next().await {
-            debug!(?event, "received event from swarm");
+            debug!("received event from swarm");
+            trace!(?event, "received event from swarm");
 
             match event {
                 SwarmEvent::Behaviour(BehaviourEvent::Gossipsub(GossipsubEvent::Subscribed {
@@ -321,7 +322,7 @@ impl P2P {
         let msg = match GossipsubMsg::from_bytes(&message.data) {
             Ok(msg) => msg,
             Err(err) => {
-                error!(%err, "Got invalid message from peer, rejecting it.");
+                warn!(%err, "Got invalid message from peer, rejecting it.");
                 // no error should appear in case of message rejection
                 let _ = self
                     .swarm
@@ -341,7 +342,7 @@ impl P2P {
             .source
             .expect("Message must have author as ValidationMode set to Permissive");
         if let Err(err) = self.validate_gossipsub_msg(&msg) {
-            error!(reason=%err, %source, "Message failed validation.");
+            warn!(reason=%err, %source, "Message failed validation.");
             // no error should appear in case of message rejection
             let _ = self
                 .swarm
@@ -368,7 +369,7 @@ impl P2P {
             );
 
         if !propagation_result {
-            error!(?event, "failed to propagate accepted message further");
+            warn!(?event, "failed to propagate accepted message further");
         }
 
         self.events
@@ -383,7 +384,8 @@ impl P2P {
         match cmd {
             Command::PublishMessage(send_message) => {
                 let msg: GossipsubMsg = send_message.into();
-                debug!(?msg, "Publishing message");
+                debug!("Publishing message");
+                trace!(?msg, "Publishing message");
 
                 // TODO(Velnbur): add retry mechanism later, instead of skipping the error
                 let _ = self
@@ -398,8 +400,8 @@ impl P2P {
             Command::RequestMessage(request) => {
                 let request_target_pubkey = request.operator_pubkey();
                 let request_target_peer_id = request.peer_id();
-                info!(%request_target_pubkey, %request_target_peer_id, "Got request message");
-                debug!(?request, "Got request message");
+                debug!(%request_target_pubkey, %request_target_peer_id, "Got request message");
+                trace!(?request, "Got request message");
 
                 let request = request.into_msg();
 
@@ -470,7 +472,8 @@ impl P2P {
     ) -> P2PResult<()> {
         match event {
             RequestResponseEvent::Message { peer, message, .. } => {
-                debug!(%peer, ?message, "Received message");
+                debug!(%peer, "Received message");
+                trace!(%peer, ?message, "Received message");
                 self.handle_message_event(peer, message).await?
             }
             RequestResponseEvent::OutboundFailure {
@@ -512,7 +515,7 @@ impl P2P {
                 let empty_response = GetMessageResponse { msg: vec![] };
 
                 let Ok(req) = v1::GetMessageRequest::from_msg(request) else {
-                    error!(%peer_id, "Peer sent invalid get message request, replying with empty response");
+                    warn!(%peer_id, "Peer sent invalid get message request, replying with empty response");
                     let _ = self
                         .swarm
                         .behaviour_mut()
@@ -537,7 +540,7 @@ impl P2P {
                 response,
             } => {
                 if response.msg.is_empty() {
-                    error!(%request_id, ?response, "Received empty response");
+                    warn!(%request_id, ?response, "Received empty response");
                     return Ok(());
                 }
 
@@ -550,12 +553,12 @@ impl P2P {
                     let msg = match GossipsubMsg::from_proto(msg.clone()) {
                         Ok(msg) => msg,
                         Err(err) => {
-                            error!(%peer_id, reason=%err, "Peer sent invalid message");
+                            warn!(%peer_id, reason=%err, "Peer sent invalid message");
                             continue;
                         }
                     };
                     if let Err(err) = self.validate_gossipsub_msg(&msg) {
-                        error!(%peer_id, reason=%err, "Message failed validation");
+                        warn!(%peer_id, reason=%err, "Message failed validation");
                         continue;
                     }
 
