@@ -185,7 +185,7 @@ impl P2P {
                 }
             }
 
-            is_not_connected.insert(addr);
+            is_not_connected.insert(addr.clone());
         }
 
         let mut num_retries = 0;
@@ -233,7 +233,56 @@ impl P2P {
                     info!(%address, %peer_id, "established connection with peer");
                     is_not_connected.remove(&address);
                 }
-                _ => {}
+                SwarmEvent::IncomingConnectionError {
+                    connection_id,
+                    local_addr,
+                    send_back_addr,
+                    error,
+                } => {
+                    error!(%connection_id, %local_addr, %send_back_addr, %error, "incoming connection error");
+                }
+                SwarmEvent::ConnectionClosed {
+                    peer_id,
+                    connection_id: _,
+                    endpoint,
+                    num_established,
+                    cause,
+                } => {
+                    warn!(?endpoint, %peer_id, %num_established, ?cause, "connection closed with peer");
+
+                    if let ConnectedPoint::Dialer { address, .. } = &endpoint {
+                        is_not_connected.insert(address.clone());
+                    }
+                }
+                SwarmEvent::OutgoingConnectionError {
+                    connection_id: _,
+                    peer_id,
+                    error,
+                } => {
+                    error!(?peer_id, %error, "outgoing connection error");
+                }
+                SwarmEvent::ExpiredListenAddr {
+                    listener_id,
+                    address,
+                } => {
+                    warn!(%listener_id, %address, "expired listen address");
+                }
+                SwarmEvent::ListenerClosed {
+                    listener_id,
+                    addresses,
+                    reason,
+                } => {
+                    warn!(%listener_id, ?addresses, ?reason, "listener closed");
+                }
+                SwarmEvent::ListenerError { listener_id, error } => {
+                    error!(%listener_id, %error, "listener error");
+                }
+                SwarmEvent::ExternalAddrExpired { address } => {
+                    warn!(%address, "external address expired");
+                }
+                other_event => {
+                    debug!(?other_event, "received event from swarm");
+                }
             };
 
             if is_not_connected.is_empty() && subscriptions >= self.config.allowlist.len() {
