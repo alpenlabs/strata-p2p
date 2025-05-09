@@ -23,6 +23,7 @@ libp2p = { version = "0.55.0", features = [
   "ping",
   "yamux",
   "identify",
+  "dns",
 ] }
 libp2p-identity = { version = "0.2.10", default-features = false, features = [
   "secp256k1",

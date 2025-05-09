@@ -6,11 +6,11 @@ use libp2p::TransportError;
 use thiserror::Error;
 
 /// P2P result type.
-pub type P2PResult<T> = Result<T, Error>;
+pub type P2PResult<T> = Result<T, SwarmError>;
 
 /// Swarm errors.
 #[derive(Debug, Error)]
-pub enum Error {
+pub enum SwarmError {
     // Validation errors.
     #[error("Validation error {0}")]
     Validation(#[from] ValidationError),
@@ -18,6 +18,10 @@ pub enum Error {
     /// Protocol errors.
     #[error("Protocol error {0}")]
     Protocol(#[from] ProtocolError),
+
+    /// Build errors
+    #[error("Build error {0}")]
+    Build(String),
 }
 
 /// Validation errors.

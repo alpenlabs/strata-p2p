@@ -3,7 +3,7 @@
 use std::{collections::HashSet, sync::LazyLock, time::Duration};
 
 use behavior::{Behaviour, BehaviourEvent};
-use errors::{P2PResult, ProtocolError, ValidationError};
+use errors::{P2PResult, ProtocolError, SwarmError, ValidationError};
 use futures::StreamExt as _;
 use handle::P2PHandle;
 use libp2p::{
@@ -636,17 +636,20 @@ pub fn with_inmemory_transport(config: &P2PConfig) -> P2PResult<Swarm<Behaviour>
 }
 
 /// Constructs swarm from P2P config with TCP transport. Uses
-/// `/ip4/{addr}/tcp/{port}` addresses.
+/// `/ip4/{addr}/tcp/{port}` or `dns4/{domain}/tcp/{port}` addresses
 pub fn with_tcp_transport(config: &P2PConfig) -> P2PResult<Swarm<Behaviour>> {
     let builder = init_swarm!(config);
-    let swarm = finish_swarm!(
-        builder.with_tcp(
+
+    let builder = builder
+        .with_tcp(
             Default::default(),
             noise::Config::new,
             yamux::Config::default,
-        ),
-        config
-    );
+        )
+        .map_err(|e| SwarmError::Build(e.to_string()))?
+        .with_dns();
+
+    let swarm = finish_swarm!(builder, config);
 
     Ok(swarm)
 }
