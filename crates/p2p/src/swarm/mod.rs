@@ -12,7 +12,9 @@ use futures::StreamExt as _;
 use handle::P2PHandle;
 use libp2p::{
     core::{muxing::StreamMuxerBox, transport::MemoryTransport, ConnectedPoint},
-    gossipsub::{Event as GossipsubEvent, Message, MessageAcceptance, MessageId, Sha256Topic},
+    gossipsub::{
+        Event as GossipsubEvent, Message, MessageAcceptance, MessageId, PublishError, Sha256Topic,
+    },
     identity::secp256k1::Keypair,
     noise,
     request_response::{self, Event as RequestResponseEvent},
@@ -490,13 +492,37 @@ impl P2P {
                 debug!("Publishing message");
                 trace!(?msg, "Publishing message");
 
-                // TODO(Velnbur): add retry mechanism later, instead of skipping the error
-                let _ = self
+                let message_id = self
                     .swarm
                     .behaviour_mut()
                     .gossipsub
                     .publish(TOPIC.hash(), msg.into_raw().encode_to_vec())
-                    .inspect_err(|err| error!(%err, "Failed to publish msg through gossipsub"));
+                    .inspect_err(|err| {
+                        match err {
+                            PublishError::Duplicate => {
+                                warn!(%err, "Failed to publish msg through gossipsub, message already exists");
+                            }
+                            PublishError::SigningError(signing_error) => {
+                                error!(%signing_error, "Failed to sign message");
+                            }
+                            PublishError::InsufficientPeers => {
+                                error!("Insufficient peers to publish message");
+                            }
+                            PublishError::MessageTooLarge => {
+                                error!("Message too large to publish");
+                            }
+                            PublishError::TransformFailed(error) => {
+                                error!(%error, "Failed to transform message");
+                            }
+                            PublishError::AllQueuesFull(len) => {
+                                error!(%len, "All queues full, dropping message");
+                            }
+                        }
+                    });
+
+                if message_id.is_ok() {
+                    debug!(message_id=%message_id.unwrap(), "Message published");
+                }
 
                 Ok(())
             }
