@@ -514,8 +514,8 @@ impl P2P {
                             PublishError::TransformFailed(error) => {
                                 error!(%error, "Failed to transform message");
                             }
-                            PublishError::AllQueuesFull(len) => {
-                                error!(%len, "All queues full, dropping message");
+                            PublishError::AllQueuesFull(num_peers_attempted) => {
+                                error!(%num_peers_attempted, "All queues full, dropping message");
                             }
                         }
                     });
