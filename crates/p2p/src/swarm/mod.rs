@@ -1,6 +1,10 @@
 //! Swarm implementation for P2P.
 
-use std::{collections::HashSet, sync::LazyLock, time::Duration};
+use std::{
+    collections::HashSet,
+    sync::LazyLock,
+    time::{Duration, Instant},
+};
 
 use behavior::{Behaviour, BehaviourEvent};
 use errors::{P2PResult, ProtocolError, ValidationError};
@@ -8,7 +12,9 @@ use futures::StreamExt as _;
 use handle::P2PHandle;
 use libp2p::{
     core::{muxing::StreamMuxerBox, transport::MemoryTransport, ConnectedPoint},
-    gossipsub::{Event as GossipsubEvent, Message, MessageAcceptance, MessageId, Sha256Topic},
+    gossipsub::{
+        Event as GossipsubEvent, Message, MessageAcceptance, MessageId, PublishError, Sha256Topic,
+    },
     identity::secp256k1::Keypair,
     noise,
     request_response::{self, Event as RequestResponseEvent},
@@ -27,6 +33,7 @@ use strata_p2p_wire::p2p::{
 use tokio::{
     select,
     sync::{broadcast, mpsc},
+    time::timeout,
 };
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, instrument, trace, warn};
@@ -55,6 +62,15 @@ const PROTOCOL_NAME: &str = "/strata-bitvm2";
 /// Global default retry count for connection attempts.
 pub const DEFAULT_MAX_RETRIES: usize = 3;
 
+/// Global timeout for dialing a peer.
+pub const DEFAULT_DIAL_TIMEOUT: Duration = Duration::from_millis(250);
+
+/// Global default timeout for general operations.
+pub const DEFAULT_GENERAL_TIMEOUT: Duration = Duration::from_millis(250);
+
+/// Global default interval for connection checks.
+pub const DEFAULT_CONNECTION_CHECK_INTERVAL: Duration = Duration::from_millis(500);
+
 /// Configuration options for [`P2P`].
 #[derive(Debug, Clone)]
 pub struct P2PConfig {
@@ -68,6 +84,21 @@ pub struct P2PConfig {
     ///
     /// The default is [`DEFAULT_MAX_RETRIES`].
     pub max_retries: Option<usize>,
+
+    /// Dial timeout.
+    ///
+    /// The default is [`DEFAULT_DIAL_TIMEOUT`].
+    pub dial_timeout: Option<Duration>,
+
+    /// General timeout for operations.
+    ///
+    /// The default is [`DEFAULT_GENERAL_TIMEOUT`].
+    pub general_timeout: Option<Duration>,
+
+    /// Connection check interval.
+    ///
+    /// The default is [`DEFAULT_CONNECTION_CHECK_INTERVAL`].
+    pub connection_check_interval: Option<Duration>,
 
     /// The node's address.
     pub listening_addr: Multiaddr,
@@ -161,11 +192,21 @@ impl P2P {
     /// current one.
     pub async fn establish_connections(&mut self) {
         let max_retry_count = self.config.max_retries.unwrap_or(DEFAULT_MAX_RETRIES);
+        let dial_timeout = self.config.dial_timeout.unwrap_or(DEFAULT_DIAL_TIMEOUT);
+        let general_timeout = self
+            .config
+            .general_timeout
+            .unwrap_or(DEFAULT_GENERAL_TIMEOUT);
+        let connection_check_interval = self
+            .config
+            .connection_check_interval
+            .unwrap_or(DEFAULT_CONNECTION_CHECK_INTERVAL);
 
         let mut is_not_connected = HashSet::new();
 
-        let mut num_retries = 0;
         for addr in &self.config.connect_to {
+            let mut num_retries = 0;
+            debug!(%addr, %num_retries, %max_retry_count, "attempting to dial peer");
             loop {
                 match self.swarm.dial(addr.clone()) {
                     Ok(_) => {
@@ -173,71 +214,135 @@ impl P2P {
                         break;
                     }
                     Err(err) => {
-                        warn!(%err, %addr, %num_retries, "failed to connect to peer, retrying...");
+                        warn!(%err, %addr, %num_retries, %max_retry_count, "failed to connect to peer, retrying...");
                     }
                 }
 
                 num_retries += 1;
 
                 if num_retries > max_retry_count {
-                    error!(%addr, %num_retries, "failed to connect to peer after max retries");
+                    error!(%addr, %num_retries, %max_retry_count, "failed to connect to peer after max retries");
                     break;
                 }
+
+                // Add a small delay between retries to avoid overwhelming the network
+                tokio::time::sleep(dial_timeout).await;
+                debug!(%addr, %num_retries, %max_retry_count, "attempting to dial peer again");
             }
 
+            debug!(%addr, %num_retries, %max_retry_count, "finished trying to dial peer");
             is_not_connected.insert(addr);
         }
 
         let mut num_retries = 0;
         loop {
-            match self.swarm.behaviour_mut().gossipsub.subscribe(&TOPIC) {
-                Ok(_) => {
-                    info!(topic=%TOPIC.to_string(), "subscribed to topic successfully");
+            debug!(topic=%TOPIC.to_string(), %num_retries, %max_retry_count, "attempting to subscribe to topic");
+            match timeout(general_timeout, async {
+                self.swarm.behaviour_mut().gossipsub.subscribe(&TOPIC)
+            })
+            .await
+            {
+                Ok(Ok(_)) => {
+                    info!(topic=%TOPIC.to_string(), %num_retries, %max_retry_count, "subscribed to topic successfully");
                     break;
                 }
-                Err(err) => {
-                    error!(%err, %num_retries, "failed to subscribe to topic, retrying...");
+                Ok(Err(err)) => {
+                    error!(topic=%TOPIC.to_string(), %err, %num_retries, %max_retry_count, "failed to subscribe to topic, retrying...");
+                }
+                Err(_) => {
+                    error!(topic=%TOPIC.to_string(), %num_retries, %max_retry_count, "failed to subscribe to topic, retrying...");
                 }
             }
 
             num_retries += 1;
 
             if num_retries > max_retry_count {
-                error!(%num_retries, "failed to subscribe to topic after max retries");
+                error!(topic=%TOPIC.to_string(), %num_retries, %max_retry_count, "failed to subscribe to topic after max retries");
                 break;
             }
+
+            // Add a small delay between retries
+            tokio::time::sleep(connection_check_interval).await;
+            debug!(topic=%TOPIC.to_string(), %num_retries, %max_retry_count, "attempting to subscribe to topic again");
         }
+        debug!(topic=%TOPIC.to_string(), %num_retries, %max_retry_count, "finished trying to subscribe to topic");
 
         let mut subscriptions = 0;
+        let start_time = Instant::now();
+        let mut next_check = Instant::now();
 
-        while let Some(event) = self.swarm.next().await {
-            debug!("received event from swarm");
-            trace!(?event, "received event from swarm");
+        let connection_future = async {
+            while let Some(event) = self.swarm.next().await {
+                debug!("received event from swarm");
+                trace!(?event, "received event from swarm");
 
-            match event {
-                SwarmEvent::Behaviour(BehaviourEvent::Gossipsub(GossipsubEvent::Subscribed {
-                    peer_id,
-                    ..
-                })) => {
-                    if self.config.allowlist.contains(&peer_id) {
-                        subscriptions += 1;
+                match event {
+                    SwarmEvent::Behaviour(BehaviourEvent::Gossipsub(
+                        GossipsubEvent::Subscribed { peer_id, .. },
+                    )) => {
+                        if self.config.allowlist.contains(&peer_id) {
+                            subscriptions += 1;
+                            info!(%peer_id, %subscriptions, total=self.config.allowlist.len(), "got subscription");
+                        } else {
+                            debug!(%peer_id, %subscriptions, total=self.config.allowlist.len(), "got subscription from non-allowlisted peer");
+                        }
                     }
-                    debug!(%peer_id, "got subscription");
-                }
-                SwarmEvent::ConnectionEstablished {
-                    peer_id, endpoint, ..
-                } => {
-                    let ConnectedPoint::Dialer { address, .. } = endpoint else {
-                        continue;
-                    };
-                    info!(%address, %peer_id, "established connection with peer");
-                    is_not_connected.remove(&address);
-                }
-                _ => {}
-            };
+                    SwarmEvent::ConnectionEstablished {
+                        peer_id, endpoint, ..
+                    } => {
+                        let ConnectedPoint::Dialer { address, .. } = endpoint else {
+                            continue;
+                        };
+                        info!(%address, %peer_id, "established connection with peer");
+                        is_not_connected.remove(&address);
+                    }
+                    SwarmEvent::OutgoingConnectionError { peer_id, error, .. } => {
+                        warn!(?peer_id, %error, "outgoing connection error");
+                    }
+                    _ => {}
+                };
 
-            if is_not_connected.is_empty() && subscriptions >= self.config.allowlist.len() {
-                break;
+                // Periodically print status updates
+                if Instant::now() > next_check {
+                    info!(
+                        elapsed=?start_time.elapsed(),
+                        remaining_connections=is_not_connected.len(),
+                        subscriptions=subscriptions,
+                        total_allowlist=self.config.allowlist.len(),
+                        "connection establishment progress"
+                    );
+                    next_check = Instant::now() + connection_check_interval;
+                }
+
+                if is_not_connected.is_empty() && subscriptions >= self.config.allowlist.len() {
+                    info!("met all connection and subscription requirements");
+                    return true;
+                }
+            }
+            false
+        };
+
+        match timeout(general_timeout, connection_future).await {
+            Ok(true) => {
+                info!(elapsed=?start_time.elapsed(), "established all connections and subscriptions");
+            }
+            Ok(false) => {
+                warn!(
+                    elapsed=?start_time.elapsed(),
+                    remaining_connections=is_not_connected.len(),
+                    subscriptions=subscriptions,
+                    total_allowlist=self.config.allowlist.len(),
+                    "swarm event loop exited unexpectedly"
+                );
+            }
+            Err(_) => {
+                warn!(
+                    elapsed=?start_time.elapsed(),
+                    remaining_connections=is_not_connected.len(),
+                    subscriptions=subscriptions,
+                    total_allowlist=self.config.allowlist.len(),
+                    "connection establishment timed out after {:?}", general_timeout
+                );
             }
         }
 
@@ -387,13 +492,37 @@ impl P2P {
                 debug!("Publishing message");
                 trace!(?msg, "Publishing message");
 
-                // TODO(Velnbur): add retry mechanism later, instead of skipping the error
-                let _ = self
+                let message_id = self
                     .swarm
                     .behaviour_mut()
                     .gossipsub
                     .publish(TOPIC.hash(), msg.into_raw().encode_to_vec())
-                    .inspect_err(|err| error!(%err, "Failed to publish msg through gossipsub"));
+                    .inspect_err(|err| {
+                        match err {
+                            PublishError::Duplicate => {
+                                warn!(%err, "Failed to publish msg through gossipsub, message already exists");
+                            }
+                            PublishError::SigningError(signing_error) => {
+                                error!(%signing_error, "Failed to sign message");
+                            }
+                            PublishError::InsufficientPeers => {
+                                error!("Insufficient peers to publish message");
+                            }
+                            PublishError::MessageTooLarge => {
+                                error!("Message too large to publish");
+                            }
+                            PublishError::TransformFailed(error) => {
+                                error!(%error, "Failed to transform message");
+                            }
+                            PublishError::AllQueuesFull(num_peers_attempted) => {
+                                error!(%num_peers_attempted, "All queues full, dropping message");
+                            }
+                        }
+                    });
+
+                if message_id.is_ok() {
+                    debug!(message_id=%message_id.unwrap(), "Message published");
+                }
 
                 Ok(())
             }
@@ -490,7 +619,22 @@ impl P2P {
                 error,
                 ..
             } => {
-                error!(%peer, %error, %request_id, "Inbound failure")
+                warn!(%peer, %error, %request_id, "Inbound failure");
+                // retry mechanism
+                // get the addr from the peer
+                // it is the same index as the peer in the allowlist
+                let idx = self
+                    .config
+                    .allowlist
+                    .iter()
+                    .position(|id| *id == peer)
+                    .unwrap();
+                let addr = self.config.connect_to[idx].clone();
+                // dial the peer
+                let _ = self.swarm.dial(addr).inspect_err(|err| {
+                    error!(%peer, %error, %request_id, "Inbound failure");
+                    error!(%err, "Failed to connect to peer");
+                });
             }
             RequestResponseEvent::ResponseSent {
                 peer, request_id, ..

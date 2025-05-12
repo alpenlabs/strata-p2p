@@ -2,11 +2,10 @@
 
 use std::collections::HashSet;
 
-use blake3::hash;
 use libp2p::{
     allow_block_list::{AllowedPeers, Behaviour as AllowListBehaviour},
     gossipsub::{
-        self, Behaviour as Gossipsub, IdentityTransform, MessageAuthenticity, MessageId,
+        self, Behaviour as Gossipsub, IdentityTransform, MessageAuthenticity,
         WhitelistSubscriptionFilter,
     },
     identify::{Behaviour as Identify, Config},
@@ -70,18 +69,6 @@ impl Behaviour {
                     .max_transmit_size(MAX_TRANSMIT_SIZE)
                     // Avoids spamming the network and nodes with messages
                     .idontwant_on_publish(true)
-                    // We want a unique message id for each message, so we use the hash of the
-                    // message data instead of the default one, that is the concatenation of the
-                    // PeerId and the sequence number of the message.
-                    //
-                    // NOTE(@storopoli): I don't trust the default one, since we are not using the
-                    //                   LibP2P's Message template, hence the sequence number might
-                    //                   not exist, and in that case it is always be set to 0 by
-                    //                   default.
-                    .message_id_fn(|msg| {
-                        let hash = hash(msg.data.as_ref());
-                        MessageId::new(hash.as_bytes())
-                    })
                     .build()
                     .expect("gossipsub config at this stage must be valid"),
                 None,
