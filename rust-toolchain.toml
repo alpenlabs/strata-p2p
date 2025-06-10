@@ -1,6 +1,5 @@
 [toolchain]
-# update this after https://github.com/rust-lang/rust/issues/134044 is fixed.
-channel = "nightly-2024-11-01"
+channel = "nightly-2025-06-01"
 components = [
   "cargo",
   "clippy",
@@ -10,5 +9,5 @@ components = [
   "rust-docs",
   "rust-src",
   "rust-std",
-  # "miri" # currently, does not support DB FFIs (results in false positives for `rockbound`)
+  "miri" # for unsafe code testing
 ]

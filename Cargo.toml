@@ -1,48 +1,26 @@
 [workspace]
-members = ["crates/p2p", "crates/types", "crates/wire"]
+members = ["crates/p2p"]
 
 default-members = ["crates/p2p"]
 
 resolver = "2"
 
+package.edition = "2024"
+package.version = "0.1.0"
+
+[workspace.lints]
+rust.missing_debug_implementations = "warn"
+rust.rust_2018_idioms = { level = "deny", priority = -1 }
+rust.unreachable_pub = "deny"
+rust.unused_crate_dependencies = "deny"
+rust.unused_must_use = "deny"
+rust.missing_docs = "deny"
+rust.unsafe_op_in_unsafe_fn = "deny"
+rustdoc.all = "deny"
+clippy.missing_const_for_fn = "deny"
+clippy.too_long_first_doc_paragraph = "warn"
+
 [workspace.dependencies]
-async-trait = "0.1.83"
-bitcoin = { version = "0.32.5", features = [ # keep in sync with secp256k1
-  "serde",
-] }
-futures = "0.3.31"
-hex = "0.4.3"
-libp2p = { version = "0.55.0", features = [
-  "noise",
-  "gossipsub",
-  "tcp",
-  "request-response",
-  "tokio",
-  "secp256k1",
-  "macros",
-  "ping",
-  "yamux",
-  "identify",
-] }
-libp2p-identity = { version = "0.2.10", default-features = false, features = [
-  "secp256k1",
-  "peerid",
-  "rand",
-] }
-musig2 = { version = "0.1.0", features = ["serde"] }
-prost = "0.13.4"
-secp256k1 = { version = "0.29.0", features = [ # keep in sync with bitcoin
-  "rand",
-] }
-serde = { version = "1.0.217", features = ["derive"] }
-thiserror = "2.0.11"
-tokio = { version = "1.42.0", default-features = false, features = [
-  "macros",
-  "time",
-] }
-tokio-util = { version = "0.7.13", default-features = false, features = ["rt"] }
-tracing = { version = "0.1.41", default-features = false }
-tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
 
 [profile.test.package.proptest]
 opt-level = 3

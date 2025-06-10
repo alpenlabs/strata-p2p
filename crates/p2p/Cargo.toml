@@ -1,44 +1,11 @@
 [package]
 name = "strata-p2p"
-version = "0.1.0"
-edition = "2021"
+version.workspace = true
+edition.workspace = true
 
 [lints]
-rust.missing_debug_implementations = "warn"
-rust.unreachable_pub = "warn"
-rust.unused_crate_dependencies = "deny"
-rust.unused_must_use = "deny"
-rust.rust_2018_idioms = { level = "deny", priority = -1 }
+workspace = true
 
 [dependencies]
-libp2p = { workspace = true, features = [
-  "noise",
-  "gossipsub",
-  "tcp",
-  "request-response",
-  "tokio",
-  "secp256k1",
-  "macros",
-  "yamux",
-  "identify",
-] }
-
-async-trait.workspace = true
-bitcoin = { workspace = true, features = ["serde"] }
-futures.workspace = true
-musig2 = { workspace = true, features = ["serde"] }
-prost.workspace = true
-thiserror.workspace = true
-tokio = { workspace = true, features = ["macros", "time"] }
-tokio-util.workspace = true
-tracing.workspace = true
-
-strata-p2p-types.path = "../types"
-strata-p2p-wire.path = "../wire"
 
 [dev-dependencies]
-bitcoin = { workspace = true, features = ["serde", "rand"] }
-tokio = { workspace = true, features = ["rt", "rt-multi-thread"] }
-tokio-util.workspace = true
-tracing-subscriber.workspace = true
-anyhow = "1.0.95"
