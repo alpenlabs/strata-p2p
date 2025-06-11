@@ -7,5 +7,24 @@ edition.workspace = true
 workspace = true
 
 [dependencies]
+libp2p = { workspace = true, features = [
+  "noise",
+  "gossipsub",
+  "tcp",
+  "request-response",
+  "tokio",
+  "secp256k1",
+  "macros",
+  "yamux",
+  "identify",
+] }
+futures.workspace = true
+tokio = { workspace = true, features = ["macros", "time"] }
+tokio-util.workspace = true
+tracing.workspace = true
+thiserror.workspace = true
+
+
+strata-p2p-types.path = "../types"
 
 [dev-dependencies]

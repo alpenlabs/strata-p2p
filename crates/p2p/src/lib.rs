@@ -1,20 +1,5 @@
-//! Strata P2P implementation.
-
-/// Change me.
-///
-/// ```
-/// use foo;
-///
-/// foo();
-/// ```
-pub const fn foo() {}
+//! Main logic of swarm, its setup and handling.
+pub mod swarm;
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_foo() {
-        foo()
-    }
-}
+mod tests;
