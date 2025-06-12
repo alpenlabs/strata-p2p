@@ -1,20 +1,8 @@
 //! Strata P2P implementation.
 
-/// Change me.
-///
-/// ```
-/// use foo;
-///
-/// foo();
-/// ```
-pub const fn foo() {}
+pub mod commands;
+pub mod events;
+pub mod swarm;
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_foo() {
-        foo()
-    }
-}
+mod tests;
