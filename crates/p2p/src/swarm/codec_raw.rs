@@ -2,7 +2,7 @@
 //! behaviour.
 //!
 //! Copied from `rust-libp2p/protocols/request-response/src/json.rs` and
-//! rewritten using [`prost`] crate.
+//! rewritten so that it exposes raw bytes.
 
 use std::{io, marker::PhantomData};
 
@@ -12,7 +12,7 @@ use libp2p::swarm::StreamProtocol;
 
 /// Max request size in bytes.
 // NOTE(Velnbur): commit f096394 in rust-libp2p repo made this one
-// configurable recently, so we way want too.
+// configurable recently, so we may want to configure it too.
 const REQUEST_SIZE_MAXIMUM: u64 = 1024 * 1024;
 
 /// Max response size in bytes.
@@ -22,12 +22,12 @@ const RESPONSE_SIZE_MAXIMUM: u64 = 10 * 1024 * 1024;
 /// for a request-response [`Behaviour`](super::Behaviour) protocol or
 /// protocol family and how they are encoded/decoded on an I/O stream.
 #[derive(Debug)]
-pub struct Codec<Req, Resp> {
+pub struct Codec {
     /// Phatom data for the tuple request-response.
-    phantom: PhantomData<(Req, Resp)>,
+    phantom: PhantomData<Vec<u8>>,
 }
 
-impl<Req, Resp> Default for Codec<Req, Resp> {
+impl Default for Codec {
     fn default() -> Self {
         Codec {
             phantom: PhantomData,
@@ -35,23 +35,20 @@ impl<Req, Resp> Default for Codec<Req, Resp> {
     }
 }
 
-impl<Req, Resp> Clone for Codec<Req, Resp> {
+impl Clone for Codec {
     fn clone(&self) -> Self {
         Self::default()
     }
 }
 
 #[async_trait]
-impl<Req, Resp> libp2p::request_response::Codec for Codec<Req, Resp>
-where
-    Req: Send + prost::Message + Default,
-    Resp: Send + prost::Message + Default,
+impl libp2p::request_response::Codec for Codec
 {
     type Protocol = StreamProtocol;
-    type Request = Req;
-    type Response = Resp;
+    type Request = Vec<u8>;
+    type Response = Vec<u8>;
 
-    async fn read_request<T>(&mut self, _: &Self::Protocol, io: &mut T) -> io::Result<Req>
+    async fn read_request<T>(&mut self, _: &Self::Protocol, io: &mut T) -> io::Result<Self::Request>
     where
         T: AsyncRead + Unpin + Send,
     {
@@ -59,10 +56,10 @@ where
 
         io.take(REQUEST_SIZE_MAXIMUM).read_to_end(&mut vec).await?;
 
-        Ok(Req::decode(vec.as_slice())?)
+        Ok(vec)
     }
 
-    async fn read_response<T>(&mut self, _: &Self::Protocol, io: &mut T) -> io::Result<Resp>
+    async fn read_response<T>(&mut self, _: &Self::Protocol, io: &mut T) -> io::Result<Self::Response>
     where
         T: AsyncRead + Unpin + Send,
     {
@@ -70,7 +67,7 @@ where
 
         io.take(RESPONSE_SIZE_MAXIMUM).read_to_end(&mut vec).await?;
 
-        Ok(Resp::decode(vec.as_slice())?)
+        Ok(vec)
     }
 
     async fn write_request<T>(
@@ -82,11 +79,7 @@ where
     where
         T: AsyncWrite + Unpin + Send,
     {
-        // TODO(Velnbur): reconsider his
-        let mut buf = Vec::new();
-        req.encode(&mut buf)?;
-
-        io.write_all(&buf).await?;
+        io.write_all(&req).await?;
 
         Ok(())
     }
@@ -100,11 +93,7 @@ where
     where
         T: AsyncWrite + Unpin + Send,
     {
-        // TODO(Velnbur): reconsider his
-        let mut buf = Vec::new();
-        resp.encode(&mut buf)?;
-
-        io.write_all(&buf).await?;
+        io.write_all(&resp).await?;
 
         Ok(())
     }

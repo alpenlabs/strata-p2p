@@ -21,7 +21,7 @@ use tokio::{
 use tracing::warn;
 
 use crate::{
-    commands::{Command, PublishMessage, QueryP2PStateCommand, UnsignedPublishMessage},
+    commands::{Command, QueryP2PStateCommand},
     events::Event,
 };
 
@@ -76,10 +76,6 @@ impl P2PHandle {
         self.events.is_empty()
     }
 
-    /// Signs a message using the Libp2p secp256k1 keypair.
-    pub fn sign_message(&self, msg: UnsignedPublishMessage) -> PublishMessage {
-        msg.sign_secp256k1(&self.keypair)
-    }
 
     /// Checks if the P2P node is connected to the specified peer.
     /// Returns true if connected, false otherwise.

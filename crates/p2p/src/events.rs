@@ -1,7 +1,5 @@
 //! Events emitted from P2P.
 
-use strata_p2p_wire::p2p::v1::{GetMessageRequest, GossipsubMsg};
-
 /// Events emitted from P2P to handle from operator side.
 ///
 /// # Implementation Details
@@ -13,14 +11,8 @@ use strata_p2p_wire::p2p::v1::{GetMessageRequest, GossipsubMsg};
 #[expect(clippy::large_enum_variant)]
 pub enum Event {
     /// Received message from other operator.
-    ReceivedMessage(GossipsubMsg),
+    ReceivedMessage(Vec<u8>),
 
     /// Received a request from other operator.
-    ReceivedRequest(GetMessageRequest),
-}
-
-impl From<GossipsubMsg> for Event {
-    fn from(v: GossipsubMsg) -> Self {
-        Self::ReceivedMessage(v)
-    }
+    ReceivedRequest(Vec<u8>),
 }

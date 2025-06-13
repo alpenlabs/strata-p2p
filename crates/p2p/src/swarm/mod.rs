@@ -7,7 +7,7 @@ use std::{
 };
 
 use behavior::{Behaviour, BehaviourEvent};
-use errors::{P2PResult, ProtocolError, ValidationError};
+use errors::{P2PResult, ProtocolError};
 use futures::StreamExt as _;
 use handle::P2PHandle;
 use libp2p::{
@@ -21,15 +21,7 @@ use libp2p::{
     swarm::SwarmEvent,
     yamux, Multiaddr, PeerId, Swarm, SwarmBuilder, Transport,
 };
-use prost::Message as ProtoMsg;
 use strata_p2p_types::P2POperatorPubKey;
-use strata_p2p_wire::p2p::{
-    v1,
-    v1::{
-        proto::{GetMessageRequest, GetMessageResponse},
-        GossipsubMsg,
-    },
-};
 use tokio::{
     select,
     sync::{broadcast, mpsc},
@@ -44,7 +36,7 @@ use crate::{
 };
 
 mod behavior;
-mod codec;
+mod codec_raw;
 pub mod errors;
 pub mod handle;
 
@@ -424,44 +416,13 @@ impl P2P {
         message_id: MessageId,
         message: Message,
     ) -> P2PResult<()> {
-        let msg = match GossipsubMsg::from_bytes(&message.data) {
-            Ok(msg) => msg,
-            Err(err) => {
-                warn!(%err, "Got invalid message from peer, rejecting it.");
-                // no error should appear in case of message rejection
-                let _ = self
-                    .swarm
-                    .behaviour_mut()
-                    .gossipsub
-                    .report_message_validation_result(
-                        &message_id,
-                        &propagation_source,
-                        MessageAcceptance::Reject,
-                    );
-
-                return Ok(());
-            }
-        };
+        trace!("Got message: {:?}", &message.data);
 
         let source = message
             .source
             .expect("Message must have author as ValidationMode set to Permissive");
-        if let Err(err) = self.validate_gossipsub_msg(&msg) {
-            warn!(reason=%err, %source, "Message failed validation.");
-            // no error should appear in case of message rejection
-            let _ = self
-                .swarm
-                .behaviour_mut()
-                .gossipsub
-                .report_message_validation_result(
-                    &message_id,
-                    &propagation_source,
-                    MessageAcceptance::Reject,
-                );
-            return Ok(());
-        }
 
-        let event = Event::from(msg);
+        let event = Event::ReceivedMessage(message.data);
 
         let propagation_result = self
             .swarm
@@ -487,16 +448,15 @@ impl P2P {
     /// Handles command sent through channel by P2P implementation user.
     async fn handle_command(&mut self, cmd: Command) -> P2PResult<()> {
         match cmd {
-            Command::PublishMessage(send_message) => {
-                let msg: GossipsubMsg = send_message.into();
+            Command::PublishMessage { data } => {
                 debug!("Publishing message");
-                trace!(?msg, "Publishing message");
+                trace!("Publishing message {:?}", &data);
 
                 let message_id = self
                     .swarm
                     .behaviour_mut()
                     .gossipsub
-                    .publish(TOPIC.hash(), msg.into_raw().encode_to_vec())
+                    .publish(TOPIC.hash(), data)
                     .inspect_err(|err| {
                         match err {
                             PublishError::Duplicate => {
@@ -526,28 +486,28 @@ impl P2P {
 
                 Ok(())
             }
-            Command::RequestMessage(request) => {
-                let request_target_pubkey = request.operator_pubkey();
-                let request_target_peer_id = request.peer_id();
+            Command::RequestMessage { peer_pubkey, data } => {
+                let request_target_pubkey = &peer_pubkey;
+                let request_target_peer_id = &peer_pubkey.peer_id();
                 debug!(%request_target_pubkey, %request_target_peer_id, "Got request message");
-                trace!(?request, "Got request message");
-
-                let request = request.into_msg();
+                trace!(?data, "Got request message");
 
                 if self.swarm.is_connected(&request_target_peer_id) {
                     self.swarm
                         .behaviour_mut()
                         .request_response
-                        .send_request(&request_target_peer_id, request);
+                        .send_request(&request_target_peer_id, data);
                     return Ok(());
                 }
 
+                // TODO(Arniiiii) : rewrite this part so it sends to gossipsub instead of the
+                // manual floodsub via manual request-response to everyone.
                 let connected_peers = self.swarm.connected_peers().cloned().collect::<Vec<_>>();
                 for peer in connected_peers {
                     self.swarm
                         .behaviour_mut()
                         .request_response
-                        .send_request(&peer, request.clone());
+                        .send_request(&peer, data.clone());
                 }
 
                 Ok(())
@@ -597,7 +557,7 @@ impl P2P {
     #[instrument(skip(self, event))]
     async fn handle_request_response_event(
         &mut self,
-        event: RequestResponseEvent<GetMessageRequest, GetMessageResponse>,
+        event: RequestResponseEvent<Vec<u8>, Vec<u8>>,
     ) -> P2PResult<()> {
         match event {
             RequestResponseEvent::Message { peer, message, .. } => {
@@ -646,31 +606,18 @@ impl P2P {
         Ok(())
     }
 
+    // TODO(Arniiiii): make it for both gossipsub and request-response
     /// Handles [`MessageEvent`] from the swarm.
     async fn handle_message_event(
         &mut self,
         peer_id: PeerId,
-        msg: request_response::Message<GetMessageRequest, GetMessageResponse, GetMessageResponse>,
+        msg: request_response::Message<Vec<u8>, Vec<u8>, Vec<u8>>,
     ) -> P2PResult<()> {
         match msg {
             request_response::Message::Request {
                 request, channel, ..
             } => {
-                let empty_response = GetMessageResponse { msg: vec![] };
-
-                let Ok(req) = v1::GetMessageRequest::from_msg(request) else {
-                    warn!(%peer_id, "Peer sent invalid get message request, replying with empty response");
-                    let _ = self
-                        .swarm
-                        .behaviour_mut()
-                        .request_response
-                        .send_response(channel, empty_response)
-                        .inspect_err(|_| error!("Failed to send response"));
-
-                    return Ok(());
-                };
-
-                let event = Event::ReceivedRequest(req);
+                let event = Event::ReceivedRequest(request);
                 let _ = self
                     .events
                     .send(event)
@@ -683,53 +630,22 @@ impl P2P {
                 request_id,
                 response,
             } => {
-                if response.msg.is_empty() {
+                if response.is_empty() {
                     warn!(%request_id, ?response, "Received empty response");
                     return Ok(());
                 }
 
-                for msg in response.msg.into_iter() {
-                    if msg.body.is_none() {
-                        continue;
-                    }
-
-                    // TODO: report/punish peer for invalid message?
-                    let msg = match GossipsubMsg::from_proto(msg.clone()) {
-                        Ok(msg) => msg,
-                        Err(err) => {
-                            warn!(%peer_id, reason=%err, "Peer sent invalid message");
-                            continue;
-                        }
-                    };
-                    if let Err(err) = self.validate_gossipsub_msg(&msg) {
-                        warn!(%peer_id, reason=%err, "Message failed validation");
-                        continue;
-                    }
-
-                    let event = Event::ReceivedMessage(msg);
-                    let _ = self
-                        .events
-                        .send(event)
-                        .map_err(|e| ProtocolError::EventsChannelClosed(e.into()))?;
-                }
+                // TODO: report/punish peer for invalid message?
+                let event = Event::ReceivedMessage(response);
+                let _ = self
+                    .events
+                    .send(event)
+                    .map_err(|e| ProtocolError::EventsChannelClosed(e.into()))?;
                 Ok(())
             }
         }
     }
 
-    /// Checks gossip sub message for validity by protocol rules.
-    fn validate_gossipsub_msg(&self, msg: &GossipsubMsg) -> P2PResult<()> {
-        if !self.config.signers_allowlist.contains(&msg.key) {
-            return Err(ValidationError::NotInSignersAllowlist.into());
-        }
-
-        let content = msg.content();
-        if !msg.key.verify(&content, &msg.signature) {
-            return Err(ValidationError::InvalidSignature.into());
-        }
-
-        Ok(())
-    }
 }
 
 /// Constructs swarm builder with existing identity.

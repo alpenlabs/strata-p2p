@@ -26,15 +26,13 @@ libp2p = { workspace = true, features = [
 async-trait.workspace = true
 bitcoin = { workspace = true, features = ["serde"] }
 futures.workspace = true
-musig2 = { workspace = true, features = ["serde"] }
-prost.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["macros", "time"] }
 tokio-util.workspace = true
 tracing.workspace = true
 
 strata-p2p-types.path = "../types"
-strata-p2p-wire.path = "../wire"
+# strata-p2p-wire.path = "../wire"
 
 [dev-dependencies]
 bitcoin = { workspace = true, features = ["serde", "rand"] }

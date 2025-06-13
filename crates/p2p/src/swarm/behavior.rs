@@ -16,13 +16,12 @@ use libp2p::{
     swarm::NetworkBehaviour,
     PeerId, StreamProtocol,
 };
-use strata_p2p_wire::p2p::v1::proto::{GetMessageRequest, GetMessageResponse};
 
-use super::{codec, MAX_TRANSMIT_SIZE, TOPIC};
+use super::{codec_raw, MAX_TRANSMIT_SIZE, TOPIC};
 
 /// Alias for request-response behaviour with messages serialized by using
 /// homebrewed codec implementation.
-pub(crate) type RequestResponseProtoBehaviour<Req, Resp> = RequestResponse<codec::Codec<Req, Resp>>;
+pub(crate) type RequestResponseRawBehaviour = RequestResponse<codec_raw::Codec>;
 
 /// Composite behaviour which consists of other ones used by swarm in P2P
 /// implementation.
@@ -36,7 +35,7 @@ pub struct Behaviour {
     pub identify: Identify,
 
     /// Request-response model for recursive discovery of lost or skipped info.
-    pub request_response: RequestResponseProtoBehaviour<GetMessageRequest, GetMessageResponse>,
+    pub request_response: RequestResponseRawBehaviour,
 
     /// Connect only allowed peers by peer id.
     pub allow_list: AllowListBehaviour<AllowedPeers>,
@@ -75,7 +74,7 @@ impl Behaviour {
                 WhitelistSubscriptionFilter(filter),
             )
             .unwrap(),
-            request_response: RequestResponseProtoBehaviour::new(
+            request_response: RequestResponseRawBehaviour::new(
                 [(StreamProtocol::new(protocol_name), ProtocolSupport::Full)],
                 RequestResponseConfig::default(),
             ),
