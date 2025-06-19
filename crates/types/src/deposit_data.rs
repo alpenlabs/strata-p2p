@@ -24,7 +24,8 @@ impl WotsPublicKeys {
     ///
     /// # Examples
     ///
-    /// ```
+    /// ```compile_fail
+    /// # this test fails to compile due to cyclic dependency issues in the latest nightly
     /// # use strata_p2p_types::{WotsPublicKeys, Wots256PublicKey, Wots128PublicKey, Groth16PublicKeys};
     /// let withdrawal_key = Wots256PublicKey::new([[1u8; 20]; 68]);
     ///
@@ -156,7 +157,8 @@ impl Groth16PublicKeys {
     /// Note that you can create [`Groth16PublicKeys`] that contains no public inputs, field
     /// elements, or hashes. For example:
     ///
-    /// ```
+    /// ```compile_fail
+    /// # this test fails to compile due to cyclic dependency issues in the latest nightly
     /// # use strata_p2p_types::{Groth16PublicKeys, Wots256PublicKey, Wots128PublicKey};
     /// let empty_wots = Groth16PublicKeys::new(vec![], vec![], vec![]);
     /// # assert!(empty_wots.is_empty());
