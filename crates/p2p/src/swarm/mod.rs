@@ -418,7 +418,7 @@ impl P2P {
     ) -> P2PResult<()> {
         trace!("Got message: {:?}", &message.data);
 
-        let source = message
+        let _ = message
             .source
             .expect("Message must have author as ValidationMode set to Permissive");
 
@@ -492,11 +492,11 @@ impl P2P {
                 debug!(%request_target_pubkey, %request_target_peer_id, "Got request message");
                 trace!(?data, "Got request message");
 
-                if self.swarm.is_connected(&request_target_peer_id) {
+                if self.swarm.is_connected(request_target_peer_id) {
                     self.swarm
                         .behaviour_mut()
                         .request_response
-                        .send_request(&request_target_peer_id, data);
+                        .send_request(request_target_peer_id, data);
                     return Ok(());
                 }
 
@@ -606,16 +606,17 @@ impl P2P {
         Ok(())
     }
 
-    // TODO(Arniiiii): make it for both gossipsub and request-response
     /// Handles [`MessageEvent`] from the swarm.
     async fn handle_message_event(
         &mut self,
-        peer_id: PeerId,
+        _peer_id: PeerId,
         msg: request_response::Message<Vec<u8>, Vec<u8>, Vec<u8>>,
     ) -> P2PResult<()> {
         match msg {
             request_response::Message::Request {
-                request, channel, ..
+                request,
+                channel: _channel,
+                ..
             } => {
                 let event = Event::ReceivedRequest(request);
                 let _ = self

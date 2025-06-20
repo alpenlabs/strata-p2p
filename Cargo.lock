@@ -3022,7 +3022,6 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
- "bitcoin",
  "futures",
  "libp2p",
  "strata-p2p-types",

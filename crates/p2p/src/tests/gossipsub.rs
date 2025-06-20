@@ -1,11 +1,10 @@
 //! Gossipsub tests.
 
-use strata_p2p_types::{Scope, SessionId};
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
 use super::common::Setup;
 
-/// Tests the gossip protocol in an all to all connected network with a single ID.
+// /// Tests the gossip protocol in an all to all connected network with a single ID.
 // #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 // async fn all_to_all_one_id() -> anyhow::Result<()> {
 //     const OPERATORS_NUM: usize = 2;
@@ -48,7 +47,7 @@ async fn all_to_all_multiple_ids() -> anyhow::Result<()> {
         .init();
 
     let Setup {
-        mut operators,
+        operators: mut _operators,
         cancel,
         tasks,
     } = Setup::all_to_all(OPERATORS_NUM).await?;

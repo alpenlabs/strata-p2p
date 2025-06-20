@@ -1,13 +1,11 @@
 //! Commands for P2P implementation from operator implementation.
 
-use bitcoin::{hashes::sha256, Txid, XOnlyPublicKey};
-use libp2p::{identity::secp256k1, Multiaddr, PeerId};
-use strata_p2p_types::{P2POperatorPubKey, Scope, SessionId};
+use libp2p::{Multiaddr, PeerId};
+use strata_p2p_types::P2POperatorPubKey;
 use tokio::sync::oneshot;
 
 /// Ask P2P implementation to distribute some data across network.
 #[derive(Debug)]
-#[expect(clippy::large_enum_variant)]
 pub enum Command {
     /// Publishes message through gossip sub network of peers.
     PublishMessage { data: Vec<u8> },
@@ -24,7 +22,6 @@ pub enum Command {
     /// Directly queries P2P state (doesn't produce events)
     QueryP2PState(QueryP2PStateCommand),
 }
-
 
 /// Connects to a peer, whitelists peer, and adds peer to the gossip sub network.
 #[derive(Debug, Clone)]

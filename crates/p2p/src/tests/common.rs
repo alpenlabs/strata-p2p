@@ -2,30 +2,16 @@
 
 use std::time::Duration;
 
-use anyhow::bail;
-use bitcoin::{
-    hashes::{sha256, Hash},
-    secp256k1::{
-        rand::{rngs::OsRng, Rng},
-        SecretKey,
-    },
-    Txid, XOnlyPublicKey,
-};
 use futures::future::join_all;
 use libp2p::{
     build_multiaddr,
     identity::{secp256k1::Keypair as SecpKeypair, Keypair},
     Multiaddr, PeerId,
 };
-use strata_p2p_types::{P2POperatorPubKey, Scope, SessionId};
+use strata_p2p_types::P2POperatorPubKey;
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
-use tracing::info;
 
-use crate::{
-    commands::{Command},
-    events::Event,
-    swarm::{self, handle::P2PHandle, P2PConfig, P2P},
-};
+use crate::swarm::{self, handle::P2PHandle, P2PConfig, P2P};
 
 pub(crate) struct Operator {
     pub(crate) p2p: P2P,
