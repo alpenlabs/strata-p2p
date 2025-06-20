@@ -74,7 +74,7 @@ mod tests {
         let random_bytes: [u8; 32] = OsRng.gen();
         let hex_encoded_bytes = random_bytes.to_lower_hex_string();
 
-        let json_string = format!("\"{}\"", hex_encoded_bytes);
+        let json_string = format!("\"{hex_encoded_bytes}\"", );
 
         let deserialized = serde_json::from_str::<P2POperatorPubKey>(&json_string);
 
