@@ -25,7 +25,6 @@ pub enum Command {
     QueryP2PState(QueryP2PStateCommand),
 }
 
-
 /// Connects to a peer, whitelists peer, and adds peer to the gossip sub network.
 #[derive(Debug, Clone)]
 pub struct ConnectToPeerCommand {

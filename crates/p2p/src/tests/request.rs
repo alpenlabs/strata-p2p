@@ -69,8 +69,8 @@
 //         scope,
 //         operator_pk: operator_pk.clone(),
 //     });
-//     let command_deposit_nonces = Command::RequestMessage(GetMessageRequest::Musig2NoncesExchange {
-//         session_id,
+//     let command_deposit_nonces = Command::RequestMessage(GetMessageRequest::Musig2NoncesExchange
+// {         session_id,
 //         operator_pk: operator_pk.clone(),
 //     });
 //     let command_deposit_sigs =
@@ -246,8 +246,8 @@
 //             } if msg.key == operator_pk && *received_session_id == session_id => {
 //                 info!("Got deposit partial signatures from the last operator")
 //             }
-//             _ => bail!("Got event other than expected 'deposit_partial_sigs' in the last operator"),
-//         },
+//             _ => bail!("Got event other than expected 'deposit_partial_sigs' in the last
+// operator"),         },
 //         _ => bail!("Got event other than expected 'deposit_partial_sigs' in the last operator"),
 //     }
 //

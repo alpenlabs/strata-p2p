@@ -645,7 +645,6 @@ impl P2P {
             }
         }
     }
-
 }
 
 /// Constructs swarm builder with existing identity.

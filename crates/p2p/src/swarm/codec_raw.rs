@@ -42,8 +42,7 @@ impl Clone for Codec {
 }
 
 #[async_trait]
-impl libp2p::request_response::Codec for Codec
-{
+impl libp2p::request_response::Codec for Codec {
     type Protocol = StreamProtocol;
     type Request = Vec<u8>;
     type Response = Vec<u8>;
@@ -59,7 +58,11 @@ impl libp2p::request_response::Codec for Codec
         Ok(vec)
     }
 
-    async fn read_response<T>(&mut self, _: &Self::Protocol, io: &mut T) -> io::Result<Self::Response>
+    async fn read_response<T>(
+        &mut self,
+        _: &Self::Protocol,
+        io: &mut T,
+    ) -> io::Result<Self::Response>
     where
         T: AsyncRead + Unpin + Send,
     {

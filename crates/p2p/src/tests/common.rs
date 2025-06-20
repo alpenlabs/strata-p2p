@@ -22,7 +22,7 @@ use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use tracing::info;
 
 use crate::{
-    commands::{Command},
+    commands::Command,
     events::Event,
     swarm::{self, handle::P2PHandle, P2PConfig, P2P},
 };

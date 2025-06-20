@@ -3,7 +3,7 @@
 use strata_p2p_types::{Scope, SessionId};
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
-use super::common::{Setup};
+use super::common::Setup;
 
 /// Tests the gossip protocol in an all to all connected network with a single ID.
 // #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
