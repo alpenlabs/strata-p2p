@@ -5,7 +5,6 @@ edition = "2021"
 
 [features]
 default = []
-proptest = ["dep:proptest", "dep:proptest-derive"]
 
 [lints]
 rust.missing_debug_implementations = "warn"
@@ -18,8 +17,6 @@ rust.rust_2018_idioms = { level = "deny", priority = -1 }
 bitcoin.workspace = true
 hex = { workspace = true, features = ["serde"] }
 libp2p-identity.workspace = true
-proptest = { version = "1.6.0", optional = true }
-proptest-derive = { version = "0.5.1", optional = true }
 serde.workspace = true
 
 [dev-dependencies]
