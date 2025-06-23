@@ -9,7 +9,7 @@ use std::{
 };
 
 use futures::{FutureExt, Stream};
-use libp2p::{identity::secp256k1::Keypair, PeerId};
+use libp2p::{identity::ed25519::Keypair, PeerId};
 use thiserror::Error;
 use tokio::{
     sync::{
@@ -43,7 +43,7 @@ pub struct P2PHandle {
     /// Command channel for the swarm.
     commands: mpsc::Sender<Command>,
 
-    /// The Libp2p secp256k1 keypair used for signing messages.
+    /// The Libp2p ed25519 keypair used for signing messages.
     keypair: Keypair,
 }
 

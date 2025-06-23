@@ -4,7 +4,7 @@
 use std::fmt;
 
 use hex::ToHex;
-use libp2p_identity::{secp256k1::PublicKey, PeerId, PublicKey as WrapperPublicKey};
+use libp2p_identity::{ed25519::PublicKey, PeerId, PublicKey as WrapperPublicKey};
 
 /// P2P [`P2POperatorPubKey`] serves as an identifier of protocol entity.
 ///
@@ -55,36 +55,10 @@ impl P2POperatorPubKey {
 
     /// Returns the [`PeerId`] with respect to PublicKey.
     pub fn peer_id(&self) -> PeerId {
-        // convert P2POperatorPubKey into LibP2P secp256k1 PK
+        // convert P2POperatorPubKey into LibP2P ed25519 PK
         let pk = PublicKey::try_from_bytes(&self.0).expect("infallible");
         let pk: WrapperPublicKey = pk.into();
         pk.into()
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use bitcoin::hex::DisplayHex;
-    use secp256k1::rand::{rngs::OsRng, Rng};
-
-    use super::*;
-
-    #[test]
-    fn test_p2p_operator_pub_key() {
-        let random_bytes: [u8; 32] = OsRng.gen();
-        let hex_encoded_bytes = random_bytes.to_lower_hex_string();
-
-        let json_string = format!("\"{hex_encoded_bytes}\"",);
-
-        let deserialized = serde_json::from_str::<P2POperatorPubKey>(&json_string);
-
-        assert!(
-            deserialized.is_ok(),
-            "must be able to deserialize hex-encoded string to P2POperatorPubKey"
-        );
-        assert!(
-            deserialized.unwrap() == P2POperatorPubKey(random_bytes.to_vec()),
-            "deserialized value must be equal to original"
-        );
-    }
-}

@@ -9,7 +9,7 @@ use libp2p::{
         WhitelistSubscriptionFilter,
     },
     identify::{Behaviour as Identify, Config},
-    identity::{secp256k1::Keypair, PublicKey},
+    identity::{ed25519::Keypair, PublicKey},
     request_response::{
         Behaviour as RequestResponse, Config as RequestResponseConfig, ProtocolSupport,
     },

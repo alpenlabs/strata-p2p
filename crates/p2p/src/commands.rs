@@ -1,8 +1,9 @@
 //! Commands for P2P implementation from operator implementation.
 
 use libp2p::{Multiaddr, PeerId};
-use strata_p2p_types::P2POperatorPubKey;
 use tokio::sync::oneshot;
+
+use crate::operator_pubkey::P2POperatorPubKey;
 
 /// Ask P2P implementation to distribute some data across network.
 #[derive(Debug)]

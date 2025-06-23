@@ -15,13 +15,13 @@ use libp2p::{
     gossipsub::{
         Event as GossipsubEvent, Message, MessageAcceptance, MessageId, PublishError, Sha256Topic,
     },
-    identity::secp256k1::Keypair,
+    identity::ed25519::Keypair,
     noise,
     request_response::{self, Event as RequestResponseEvent},
     swarm::SwarmEvent,
     yamux, Multiaddr, PeerId, Swarm, SwarmBuilder, Transport,
 };
-use strata_p2p_types::P2POperatorPubKey;
+use crate::operator_pubkey::P2POperatorPubKey;
 use tokio::{
     select,
     sync::{broadcast, mpsc},

@@ -17,7 +17,7 @@ libp2p = { workspace = true, features = [
   "tcp",
   "request-response",
   "tokio",
-  "secp256k1",
+  "ed25519",
   "macros",
   "yamux",
   "identify",
@@ -29,9 +29,10 @@ thiserror.workspace = true
 tokio = { workspace = true, features = ["macros", "time"] }
 tokio-util.workspace = true
 tracing.workspace = true
+hex = { workspace = true, features = ["serde"] }
+libp2p-identity.workspace = true
+serde.workspace = true
 
-strata-p2p-types.path = "../types"
-# strata-p2p-wire.path = "../wire"
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt", "rt-multi-thread"] }

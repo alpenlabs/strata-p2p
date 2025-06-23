@@ -1,5 +1,6 @@
 //! Strata P2P implementation.
 
+pub mod operator_pubkey;
 pub mod commands;
 pub mod events;
 pub mod swarm;
