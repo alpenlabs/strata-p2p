@@ -51,7 +51,7 @@ pub struct P2PHandle {
 
 impl P2PHandle {
     /// Creates a new [`P2PHandle`].
-    pub(crate) fn new(
+    pub(crate) const fn new(
         events: broadcast::Receiver<Event>,
         commands: mpsc::Sender<Command>,
         keypair: Keypair,
