@@ -2773,7 +2773,6 @@ dependencies = [
  "futures",
  "hex",
  "libp2p",
- "libp2p-identity",
  "serde",
  "thiserror 2.0.12",
  "tokio",

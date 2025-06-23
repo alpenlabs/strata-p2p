@@ -25,7 +25,6 @@ tokio = { workspace = true, features = ["macros", "time"] }
 tokio-util.workspace = true
 tracing.workspace = true
 hex = { workspace = true, features = ["serde"] }
-libp2p-identity.workspace = true
 serde.workspace = true
 
 
