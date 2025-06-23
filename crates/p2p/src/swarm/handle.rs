@@ -25,8 +25,10 @@ use crate::{
     events::Event,
 };
 
+/// inside is message's id from libp2p. Usually a random number.
 #[derive(Debug, Clone, Error)]
 pub struct ErrDroppedMsgs(u64);
+
 impl Display for ErrDroppedMsgs {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "P2PHandle dropped {} messages", self.0)
