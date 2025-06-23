@@ -19,7 +19,6 @@ libp2p = { workspace = true, features = [
   "identify",
 ] }
 
-async-trait.workspace = true
 futures.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["macros", "time"] }

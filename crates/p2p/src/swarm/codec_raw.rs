@@ -4,9 +4,8 @@
 //! Copied from `rust-libp2p/protocols/request-response/src/json.rs` and
 //! rewritten so that it exposes raw bytes.
 
-use std::{io, marker::PhantomData};
+use std::{io, marker::PhantomData, pin::Pin};
 
-use async_trait::async_trait;
 use futures::prelude::*;
 use libp2p::swarm::StreamProtocol;
 
@@ -41,63 +40,94 @@ impl Clone for Codec {
     }
 }
 
-#[async_trait]
 impl libp2p::request_response::Codec for Codec {
     type Protocol = StreamProtocol;
     type Request = Vec<u8>;
     type Response = Vec<u8>;
 
-    async fn read_request<T>(&mut self, _: &Self::Protocol, io: &mut T) -> io::Result<Self::Request>
+    fn read_request<'life0, 'life1, 'life2, 'async_trait, T>(
+        &'life0 mut self,
+        _: &'life1 Self::Protocol,
+        io: &'life2 mut T,
+    ) -> Pin<Box<dyn Future<Output = io::Result<Self::Request>> + Send + 'async_trait>>
     where
         T: AsyncRead + Unpin + Send,
+        T: 'async_trait,
+        'life0: 'async_trait,
+        'life1: 'async_trait,
+        'life2: 'async_trait,
+        Self: 'async_trait,
     {
-        let mut vec = Vec::new();
+        Box::pin(async move {
+            let mut vec = Vec::new();
 
-        io.take(REQUEST_SIZE_MAXIMUM).read_to_end(&mut vec).await?;
+            io.take(REQUEST_SIZE_MAXIMUM).read_to_end(&mut vec).await?;
 
-        Ok(vec)
+            Ok(vec)
+        })
     }
 
-    async fn read_response<T>(
-        &mut self,
-        _: &Self::Protocol,
-        io: &mut T,
-    ) -> io::Result<Self::Response>
+    fn read_response<'life0, 'life1, 'life2, 'async_trait, T>(
+        &'life0 mut self,
+        _: &'life1 Self::Protocol,
+        io: &'life2 mut T,
+    ) -> Pin<Box<dyn Future<Output = io::Result<Self::Response>> + Send + 'async_trait>>
     where
         T: AsyncRead + Unpin + Send,
+        T: 'async_trait,
+        'life0: 'async_trait,
+        'life1: 'async_trait,
+        'life2: 'async_trait,
+        Self: 'async_trait,
     {
-        let mut vec = Vec::new();
+        Box::pin(async move {
+            let mut vec = Vec::new();
 
-        io.take(RESPONSE_SIZE_MAXIMUM).read_to_end(&mut vec).await?;
+            io.take(RESPONSE_SIZE_MAXIMUM).read_to_end(&mut vec).await?;
 
-        Ok(vec)
+            Ok(vec)
+        })
     }
 
-    async fn write_request<T>(
-        &mut self,
-        _: &Self::Protocol,
-        io: &mut T,
+    fn write_request<'life0, 'life1, 'life2, 'async_trait, T>(
+        &'life0 mut self,
+        _: &'life1 Self::Protocol,
+        io: &'life2 mut T,
         req: Self::Request,
-    ) -> io::Result<()>
+    ) -> Pin<Box<dyn Future<Output = io::Result<()>> + Send + 'async_trait>>
     where
         T: AsyncWrite + Unpin + Send,
+        T: 'async_trait,
+        'life0: 'async_trait,
+        'life1: 'async_trait,
+        'life2: 'async_trait,
+        Self: 'async_trait,
     {
-        io.write_all(&req).await?;
+        Box::pin(async move {
+            io.write_all(&req).await?;
 
-        Ok(())
+            Ok(())
+        })
     }
 
-    async fn write_response<T>(
-        &mut self,
-        _: &Self::Protocol,
-        io: &mut T,
+    fn write_response<'life0, 'life1, 'life2, 'async_trait, T>(
+        &'life0 mut self,
+        _: &'life1 Self::Protocol,
+        io: &'life2 mut T,
         resp: Self::Response,
-    ) -> io::Result<()>
+    ) -> Pin<Box<dyn Future<Output = io::Result<()>> + Send + 'async_trait>>
     where
         T: AsyncWrite + Unpin + Send,
+        T: 'async_trait,
+        'life0: 'async_trait,
+        'life1: 'async_trait,
+        'life2: 'async_trait,
+        Self: 'async_trait,
     {
-        io.write_all(&resp).await?;
+        Box::pin(async move {
+            io.write_all(&resp).await?;
 
-        Ok(())
+            Ok(())
+        })
     }
 }
