@@ -4,14 +4,15 @@ use std::time::Duration;
 
 use futures::future::join_all;
 use libp2p::{
-    build_multiaddr,
-    identity::{ed25519::Keypair as Ed25519Keypair, Keypair},
-    Multiaddr, PeerId,
+    Multiaddr, PeerId, build_multiaddr,
+    identity::{Keypair, ed25519::Keypair as Ed25519Keypair},
 };
-use crate::operator_pubkey::P2POperatorPubKey;
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 
-use crate::swarm::{self, handle::P2PHandle, P2PConfig, P2P};
+use crate::{
+    operator_pubkey::P2POperatorPubKey,
+    swarm::{self, P2P, P2PConfig, handle::P2PHandle},
+};
 
 pub(crate) struct Operator {
     pub(crate) p2p: P2P,
@@ -111,7 +112,9 @@ impl Setup {
     fn setup_keys_ids_addrs_of_n_operators(
         n: usize,
     ) -> (Vec<Ed25519Keypair>, Vec<PeerId>, Vec<libp2p::Multiaddr>) {
-        let keypairs = (0..n).map(|_| Ed25519Keypair::generate()).collect::<Vec<_>>();
+        let keypairs = (0..n)
+            .map(|_| Ed25519Keypair::generate())
+            .collect::<Vec<_>>();
         let peer_ids = keypairs
             .iter()
             .map(|key| PeerId::from_public_key(&Keypair::from(key.clone()).public()))

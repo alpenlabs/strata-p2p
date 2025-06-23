@@ -3,21 +3,21 @@
 use std::collections::HashSet;
 
 use libp2p::{
+    PeerId, StreamProtocol,
     allow_block_list::{AllowedPeers, Behaviour as AllowListBehaviour},
     gossipsub::{
         self, Behaviour as Gossipsub, IdentityTransform, MessageAuthenticity,
         WhitelistSubscriptionFilter,
     },
     identify::{Behaviour as Identify, Config},
-    identity::{ed25519::Keypair, PublicKey},
+    identity::{PublicKey, ed25519::Keypair},
     request_response::{
         Behaviour as RequestResponse, Config as RequestResponseConfig, ProtocolSupport,
     },
     swarm::NetworkBehaviour,
-    PeerId, StreamProtocol,
 };
 
-use super::{codec_raw, MAX_TRANSMIT_SIZE, TOPIC};
+use super::{MAX_TRANSMIT_SIZE, TOPIC, codec_raw};
 
 /// Alias for request-response behaviour with messages serialized by using
 /// homebrewed codec implementation.

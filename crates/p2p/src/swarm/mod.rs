@@ -11,7 +11,8 @@ use errors::{P2PResult, ProtocolError};
 use futures::StreamExt as _;
 use handle::P2PHandle;
 use libp2p::{
-    core::{muxing::StreamMuxerBox, transport::MemoryTransport, ConnectedPoint},
+    Multiaddr, PeerId, Swarm, SwarmBuilder, Transport,
+    core::{ConnectedPoint, muxing::StreamMuxerBox, transport::MemoryTransport},
     gossipsub::{
         Event as GossipsubEvent, Message, MessageAcceptance, MessageId, PublishError, Sha256Topic,
     },
@@ -19,9 +20,8 @@ use libp2p::{
     noise,
     request_response::{self, Event as RequestResponseEvent},
     swarm::SwarmEvent,
-    yamux, Multiaddr, PeerId, Swarm, SwarmBuilder, Transport,
+    yamux,
 };
-use crate::operator_pubkey::P2POperatorPubKey;
 use tokio::{
     select,
     sync::{broadcast, mpsc},
@@ -33,6 +33,7 @@ use tracing::{debug, error, info, instrument, trace, warn};
 use crate::{
     commands::{Command, QueryP2PStateCommand},
     events::Event,
+    operator_pubkey::P2POperatorPubKey,
 };
 
 mod behavior;

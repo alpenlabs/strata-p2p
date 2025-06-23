@@ -9,9 +9,9 @@ use crate::operator_pubkey::P2POperatorPubKey;
 #[derive(Debug)]
 pub enum Command {
     /// Publishes message through gossip sub network of peers.
-    PublishMessage { 
+    PublishMessage {
         /// Just bytes.
-        data: Vec<u8> 
+        data: Vec<u8>,
     },
 
     /// Requests some message directly from other operator by peer id.
