@@ -1,7 +1,7 @@
-//! This module implement serialization/deserialization codec for request-response
+//! This module implement serialization/deserialization codec for [`libp2p::request_response`]
 //! behaviour. Historically, this file was used to allow protobuf's encoding/decoding be done
-//! inside libp2p, and since we moved from any schemas, it just implements codec that gives raw
-//! Vec<u8>.
+//! inside [`libp2p`], and since we moved from any schemas, it just implements codec that gives raw
+//! [`Vec<u8>`].
 //!
 //! Copied from `rust-libp2p/protocols/request-response/src/json.rs` and
 //! rewritten so that it exposes raw bytes.
