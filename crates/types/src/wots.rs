@@ -1,8 +1,11 @@
 //! WOTS variable-length public keys.
 
-use core::fmt;
-use std::ops::{Deref, DerefMut};
+use std::{
+    fmt,
+    ops::{Deref, DerefMut},
+};
 
+use bitcoin::hex::DisplayHex;
 #[cfg(feature = "proptest")]
 use proptest_derive::Arbitrary;
 use serde::{
@@ -65,7 +68,7 @@ pub(crate) const fn wots_total_digits(msg_len_bytes: usize) -> usize {
 }
 
 /// A variable-length Winternitz One-Time Signature (WOTS) public key.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[cfg_attr(feature = "proptest", derive(Arbitrary))]
 pub struct WotsPublicKey<const MSG_LEN_BYTES: usize>(pub [[u8; WOTS_SINGLE]; MSG_LEN_BYTES])
 where
@@ -79,6 +82,28 @@ pub type Wots160PublicKey = WotsPublicKey<44>;
 
 /// 256-bit Winternitz One-Time Signature (WOTS) public key.
 pub type Wots256PublicKey = WotsPublicKey<68>;
+
+impl<const MSG_LEN_BYTES: usize> fmt::Debug for WotsPublicKey<MSG_LEN_BYTES>
+where
+    [(); MSG_LEN_BYTES]: Sized,
+    [(); WOTS_SINGLE * MSG_LEN_BYTES]: Sized,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let first_bytes = &self.0[0];
+        write!(f, "WotsPublicKey({first_bytes:?})")
+    }
+}
+
+impl<const MSG_LEN_BYTES: usize> fmt::Display for WotsPublicKey<MSG_LEN_BYTES>
+where
+    [(); MSG_LEN_BYTES]: Sized,
+    [(); WOTS_SINGLE * MSG_LEN_BYTES]: Sized,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let first_bytes = self.0[0].to_lower_hex_string();
+        write!(f, "WotsPublicKey({first_bytes})")
+    }
+}
 
 impl<const MSG_LEN_BYTES: usize> WotsPublicKey<MSG_LEN_BYTES>
 where
