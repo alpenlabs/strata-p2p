@@ -47,10 +47,10 @@ pub struct P2PHandle {
     events: broadcast::Receiver<Event>,
 
     /// Command channel. [`P2PHandle`] will send commands via it and [`super::P2P`] struct is
-    /// expected to do logic corresponding to specific commands.
+    /// expected to do logic corresponding to specific [`Command`].
     commands: mpsc::Sender<Command>,
 
-    /// The libp2p's keypair. Used for creating our own [`PeerId`], and if cfg option
+    /// The [`libp2p::identity::Keypair`]. Used for creating our own [`PeerId`], and if cfg option
     /// `message-signing` is enabled, to sign messages with it.
     keypair: Keypair,
 }

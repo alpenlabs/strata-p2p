@@ -105,7 +105,7 @@ pub struct P2PConfig {
     pub signers_allowlist: Vec<PublicKey>,
 }
 
-/// Implementation of p2p protocol for BitVM2 data exchange.
+/// Implementation of P2P protocol data exchange.
 #[expect(missing_debug_implementations)]
 pub struct P2P {
     /// The swarm that handles the networking.
@@ -651,7 +651,7 @@ impl P2P {
 ///
 /// # Implementation details
 ///
-/// Macro is used here, as `libp2p` doesn't expose internal generic types of [`SwarmBuilder`] to
+/// Macro is used here, as [`libp2p`] doesn't expose internal generic types of [`SwarmBuilder`] to
 /// actually specify return type of function. So we use macro for now.
 macro_rules! init_swarm {
     ($cfg:expr) => {
