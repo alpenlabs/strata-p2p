@@ -51,7 +51,7 @@ impl User {
 }
 
 /// Auxiliary structure to control operators from outside.
-#[allow(dead_code)]
+#[expect(dead_code)]
 pub(crate) struct UserHandle {
     pub(crate) handle: P2PHandle,
     pub(crate) peer_id: PeerId,
