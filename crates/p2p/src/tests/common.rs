@@ -5,32 +5,29 @@ use std::time::Duration;
 use futures::future::join_all;
 use libp2p::{
     Multiaddr, PeerId, build_multiaddr,
-    identity::{Keypair, ed25519::Keypair as Ed25519Keypair},
+    identity::{Keypair, PublicKey, ed25519::Keypair as Ed25519Keypair},
 };
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 
-use crate::{
-    operator_pubkey::P2POperatorPubKey,
-    swarm::{self, P2P, P2PConfig, handle::P2PHandle},
-};
+use crate::swarm::{self, P2P, P2PConfig, handle::P2PHandle};
 
-pub(crate) struct Operator {
+pub(crate) struct User {
     pub(crate) p2p: P2P,
     pub(crate) handle: P2PHandle,
     pub(crate) kp: Ed25519Keypair,
 }
 
-impl Operator {
+impl User {
     pub(crate) fn new(
         keypair: Ed25519Keypair,
         allowlist: Vec<PeerId>,
         connect_to: Vec<Multiaddr>,
         local_addr: Multiaddr,
         cancel: CancellationToken,
-        signers_allowlist: Vec<P2POperatorPubKey>,
+        signers_allowlist: Vec<PublicKey>,
     ) -> anyhow::Result<Self> {
         let config = P2PConfig {
-            keypair: keypair.clone(),
+            keypair: keypair.clone().into(),
             idle_connection_timeout: Duration::from_secs(30),
             max_retries: None,
             dial_timeout: None,
@@ -54,7 +51,8 @@ impl Operator {
 }
 
 /// Auxiliary structure to control operators from outside.
-pub(crate) struct OperatorHandle {
+#[allow(dead_code)]
+pub(crate) struct UserHandle {
     pub(crate) handle: P2PHandle,
     pub(crate) peer_id: PeerId,
     pub(crate) kp: Ed25519Keypair,
@@ -62,7 +60,7 @@ pub(crate) struct OperatorHandle {
 
 pub(crate) struct Setup {
     pub(crate) cancel: CancellationToken,
-    pub(crate) operators: Vec<OperatorHandle>,
+    pub(crate) operators: Vec<UserHandle>,
     pub(crate) tasks: TaskTracker,
 }
 
@@ -74,7 +72,7 @@ impl Setup {
 
         let cancel = CancellationToken::new();
         let mut operators = Vec::new();
-        let signers_allowlist: Vec<P2POperatorPubKey> = keypairs
+        let signers_allowlist: Vec<PublicKey> = keypairs
             .clone()
             .into_iter()
             .map(|kp| kp.public().clone().into())
@@ -86,7 +84,7 @@ impl Setup {
             let mut other_peerids = peer_ids.clone();
             other_peerids.remove(idx);
 
-            let operator = Operator::new(
+            let operator = User::new(
                 keypair.clone(),
                 other_peerids,
                 other_addrs,
@@ -127,7 +125,7 @@ impl Setup {
 
     /// Wait until all operators established connections with other operators,
     /// and then spawn [`P2P::listen`]s in separate tasks using [`TaskTracker`].
-    async fn start_operators(mut operators: Vec<Operator>) -> (Vec<OperatorHandle>, TaskTracker) {
+    async fn start_operators(mut operators: Vec<User>) -> (Vec<UserHandle>, TaskTracker) {
         // wait until all of them established connections and subscriptions
         join_all(
             operators
@@ -143,7 +141,7 @@ impl Setup {
             let peer_id = operator.p2p.local_peer_id();
             tasks.spawn(operator.p2p.listen());
 
-            levers.push(OperatorHandle {
+            levers.push(UserHandle {
                 handle: operator.handle,
                 peer_id,
                 kp: operator.kp,

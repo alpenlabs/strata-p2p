@@ -1,31 +1,36 @@
 //! Commands for P2P implementation from operator implementation.
 
-use libp2p::{Multiaddr, PeerId};
+use libp2p::{Multiaddr, PeerId, identity::PublicKey};
 use tokio::sync::oneshot;
 
-use crate::operator_pubkey::P2POperatorPubKey;
-
-/// Ask P2P implementation to distribute some data across network.
+/// Commands that users can send to the P2P node.
 #[derive(Debug)]
 pub enum Command {
     /// Publishes message through gossip sub network of peers.
     PublishMessage {
-        /// Just bytes.
+        /// Message payload in raw bytes.
+        ///
+        /// The user is responsible for properly serializing/deserializing the data.
         data: Vec<u8>,
     },
 
-    /// Requests some message directly from other operator by peer id.
+    /// Requests some message directly from other operator by public Key.
     RequestMessage {
-        /// A wrapper around libp2p::ed25519::PublicKey
-        peer_pubkey: P2POperatorPubKey,
-        /// Bytes. Expected to be parsed, validated by users of the lib.
+        /// Libp2p public key of target peer.
+        ///
+        /// Note: public key type (secp256k1/ed25519/RSA) is set via enabling specific feature in
+        /// cargo toml for libp2p.
+        peer_pubkey: PublicKey,
+        /// Message payload in raw bytes.
+        ///
+        /// The user is responsible for properly serializing/deserializing the data.
         data: Vec<u8>,
     },
 
     /// Connects to a peer, whitelists peer, and adds peer to the gossip sub network.
     ConnectToPeer(ConnectToPeerCommand),
 
-    /// Directly queries P2P state (doesn't produce events)
+    /// Directly queries P2P state (doesn't produce events).
     QueryP2PState(QueryP2PStateCommand),
 }
 
@@ -45,20 +50,20 @@ impl From<ConnectToPeerCommand> for Command {
     }
 }
 
-/// Commands to directly query P2P state information
+/// Commands to directly query P2P state information.
 #[derive(Debug)]
 pub enum QueryP2PStateCommand {
-    /// Query if we're connected to a specific peer
+    /// Queries if we're connected to a specific peer
     IsConnected {
-        /// Peer ID to check
+        /// Peer ID to check.
         peer_id: PeerId,
-        /// Channel to send the response back
+        /// Channel to send the response back.
         response_sender: oneshot::Sender<bool>,
     },
 
-    /// Get all connected peers
+    /// Gets all connected peers.
     GetConnectedPeers {
-        /// Channel to send the response back
+        /// Channel to send the response back.
         response_sender: oneshot::Sender<Vec<PeerId>>,
     },
 }

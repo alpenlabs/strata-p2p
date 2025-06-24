@@ -10,7 +10,7 @@ use libp2p::{
         WhitelistSubscriptionFilter,
     },
     identify::{Behaviour as Identify, Config},
-    identity::{PublicKey, ed25519::Keypair},
+    identity::Keypair,
     request_response::{
         Behaviour as RequestResponse, Config as RequestResponseConfig, ProtocolSupport,
     },
@@ -54,14 +54,9 @@ impl Behaviour {
         filter.insert(TOPIC.hash());
 
         Self {
-            identify: Identify::new(Config::new(
-                protocol_name.to_string(),
-                PublicKey::from(keypair.public().clone()),
-            )),
+            identify: Identify::new(Config::new(protocol_name.to_string(), keypair.public())),
             gossipsub: Gossipsub::new_with_subscription_filter(
-                MessageAuthenticity::Author(PeerId::from_public_key(
-                    &libp2p::identity::PublicKey::from(keypair.public().clone()),
-                )),
+                MessageAuthenticity::Author(PeerId::from_public_key(&keypair.public())),
                 gossipsub::ConfigBuilder::default()
                     .validation_mode(gossipsub::ValidationMode::Permissive)
                     .validate_messages()

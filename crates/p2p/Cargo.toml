@@ -24,8 +24,6 @@ thiserror.workspace = true
 tokio = { workspace = true, features = ["macros", "time"] }
 tokio-util.workspace = true
 tracing.workspace = true
-hex = { workspace = true, features = ["serde"] }
-serde.workspace = true
 
 
 [dev-dependencies]

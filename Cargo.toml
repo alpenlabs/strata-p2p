@@ -22,7 +22,6 @@ clippy.too_long_first_doc_paragraph = "warn"
 
 [workspace.dependencies]
 futures = "0.3.31"
-hex = "0.4.3"
 libp2p = { version = "0.55.0", features = [
   "noise",
   "gossipsub",
@@ -34,7 +33,6 @@ libp2p = { version = "0.55.0", features = [
   "yamux",
   "identify",
 ] }
-serde = { version = "1.0.217", features = ["derive"] }
 thiserror = "2.0.11"
 tokio = { version = "1.42.0", default-features = false, features = [
   "macros",

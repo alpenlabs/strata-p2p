@@ -51,31 +51,8 @@ async fn all_to_all_multiple_ids() -> anyhow::Result<()> {
         cancel,
         tasks,
     } = Setup::all_to_all(OPERATORS_NUM).await?;
-    //
-    // let stake_chain_ids = (0..OPERATORS_NUM)
-    //     .map(|i| StakeChainId::hash(format!("stake_chain_id_{}", i).as_bytes()))
-    //     .collect::<Vec<_>>();
-    // let scopes = (0..OPERATORS_NUM)
-    //     .map(|i| Scope::hash(format!("scope_{}", i).as_bytes()))
-    //     .collect::<Vec<_>>();
-    //
-    // let session_ids = (0..OPERATORS_NUM)
-    //     .map(|i| SessionId::hash(format!("session_{}", i).as_bytes()))
-    //     .collect::<Vec<_>>();
-    //
-    // for stake_chain_id in &stake_chain_ids {
-    //     exchange_stake_chain_info(&mut operators, OPERATORS_NUM, *stake_chain_id).await?;
-    // }
-    //
-    // for scope in &scopes {
-    //     exchange_deposit_setup(&mut operators, OPERATORS_NUM, *scope).await?;
-    // }
-    // for session_id in &session_ids {
-    //     exchange_deposit_nonces(&mut operators, OPERATORS_NUM, *session_id).await?;
-    // }
-    // for session_id in &session_ids {
-    //     exchange_deposit_sigs(&mut operators, OPERATORS_NUM, *session_id).await?;
-    // }
+
+    // TODO(Arniiiii): do some logic for testing..
 
     cancel.cancel();
 

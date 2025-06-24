@@ -16,7 +16,7 @@ use libp2p::{
     gossipsub::{
         Event as GossipsubEvent, Message, MessageAcceptance, MessageId, PublishError, Sha256Topic,
     },
-    identity::ed25519::Keypair,
+    identity::{Keypair, PublicKey},
     noise,
     request_response::{self, Event as RequestResponseEvent},
     swarm::SwarmEvent,
@@ -33,7 +33,6 @@ use tracing::{debug, error, info, instrument, trace, warn};
 use crate::{
     commands::{Command, QueryP2PStateCommand},
     events::Event,
-    operator_pubkey::P2POperatorPubKey,
 };
 
 mod behavior;
@@ -103,7 +102,7 @@ pub struct P2PConfig {
     pub connect_to: Vec<Multiaddr>,
 
     /// List of signers' P2P public keys, whose messages the node is allowed to accept.
-    pub signers_allowlist: Vec<P2POperatorPubKey>,
+    pub signers_allowlist: Vec<PublicKey>,
 }
 
 /// Implementation of p2p protocol for BitVM2 data exchange.
@@ -488,16 +487,15 @@ impl P2P {
                 Ok(())
             }
             Command::RequestMessage { peer_pubkey, data } => {
-                let request_target_pubkey = &peer_pubkey;
-                let request_target_peer_id = &peer_pubkey.peer_id();
-                debug!(%request_target_pubkey, %request_target_peer_id, "Got request message");
+                let request_target_peer_id = PeerId::from_public_key(&peer_pubkey);
+                debug!(%request_target_peer_id, "Got request message");
                 trace!(?data, "Got request message");
 
-                if self.swarm.is_connected(request_target_peer_id) {
+                if self.swarm.is_connected(&request_target_peer_id) {
                     self.swarm
                         .behaviour_mut()
                         .request_response
-                        .send_request(request_target_peer_id, data);
+                        .send_request(&request_target_peer_id, data);
                     return Ok(());
                 }
 
