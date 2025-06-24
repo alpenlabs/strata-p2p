@@ -72,7 +72,8 @@ pub(crate) const fn wots_total_digits(msg_len_bytes: usize) -> usize {
 #[cfg_attr(feature = "proptest", derive(Arbitrary))]
 pub struct WotsPublicKey<const MSG_LEN_BYTES: usize>(pub [[u8; WOTS_SINGLE]; MSG_LEN_BYTES])
 where
-    [(); MSG_LEN_BYTES]: Sized;
+    [(); MSG_LEN_BYTES]: Sized,
+    [(); WOTS_SINGLE * MSG_LEN_BYTES]: Sized;
 
 /// 128-bit Winternitz One-Time Signature (WOTS) public key.
 pub type Wots128PublicKey = WotsPublicKey<36>;
@@ -159,6 +160,7 @@ where
 impl<const MSG_LEN_BYTES: usize> Deref for WotsPublicKey<MSG_LEN_BYTES>
 where
     [(); MSG_LEN_BYTES]: Sized,
+    [(); WOTS_SINGLE * MSG_LEN_BYTES]: Sized,
 {
     type Target = [[u8; WOTS_SINGLE]; MSG_LEN_BYTES];
 
@@ -170,6 +172,7 @@ where
 impl<const MSG_LEN_BYTES: usize> DerefMut for WotsPublicKey<MSG_LEN_BYTES>
 where
     [(); MSG_LEN_BYTES]: Sized,
+    [(); WOTS_SINGLE * MSG_LEN_BYTES]: Sized,
 {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
@@ -213,6 +216,7 @@ where
         impl<'de, const M: usize> Visitor<'de> for WotsPublicKeyVisitor<M>
         where
             [(); M]: Sized,
+            [(); WOTS_SINGLE * M]: Sized,
         {
             type Value = WotsPublicKey<M>;
 
@@ -239,6 +243,7 @@ where
             fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
             where
                 A: SeqAccess<'de>,
+                [(); WOTS_SINGLE * M]: Sized,
             {
                 let mut array = [[0u8; WOTS_SINGLE]; M];
                 for (i, item) in array.iter_mut().enumerate() {
