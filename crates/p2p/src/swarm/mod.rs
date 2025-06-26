@@ -486,8 +486,8 @@ impl P2P {
 
                 Ok(())
             }
-            Command::RequestMessage { peer_pubkey, data } => {
-                let request_target_peer_id = PeerId::from_public_key(&peer_pubkey);
+            Command::RequestMessage { peer_id, data } => {
+                let request_target_peer_id = &peer_id;
                 debug!(%request_target_peer_id, "Got request message");
                 trace!(?data, "Got request message");
 

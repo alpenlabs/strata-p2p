@@ -1,22 +1,16 @@
-//! Gossipsub tests.
+//! Request-response tests
 
 use std::time::Duration;
 
 use tokio::time::sleep;
-use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 
 use super::common::Setup;
 use crate::{commands::Command, events::Event};
 
 /// Tests the gossip protocol in an all to all connected network with multiple IDs.
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
-async fn gossip_basic() -> anyhow::Result<()> {
+async fn request_response_basic() -> anyhow::Result<()> {
     const OPERATORS_NUM: usize = 2;
-
-    tracing_subscriber::registry()
-        .with(fmt::layer())
-        .with(EnvFilter::from_default_env())
-        .init();
 
     let Setup {
         mut operators,
@@ -28,21 +22,22 @@ async fn gossip_basic() -> anyhow::Result<()> {
 
     operators[0]
         .handle
-        .send_command(Command::PublishMessage {
-            data: ("hello").into(),
+        .send_command(Command::RequestMessage {
+            peer_id: operators[1].peer_id,
+            data: Vec::<u8>::from("Hello, it's a request..."),
         })
         .await;
 
     match operators[1].handle.next_event().await {
         Ok(event) => match event {
-            Event::ReceivedMessage(data) => {
-                assert_eq!(data, Vec::<u8>::from("hello"));
-            }
-            Event::ReceivedRequest(_) => {
+            Event::ReceivedMessage(_data) => {
                 assert!(
                     false,
-                    "Something is insanely wrong: it got request when it should have got just a message."
+                    "Something is insanely wrong: it got a gossipsub's message when it should have got a request from Request-response protocol."
                 )
+            }
+            Event::ReceivedRequest(data) => {
+                assert_eq!(data, Vec::<u8>::from("Hello, it's a request..."));
             }
         },
         Err(e) => assert!(false, "Smth is wrong: {e}"),

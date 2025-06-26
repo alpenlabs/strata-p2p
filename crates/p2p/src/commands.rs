@@ -1,6 +1,8 @@
 //! Commands for P2P implementation from operator implementation.
 
-use libp2p::{Multiaddr, PeerId, identity::PublicKey};
+#[cfg(test)]
+use libp2p::build_multiaddr;
+use libp2p::{Multiaddr, PeerId};
 use tokio::sync::oneshot;
 
 /// Commands that users can send to the P2P node.
@@ -16,11 +18,11 @@ pub enum Command {
 
     /// Requests some message directly from other operator by public Key.
     RequestMessage {
-        /// Libp2p public key of target peer.
+        /// Libp2p [`PeerId`] of target peer.
         ///
-        /// Note: public key type (secp256k1/ed25519/RSA) is set via enabling specific feature in
-        /// cargo toml for libp2p.
-        peer_pubkey: PublicKey,
+        /// Note: [`PeerId`] can be created from public key of corresponding peer via
+        /// `the_pubkey.to_peer_id()`.
+        peer_id: PeerId,
         /// Message payload in raw bytes.
         ///
         /// The user is responsible for properly serializing/deserializing the data.
@@ -71,5 +73,38 @@ pub enum QueryP2PStateCommand {
 impl From<QueryP2PStateCommand> for Command {
     fn from(v: QueryP2PStateCommand) -> Self {
         Self::QueryP2PState(v)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_from_connect_to_peer() {
+        let tmp = ConnectToPeerCommand {
+            peer_id: libp2p::identity::Keypair::generate_ed25519()
+                .public()
+                .to_peer_id(),
+            peer_addr: build_multiaddr!(Memory(1 as u64)),
+        };
+        let _ = Command::from(tmp);
+
+        assert!(true)
+    }
+
+    #[test]
+    fn test_from_query_p2p_state() {
+        let (tx, _rx) = oneshot::channel::<bool>();
+
+        let tmp = QueryP2PStateCommand::IsConnected {
+            peer_id: libp2p::identity::Keypair::generate_ed25519()
+                .public()
+                .to_peer_id(),
+            response_sender: tx,
+        };
+        let _ = Command::from(tmp);
+
+        assert!(true)
     }
 }

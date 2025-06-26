@@ -7,6 +7,7 @@ use libp2p::{
     Multiaddr, PeerId, build_multiaddr,
     identity::{Keypair, PublicKey, ed25519::Keypair as Ed25519Keypair},
 };
+use rand::Rng;
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 
 use crate::swarm::{self, P2P, P2PConfig, handle::P2PHandle};
@@ -117,7 +118,21 @@ impl Setup {
             .iter()
             .map(|key| PeerId::from_public_key(&Keypair::from(key.clone()).public()))
             .collect::<Vec<_>>();
-        let multiaddresses = (1..(keypairs.len() + 1) as u16)
+        //
+        // This allows multiple tests to not overlap multiaddresses in most cases. Unreliable but
+        // works.
+        let mut rng = rand::thread_rng();
+        let mut multiaddr_base = rng.r#gen::<u16>();
+        loop {
+            if multiaddr_base > u16::max_value() - u16::try_from(n).unwrap() - 1 {
+                multiaddr_base = rng.r#gen::<u16>();
+            } else {
+                break;
+            };
+        }
+
+        let multiaddresses = (multiaddr_base
+            ..(multiaddr_base + u16::try_from(keypairs.len() + 1).unwrap()))
             .map(|idx| build_multiaddr!(Memory(idx)))
             .collect::<Vec<_>>();
         (keypairs, peer_ids, multiaddresses)
