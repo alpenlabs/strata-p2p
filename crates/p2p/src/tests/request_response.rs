@@ -31,16 +31,15 @@ async fn request_response_basic() -> anyhow::Result<()> {
     match operators[1].handle.next_event().await {
         Ok(event) => match event {
             Event::ReceivedMessage(_data) => {
-                assert!(
-                    false,
-                    "Something is insanely wrong: it got a gossipsub's message when it should have got a request from Request-response protocol."
-                )
+                panic!(
+                    "Something is insanely wrong: it got a gossipsub's message when it should have got a request from Request-response protocol.",
+                );
             }
             Event::ReceivedRequest(data) => {
                 assert_eq!(data, Vec::<u8>::from("Hello, it's a request..."));
             }
         },
-        Err(e) => assert!(false, "Smth is wrong: {e}"),
+        Err(e) => panic!("Smth is wrong: {e}"),
     }
 
     cancel.cancel();

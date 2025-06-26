@@ -124,7 +124,7 @@ impl Setup {
         let mut rng = rand::thread_rng();
         let mut multiaddr_base = rng.r#gen::<u16>();
         loop {
-            if multiaddr_base > u16::max_value() - u16::try_from(n).unwrap() - 1 {
+            if multiaddr_base > u16::MAX - u16::try_from(n).unwrap() - 1 {
                 multiaddr_base = rng.r#gen::<u16>();
             } else {
                 break;

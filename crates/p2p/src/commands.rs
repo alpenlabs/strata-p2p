@@ -86,11 +86,9 @@ mod tests {
             peer_id: libp2p::identity::Keypair::generate_ed25519()
                 .public()
                 .to_peer_id(),
-            peer_addr: build_multiaddr!(Memory(1 as u64)),
+            peer_addr: build_multiaddr!(Memory(1_u64)),
         };
         let _ = Command::from(tmp);
-
-        assert!(true)
     }
 
     #[test]
@@ -104,7 +102,5 @@ mod tests {
             response_sender: tx,
         };
         let _ = Command::from(tmp);
-
-        assert!(true)
     }
 }

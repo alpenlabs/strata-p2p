@@ -39,13 +39,12 @@ async fn gossip_basic() -> anyhow::Result<()> {
                 assert_eq!(data, Vec::<u8>::from("hello"));
             }
             Event::ReceivedRequest(_) => {
-                assert!(
-                    false,
+                panic!(
                     "Something is insanely wrong: it got request when it should have got just a message."
                 )
             }
         },
-        Err(e) => assert!(false, "Smth is wrong: {e}"),
+        Err(e) => panic!("Smth is wrong: {e}"),
     }
 
     cancel.cancel();

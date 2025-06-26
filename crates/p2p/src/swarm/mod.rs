@@ -491,11 +491,11 @@ impl P2P {
                 debug!(%request_target_peer_id, "Got request message");
                 trace!(?data, "Got request message");
 
-                if self.swarm.is_connected(&request_target_peer_id) {
+                if self.swarm.is_connected(request_target_peer_id) {
                     self.swarm
                         .behaviour_mut()
                         .request_response
-                        .send_request(&request_target_peer_id, data);
+                        .send_request(request_target_peer_id, data);
                     return Ok(());
                 }
 

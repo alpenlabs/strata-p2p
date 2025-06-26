@@ -58,7 +58,7 @@ async fn test_manually_get_all_peers() -> anyhow::Result<()> {
 
     match rx.await {
         Ok(v) => assert_eq!(v.len(), OPERATORS_NUM - 1),
-        Err(e) => assert!(false, "error {}", e),
+        Err(e) => panic!("error {e}"),
     };
 
     assert!(operators[0].handle.events_is_empty());
