@@ -659,13 +659,15 @@ impl P2P {
                 let empty_response = GetMessageResponse { msg: vec![] };
 
                 let Ok(req) = v1::GetMessageRequest::from_msg(request) else {
-                    warn!(%peer_id, "Peer sent invalid get message request, replying with empty response");
                     let _ = self
                         .swarm
                         .behaviour_mut()
                         .request_response
                         .send_response(channel, empty_response)
-                        .inspect_err(|_| error!("Failed to send response"));
+                        // NOTE(@storopoli): we ignore errors here since we are not expecting any
+                        // response if we get a request-response message, we just gossip the message
+                        // again and not reply to it.
+                        .map_err(|_| ());
 
                     return Ok(());
                 };
@@ -679,12 +681,11 @@ impl P2P {
                 Ok(())
             }
 
-            request_response::Message::Response {
-                request_id,
-                response,
-            } => {
+            request_response::Message::Response { response, .. } => {
                 if response.msg.is_empty() {
-                    warn!(%request_id, ?response, "Received empty response");
+                    // NOTE(@storopoli): ignore empty messages since we are not expecting any
+                    // response if we get a request-response message, we just gossip the message
+                    // again and not reply to it.
                     return Ok(());
                 }
 

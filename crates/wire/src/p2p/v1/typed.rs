@@ -1,8 +1,11 @@
 //! Types derived from the `.proto` files.
 
+use std::fmt;
+
 use bitcoin::{
     consensus,
     hashes::{sha256, Hash},
+    hex::DisplayHex,
     Txid, XOnlyPublicKey,
 };
 use libp2p::{
@@ -23,7 +26,7 @@ use super::proto::{
 };
 
 /// Typed version of "get_message_request::GetMessageRequest".
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub enum GetMessageRequest {
     /// Request Stake Chain info for this operator.
     StakeChainExchange {
@@ -188,8 +191,78 @@ impl GetMessageRequest {
     }
 }
 
+impl fmt::Debug for GetMessageRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            GetMessageRequest::StakeChainExchange {
+                operator_pk,
+                stake_chain_id,
+            } => write!(
+                f,
+                "StakeChainExchange(operator_pk: {operator_pk}, stake_chain_id: {stake_chain_id})"
+            ),
+
+            GetMessageRequest::DepositSetup { operator_pk, scope } => write!(
+                f,
+                "DepositSetup(operator_pk: {operator_pk}, scope: {scope})"
+            ),
+
+            GetMessageRequest::Musig2SignaturesExchange {
+                operator_pk,
+                session_id,
+            } => write!(
+                f,
+                "Musig2SignaturesExchange(operator_pk: {operator_pk}, session_id: {session_id})"
+            ),
+
+            GetMessageRequest::Musig2NoncesExchange {
+                operator_pk,
+                session_id,
+            } => write!(
+                f,
+                "Musig2NoncesExchange(operator_pk: {operator_pk}, session_id: {session_id})"
+            ),
+        }
+    }
+}
+
+impl fmt::Display for GetMessageRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::StakeChainExchange {
+                operator_pk,
+                stake_chain_id,
+            } => write!(
+                f,
+                "StakeChainExchange(operator_pk: {operator_pk}, stake_chain_id: {stake_chain_id})"
+            ),
+
+            Self::DepositSetup { operator_pk, scope } => write!(
+                f,
+                "DepositSetup(operator_pk: {operator_pk}, scope: {scope})"
+            ),
+
+            Self::Musig2NoncesExchange {
+                operator_pk,
+                session_id,
+            } => write!(
+                f,
+                "Musig2NoncesExchange(operator_pk: {operator_pk}, session_id: {session_id})"
+            ),
+
+            Self::Musig2SignaturesExchange {
+                operator_pk,
+                session_id,
+            } => write!(
+                f,
+                "Musig2SignaturesExchange(operator_pk: {operator_pk}, session_id: {session_id})"
+            ),
+        }
+    }
+}
+
 /// New deposit request appeared, and operators exchanging setup data.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct DepositSetup {
     /// [`sha256::Hash`] hash of the stake transaction that the preimage is revealed when advancing
     /// the stake.
@@ -236,10 +309,33 @@ impl DepositSetup {
     }
 }
 
+impl fmt::Debug for DepositSetup {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let hash = self.hash.as_byte_array().to_lower_hex_string();
+        let funding_txid = self.funding_txid;
+        let funding_vout = self.funding_vout;
+        let operator_pk = self.operator_pk.serialize().to_lower_hex_string();
+        let wots_pks = &self.wots_pks; // not so big because of the custom Debug implementation
+
+        write!(f, "DepositSetup(hash: {hash}, funding_outpoint: {funding_txid}:{funding_vout}, operator_pk: {operator_pk}, wots_pks: {wots_pks:?})")
+    }
+}
+
+impl fmt::Display for DepositSetup {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let hash = self.hash.as_byte_array().to_lower_hex_string();
+        let funding_txid = self.funding_txid;
+        let funding_vout = self.funding_vout;
+        let operator_pk = self.operator_pk.serialize().to_lower_hex_string();
+
+        write!(f, "DepositSetup(hash: {hash}, funding_outpoint: {funding_txid}:{funding_vout}, operator_pk: {operator_pk})")
+    }
+}
+
 /// Info provided during initial startup of nodes.
 ///
 /// This is primarily used for the Stake Chain setup.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct StakeChainExchange {
     /// [`Txid`] of the pre-stake transaction.
     pub pre_stake_txid: Txid,
@@ -261,8 +357,30 @@ impl StakeChainExchange {
     }
 }
 
+impl fmt::Debug for StakeChainExchange {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let pre_stake_txid = self.pre_stake_txid;
+        let pre_stake_vout = self.pre_stake_vout;
+        write!(
+            f,
+            "StakeChainExchange(pre_stake_outpoint: {pre_stake_txid}:{pre_stake_vout})"
+        )
+    }
+}
+
+impl fmt::Display for StakeChainExchange {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let pre_stake_txid = self.pre_stake_txid;
+        let pre_stake_vout = self.pre_stake_vout;
+        write!(
+            f,
+            "StakeChainExchange(pre_stake_outpoint: {pre_stake_txid}:{pre_stake_vout})"
+        )
+    }
+}
+
 /// Unsigned messages exchanged between operators.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 #[expect(clippy::large_enum_variant)]
 pub enum UnsignedGossipsubMsg {
     /// Operators exchange stake chain info.
@@ -529,8 +647,112 @@ impl UnsignedGossipsubMsg {
     }
 }
 
+impl fmt::Debug for UnsignedGossipsubMsg {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            UnsignedGossipsubMsg::StakeChainExchange {
+                stake_chain_id,
+                operator_pk,
+                pre_stake_txid,
+                pre_stake_vout,
+            } => {
+                let operator_pk = operator_pk.serialize().to_lower_hex_string();
+                write!(
+                    f,
+                    "StakeChainExchange(stake_chain_id: {stake_chain_id}, operator_pk: {operator_pk}, pre_stake_outpoint: {pre_stake_txid}:{pre_stake_vout})"
+                )
+            }
+            UnsignedGossipsubMsg::DepositSetup {
+                scope,
+                index,
+                hash,
+                funding_txid,
+                funding_vout,
+                operator_pk,
+                wots_pks,
+            } => {
+                let hash = hash.as_byte_array().to_lower_hex_string();
+                let operator_pk = operator_pk.serialize().to_lower_hex_string();
+                write!(
+                    f,
+                    "DepositSetup(scope: {scope}, index: {index}, hash: {hash}, funding_outpoint: {funding_txid}:{funding_vout}, operator_pk: {operator_pk}, wots_pks: {wots_pks:?})"
+                )
+            }
+            UnsignedGossipsubMsg::Musig2NoncesExchange { session_id, nonces } => {
+                let nonces_count = nonces.len();
+                write!(
+                    f,
+                    "Musig2NoncesExchange(session_id: {session_id}, nonces_count: {nonces_count})"
+                )
+            }
+            UnsignedGossipsubMsg::Musig2SignaturesExchange {
+                session_id,
+                signatures,
+            } => {
+                let signatures_count = signatures.len();
+                write!(
+                    f,
+                    "Musig2SignaturesExchange(session_id: {session_id}, signatures_count: {signatures_count})"
+                )
+            }
+        }
+    }
+}
+
+impl fmt::Display for UnsignedGossipsubMsg {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            UnsignedGossipsubMsg::StakeChainExchange {
+                stake_chain_id,
+                operator_pk,
+                pre_stake_txid,
+                pre_stake_vout,
+            } => {
+                let operator_pk = operator_pk.serialize().to_lower_hex_string();
+                write!(
+                    f,
+                    "StakeChainExchange(stake_chain_id: {stake_chain_id}, operator_pk: {operator_pk}, pre_stake_outpoint: {pre_stake_txid}:{pre_stake_vout})"
+                )
+            }
+            UnsignedGossipsubMsg::DepositSetup {
+                scope,
+                index,
+                hash,
+                funding_txid,
+                funding_vout,
+                operator_pk,
+                ..
+            } => {
+                let hash = hash.as_byte_array().to_lower_hex_string();
+                let operator_pk = operator_pk.serialize().to_lower_hex_string();
+                write!(
+                    f,
+                    "DepositSetup(scope: {scope}, index: {index}, hash: {hash}, funding_outpoint: {funding_txid}:{funding_vout}, operator_pk: {operator_pk})"
+                )
+            }
+            UnsignedGossipsubMsg::Musig2NoncesExchange { session_id, nonces } => {
+                let nonces_count = nonces.len();
+                write!(
+                    f,
+                    "Musig2NoncesExchange(session_id: {session_id}, nonces_count: {nonces_count})"
+                )
+            }
+            UnsignedGossipsubMsg::Musig2SignaturesExchange {
+                session_id,
+                signatures,
+            } => {
+                let signatures_count = signatures.len();
+                write!(
+                    f,
+                    "Musig2SignaturesExchange(session_id: {session_id}, signatures_count: {signatures_count})"
+                )
+            }
+        }
+    }
+}
+
 /// Gossipsub message.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct GossipsubMsg {
     /// Operator's signature of the message.
     pub signature: Vec<u8>,
@@ -581,5 +803,29 @@ impl GossipsubMsg {
     /// Returns the content of the message as raw bytes.
     pub fn content(&self) -> Vec<u8> {
         self.unsigned.content()
+    }
+}
+
+impl fmt::Debug for GossipsubMsg {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let key = self.key.to_string();
+        let signature = self.signature.to_lower_hex_string();
+        let unsigned = &self.unsigned;
+        write!(
+            f,
+            "GossipsubMsg(key: {key}, signature: {signature}, unsigned: {unsigned:?})"
+        )
+    }
+}
+
+impl fmt::Display for GossipsubMsg {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let key = self.key.to_string();
+        let signature = self.signature.to_lower_hex_string();
+        let unsigned = &self.unsigned;
+        write!(
+            f,
+            "GossipsubMsg(key: {key}, signature: {signature}, unsigned: {unsigned})",
+        )
     }
 }
