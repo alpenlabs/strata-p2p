@@ -1,6 +1,6 @@
 //! Commands for P2P implementation from operator implementation.
 
-use libp2p::{Multiaddr, PeerId, identity::PublicKey};
+use libp2p::{Multiaddr, PeerId};
 use tokio::sync::oneshot;
 
 /// Commands that users can send to the P2P node.
@@ -16,11 +16,11 @@ pub enum Command {
 
     /// Requests some message directly from other operator by public Key.
     RequestMessage {
-        /// Libp2p public key of target peer.
+        /// Libp2p [`PeerId`] of target peer.
         ///
-        /// Note: public key type (secp256k1/ed25519/RSA) is set via enabling specific feature in
-        /// cargo toml for libp2p.
-        peer_pubkey: PublicKey,
+        /// Note: [`PeerId`] can be created from public key of corresponding peer via
+        /// `the_pubkey.to_peer_id()`.
+        peer_id: PeerId,
         /// Message payload in raw bytes.
         ///
         /// The user is responsible for properly serializing/deserializing the data.
@@ -65,6 +65,14 @@ pub enum QueryP2PStateCommand {
     GetConnectedPeers {
         /// Channel to send the response back.
         response_sender: oneshot::Sender<Vec<PeerId>>,
+    },
+
+    /// Gets all listening addresses from swarm's point of view.
+    /// May give empty [`Vec`] if transport initialization has not yet occurred at the moment of the
+    /// call.
+    GetMyListeningAddresses {
+        /// Channel to send the response back.
+        response_sender: oneshot::Sender<Vec<Multiaddr>>,
     },
 }
 
