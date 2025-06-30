@@ -2,11 +2,11 @@
 
 use std::time::Duration;
 
+use anyhow::bail;
 use tokio::time::sleep;
 
 use super::common::Setup;
 use crate::{commands::Command, events::Event};
-
 /// Tests the gossip protocol in an all to all connected network with multiple IDs.
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn gossip_basic() -> anyhow::Result<()> {
@@ -18,7 +18,7 @@ async fn gossip_basic() -> anyhow::Result<()> {
         tasks,
     } = Setup::all_to_all(USERS_NUM).await?;
 
-    let _ = sleep(Duration::from_nanos(1000000)).await;
+    let _ = sleep(Duration::from_secs(1)).await;
 
     user_handles[0]
         .handle
@@ -33,12 +33,12 @@ async fn gossip_basic() -> anyhow::Result<()> {
                 assert_eq!(data, Vec::<u8>::from("hello"));
             }
             Event::ReceivedRequest(_) => {
-                panic!(
+                bail!(
                     "Something is insanely wrong: it got request when it should have got just a message."
                 )
             }
         },
-        Err(e) => panic!("Smth is wrong: {e}"),
+        Err(e) => bail!("Something is wrong: {e}"),
     }
 
     cancel.cancel();

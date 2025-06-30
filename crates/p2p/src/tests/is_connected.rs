@@ -1,5 +1,6 @@
 use std::time::Duration;
 
+use anyhow::bail;
 use libp2p::PeerId;
 use tokio::{sync::oneshot, time::sleep};
 
@@ -15,7 +16,7 @@ async fn test_is_connected() -> anyhow::Result<()> {
         tasks,
     } = Setup::all_to_all(2).await?;
 
-    let _ = sleep(Duration::from_nanos(1000000)).await;
+    let _ = sleep(Duration::from_secs(1)).await;
 
     // Verify user 0 is connected to user 1
     let is_connected = user_handles[0]
@@ -72,7 +73,7 @@ async fn test_manually_get_all_peers() -> anyhow::Result<()> {
 
     let (tx, rx) = oneshot::channel::<Vec<PeerId>>();
 
-    let _ = sleep(Duration::from_nanos(2000000)).await;
+    let _ = sleep(Duration::from_secs(2)).await;
 
     user_handles[0]
         .handle
@@ -85,7 +86,7 @@ async fn test_manually_get_all_peers() -> anyhow::Result<()> {
 
     match rx.await {
         Ok(v) => assert_eq!(v.len(), USERS_NUM - 1),
-        Err(e) => panic!("error {e}"),
+        Err(e) => bail!("error {e}"),
     };
 
     assert!(user_handles[0].handle.events_is_empty());

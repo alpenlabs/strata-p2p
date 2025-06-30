@@ -540,7 +540,7 @@ impl P2P {
                     connect_to_peer_command.peer_addr.clone(),
                 );
 
-                let smth: DialOpts = DialOpts::peer_id(connect_to_peer_command.peer_id)
+                let dialing_opts: DialOpts = DialOpts::peer_id(connect_to_peer_command.peer_id)
                     .condition(PeerCondition::DisconnectedAndNotDialing)
                     .addresses(Vec::<Multiaddr>::from([connect_to_peer_command
                         .peer_addr
@@ -549,7 +549,7 @@ impl P2P {
                     .build();
 
                 // Connect to peer
-                let _ = self.swarm.dial(smth).inspect_err(|err| {
+                let _ = self.swarm.dial(dialing_opts).inspect_err(|err| {
                     error!(
                         "Failed to connect to peer at peer_addr '{}' : {} {:?}",
                         connect_to_peer_command.peer_addr.to_string(),

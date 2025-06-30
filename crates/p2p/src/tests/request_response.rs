@@ -2,6 +2,7 @@
 
 use std::time::Duration;
 
+use anyhow::bail;
 use tokio::time::sleep;
 
 use super::common::Setup;
@@ -18,7 +19,7 @@ async fn request_response_basic() -> anyhow::Result<()> {
         tasks,
     } = Setup::all_to_all(USERS_NUM).await?;
 
-    let _ = sleep(Duration::from_nanos(1000000)).await;
+    let _ = sleep(Duration::from_secs(1)).await;
 
     user_handles[0]
         .handle
@@ -31,7 +32,7 @@ async fn request_response_basic() -> anyhow::Result<()> {
     match user_handles[1].handle.next_event().await {
         Ok(event) => match event {
             Event::ReceivedMessage(_data) => {
-                panic!(
+                bail!(
                     "Something is insanely wrong: it got a gossipsub's message when it should have got a request from Request-response protocol.",
                 );
             }
@@ -39,7 +40,7 @@ async fn request_response_basic() -> anyhow::Result<()> {
                 assert_eq!(data, Vec::<u8>::from("Hello, it's a request..."));
             }
         },
-        Err(e) => panic!("Smth is wrong: {e}"),
+        Err(e) => bail!("Something is wrong: {e}"),
     }
 
     cancel.cancel();

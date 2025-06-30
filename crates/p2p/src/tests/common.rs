@@ -114,14 +114,13 @@ impl Setup {
             .map(|key| PeerId::from_public_key(&key.clone().public()))
             .collect::<Vec<_>>();
 
-        //
         // This allows multiple tests to not overlap multiaddresses in most cases. Unreliable but
         // works.
-        let mut rng = rand::thread_rng();
-        let mut multiaddr_base = rng.r#gen::<u64>();
+        let mut rng = rand::rng();
+        let mut multiaddr_base = rng.random::<u64>();
         loop {
             if multiaddr_base > u64::MAX - u64::try_from(n).unwrap() - 1 {
-                multiaddr_base = rng.r#gen::<u64>();
+                multiaddr_base = rng.random::<u64>();
             } else {
                 break;
             };
