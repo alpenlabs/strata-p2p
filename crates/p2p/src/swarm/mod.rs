@@ -519,12 +519,6 @@ where
     ) -> P2PResult<()> {
         trace!("Got message: {:?}", &message.data);
 
-        let source = message
-            .source
-            .expect("Message must have author as ValidationMode set to Permissive");
-
-        let event = Event::ReceivedMessage(message.data);
-
         let propagation_result = self
             .swarm
             .behaviour_mut()
@@ -532,16 +526,16 @@ where
             .report_message_validation_result(
                 &message_id,
                 &propagation_source,
-                MessageAcceptance::Accept,
+                MessageAcceptance::Ignore,
             );
 
-        if !propagation_result {
-            warn!(?event, "failed to propagate accepted message further");
-        }
-
-        self.events
-            .send(event)
-            .map_err(|e| ProtocolError::EventsChannelClosed(e.into()))?;
+        let _ = self
+            .process_message_event(
+                &propagation_source,
+                MessageType::Gossipsub(message.data.clone()),
+                Event::ReceivedMessage(message.data),
+            )
+            .await;
 
         Ok(())
     }
@@ -740,6 +734,7 @@ where
         }
     }
 
+    // this func process messages from req/resp and from gossipsub
     async fn process_message_event(
         &mut self,
         peer_id: &PeerId,
@@ -750,13 +745,26 @@ where
             warn!("Peer(peer_id={}) is muted for request/response", peer_id);
             return Ok(());
         }
-        let old_app_score = self
-            .score_manager
-            .get_req_resp_score(peer_id)
-            .unwrap_or(DEFAULT_REQ_RESP_APP_SCORE);
+
+        let old_app_score = match msg_type {
+            MessageType::Gossipsub(_) => self
+                .score_manager
+                .get_gossipsub_app_score(peer_id)
+                .unwrap_or(DEFAULT_GOSSIP_APP_SCORE),
+            _ => self
+                .score_manager
+                .get_req_resp_score(peer_id)
+                .unwrap_or(DEFAULT_REQ_RESP_APP_SCORE),
+        };
         let updated_score = V::validate_msg(&msg_type, old_app_score);
-        self.score_manager
-            .update_req_resp_app_score(peer_id, updated_score);
+        match msg_type {
+            MessageType::Gossipsub(_) => self
+                .score_manager
+                .update_gossipsub_app_score(peer_id, updated_score),
+            _ => self
+                .score_manager
+                .update_req_resp_app_score(peer_id, updated_score),
+        }
 
         let (gossip_internal_score, gossip_app_score, reqresp_app_score) =
             self.get_all_scores(peer_id).await;
