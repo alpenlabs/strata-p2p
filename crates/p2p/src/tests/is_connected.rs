@@ -8,22 +8,49 @@ use crate::commands::{Command, QueryP2PStateCommand};
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_is_connected() -> anyhow::Result<()> {
-    // Set up two connected operators
+    // Set up two connected user_handles
     let Setup {
-        operators,
+        user_handles,
         cancel,
         tasks,
     } = Setup::all_to_all(2).await?;
 
     let _ = sleep(Duration::from_nanos(1000000)).await;
 
-    // Verify operator 0 is connected to operator 1
-    let is_connected = operators[0].handle.is_connected(operators[1].peer_id).await;
+    // Verify user 0 is connected to user 1
+    let is_connected = user_handles[0]
+        .handle
+        .is_connected(user_handles[1].peer_id)
+        .await;
+    assert!(is_connected);
+
+    let (tx, rx) = oneshot::channel::<bool>();
+
+    // Verify user 0 is connected to user 1 manually
+    user_handles[0]
+        .handle
+        .send_command(Command::from(QueryP2PStateCommand::IsConnected {
+            peer_id: user_handles[1].peer_id,
+            response_sender: tx,
+        }))
+        .await;
+    let is_connected = rx.await.unwrap();
     assert!(is_connected);
 
     // Also test the get_connected_peers API
-    let connected_peers = operators[0].handle.get_connected_peers().await;
-    assert!(connected_peers.contains(&operators[1].peer_id));
+    let connected_peers = user_handles[0].handle.get_connected_peers().await;
+    assert!(connected_peers.contains(&user_handles[1].peer_id));
+
+    let (tx, rx) = oneshot::channel::<Vec<PeerId>>();
+    // Also test the get_connected_peers API manually
+    user_handles[0]
+        .handle
+        .send_command(Command::from(QueryP2PStateCommand::GetConnectedPeers {
+            response_sender: tx,
+        }))
+        .await;
+    let connected_peers = rx.await.unwrap();
+    assert!(connected_peers.contains(&user_handles[1].peer_id));
 
     // Cleanup
     cancel.cancel();
@@ -35,19 +62,19 @@ async fn test_is_connected() -> anyhow::Result<()> {
 /// Tests the gossip protocol in an all to all connected network with multiple IDs.
 #[tokio::test(flavor = "multi_thread", worker_threads = 6)]
 async fn test_manually_get_all_peers() -> anyhow::Result<()> {
-    const OPERATORS_NUM: usize = 6;
+    const USERS_NUM: usize = 6;
 
     let Setup {
-        operators,
+        user_handles,
         cancel,
         tasks,
-    } = Setup::all_to_all(OPERATORS_NUM).await?;
+    } = Setup::all_to_all(USERS_NUM).await?;
 
     let (tx, rx) = oneshot::channel::<Vec<PeerId>>();
 
     let _ = sleep(Duration::from_nanos(2000000)).await;
 
-    operators[0]
+    user_handles[0]
         .handle
         .send_command(Command::QueryP2PState(
             QueryP2PStateCommand::GetConnectedPeers {
@@ -57,11 +84,11 @@ async fn test_manually_get_all_peers() -> anyhow::Result<()> {
         .await;
 
     match rx.await {
-        Ok(v) => assert_eq!(v.len(), OPERATORS_NUM - 1),
+        Ok(v) => assert_eq!(v.len(), USERS_NUM - 1),
         Err(e) => panic!("error {e}"),
     };
 
-    assert!(operators[0].handle.events_is_empty());
+    assert!(user_handles[0].handle.events_is_empty());
 
     cancel.cancel();
 

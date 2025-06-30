@@ -1,7 +1,5 @@
 //! Commands for P2P implementation from operator implementation.
 
-#[cfg(test)]
-use libp2p::build_multiaddr;
 use libp2p::{Multiaddr, PeerId};
 use tokio::sync::oneshot;
 
@@ -68,39 +66,17 @@ pub enum QueryP2PStateCommand {
         /// Channel to send the response back.
         response_sender: oneshot::Sender<Vec<PeerId>>,
     },
+
+    /// Gets all listening addresses from swarm's point of view.
+    /// May give empty Vec if no TransportInitialization is happened at the moment of calling.
+    GetMyListeningAddresses {
+        /// Channel to send the response back.
+        response_sender: oneshot::Sender<Vec<Multiaddr>>,
+    },
 }
 
 impl From<QueryP2PStateCommand> for Command {
     fn from(v: QueryP2PStateCommand) -> Self {
         Self::QueryP2PState(v)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_from_connect_to_peer() {
-        let tmp = ConnectToPeerCommand {
-            peer_id: libp2p::identity::Keypair::generate_ed25519()
-                .public()
-                .to_peer_id(),
-            peer_addr: build_multiaddr!(Memory(1_u64)),
-        };
-        let _ = Command::from(tmp);
-    }
-
-    #[test]
-    fn test_from_query_p2p_state() {
-        let (tx, _rx) = oneshot::channel::<bool>();
-
-        let tmp = QueryP2PStateCommand::IsConnected {
-            peer_id: libp2p::identity::Keypair::generate_ed25519()
-                .public()
-                .to_peer_id(),
-            response_sender: tx,
-        };
-        let _ = Command::from(tmp);
     }
 }

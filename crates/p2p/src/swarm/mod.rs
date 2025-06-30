@@ -16,10 +16,13 @@ use libp2p::{
     gossipsub::{
         Event as GossipsubEvent, Message, MessageAcceptance, MessageId, PublishError, Sha256Topic,
     },
-    identity::{Keypair, PublicKey},
+    identity::Keypair,
     noise,
     request_response::{self, Event as RequestResponseEvent},
-    swarm::SwarmEvent,
+    swarm::{
+        SwarmEvent,
+        dial_opts::{DialOpts, PeerCondition},
+    },
     yamux,
 };
 use tokio::{
@@ -100,9 +103,6 @@ pub struct P2PConfig {
 
     /// Initial list of nodes to connect to at startup.
     pub connect_to: Vec<Multiaddr>,
-
-    /// List of signers' P2P public keys, whose messages the node is allowed to accept.
-    pub signers_allowlist: Vec<PublicKey>,
 }
 
 /// Implementation of P2P protocol data exchange.
@@ -290,6 +290,16 @@ impl P2P {
                     }
                     SwarmEvent::OutgoingConnectionError { peer_id, error, .. } => {
                         warn!(?peer_id, %error, "outgoing connection error");
+                    }
+                    SwarmEvent::IncomingConnectionError {
+                        connection_id,
+                        local_addr,
+                        send_back_addr,
+                        error,
+                    } => {
+                        warn!(
+                            "Incoming connection error: {connection_id} {local_addr} {send_back_addr} {error}"
+                        );
                     }
                     _ => {}
                 };
@@ -513,6 +523,12 @@ impl P2P {
             }
             Command::ConnectToPeer(connect_to_peer_command) => {
                 // Whitelist peer
+                self.swarm
+                    .behaviour_mut()
+                    .allow_list
+                    .allow_peer(connect_to_peer_command.peer_id);
+
+                // Add the peer to our config lists.
                 self.config.allowlist.push(connect_to_peer_command.peer_id);
                 self.config
                     .connect_to
@@ -524,11 +540,23 @@ impl P2P {
                     connect_to_peer_command.peer_addr.clone(),
                 );
 
+                let smth: DialOpts = DialOpts::peer_id(connect_to_peer_command.peer_id)
+                    .condition(PeerCondition::DisconnectedAndNotDialing)
+                    .addresses(Vec::<Multiaddr>::from([connect_to_peer_command
+                        .peer_addr
+                        .clone()]))
+                    .extend_addresses_through_behaviour()
+                    .build();
+
                 // Connect to peer
-                let _ = self
-                    .swarm
-                    .dial(connect_to_peer_command.peer_addr)
-                    .inspect_err(|err| error!(%err, "Failed to connect to peer"));
+                let _ = self.swarm.dial(smth).inspect_err(|err| {
+                    error!(
+                        "Failed to connect to peer at peer_addr '{}' : {} {:?}",
+                        connect_to_peer_command.peer_addr.to_string(),
+                        err,
+                        err
+                    )
+                });
 
                 Ok(())
             }
@@ -546,6 +574,21 @@ impl P2P {
                     info!("Querying connected peers");
                     let peers = self.swarm.connected_peers().cloned().collect();
                     let _ = response_sender.send(peers);
+                    Ok(())
+                }
+                QueryP2PStateCommand::GetMyListeningAddresses { response_sender } => {
+                    info!("Querying my own local listening addresses.");
+                    // We clone here because if not clone, we'll receive [`Vec<&Multiaddr>`]. Ok,
+                    // we'll receive Vec of references. Then in enum of [`QueryP2PStateCommand`]
+                    // will have to specify template lifetime param. Then we'll have to specify it
+                    // in [`Commands`], then fix a lot of code to specify `<'_>`.
+                    //
+                    // For the case it seems more reasonable to clone than to struggle with
+                    // lifetimes, since we don't expect this
+                    // command be called many times.
+                    let multiaddresses =
+                        self.swarm.listeners().cloned().collect::<Vec<Multiaddr>>();
+                    let _ = response_sender.send(multiaddresses);
                     Ok(())
                 }
             },
@@ -592,7 +635,7 @@ impl P2P {
                 // dial the peer
                 let _ = self.swarm.dial(addr).inspect_err(|err| {
                     error!(%peer, %error, %request_id, "Inbound failure");
-                    error!(%err, "Failed to connect to peer");
+                    error!(%err, "Failed to connect to peer '{peer}'");
                 });
             }
             RequestResponseEvent::ResponseSent {
@@ -681,10 +724,10 @@ macro_rules! finish_swarm {
 pub fn with_inmemory_transport(config: &P2PConfig) -> P2PResult<Swarm<Behaviour>> {
     let builder = init_swarm!(config);
     let swarm = finish_swarm!(
-        builder.with_other_transport(|keys| {
+        builder.with_other_transport(|our_keypair| {
             MemoryTransport::new()
                 .upgrade(libp2p::core::upgrade::Version::V1)
-                .authenticate(noise::Config::new(keys).unwrap())
+                .authenticate(noise::Config::new(our_keypair).unwrap())
                 .multiplex(yamux::Config::default())
                 .map(|(p, c), _| (p, StreamMuxerBox::new(c)))
         }),
