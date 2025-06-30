@@ -68,7 +68,7 @@ pub enum QueryP2PStateCommand {
     },
 
     /// Gets all listening addresses from swarm's point of view.
-    /// May give empty [`Vec`] if transport initialization has not yet occured at the moment of the
+    /// May give empty [`Vec`] if transport initialization has not yet occurred at the moment of the
     /// call.
     GetMyListeningAddresses {
         /// Channel to send the response back.
