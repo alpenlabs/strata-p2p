@@ -3,13 +3,17 @@ use std::{collections::HashMap, time::Duration};
 use chrono::{DateTime, Utc};
 use libp2p::PeerId;
 
-enum Message {
+pub const DEFAULT_BAN_PERIOD: Duration = Duration::from_secs(60 * 60 * 24 * 30);
+
+#[derive(Debug)]
+pub enum Message {
     Gossipsub(Vec<u8>),
     Request(Vec<u8>),
     Response(Vec<u8>),
 }
 
-enum PenaltyType {
+#[derive(Debug)]
+pub enum PenaltyType {
     Ignore,
     MuteGossip(Duration),  // Mute this peer for some time in Gossipsub
     MuteReqresp(Duration), // Mute this peer for some time in RequestResponse
@@ -17,7 +21,8 @@ enum PenaltyType {
     Ban(Option<Duration>), // Ban, optional duration (None = forever)
 }
 
-struct PenaltyInfo {
+#[derive(Debug)]
+pub struct PenaltyInfo {
     mute_gossip_until: Option<DateTime<Utc>>, // None if not muted for Gossipsub
     mute_req_resp_until: Option<DateTime<Utc>>, // None if not muted for RequestResponse
     ban_until: Option<DateTime<Utc>>,         // None if not banned
@@ -37,6 +42,7 @@ impl PenaltyInfo {
     }
 }
 
+#[derive(Debug)]
 pub struct PenaltyPeerStorage {
     penalties: HashMap<PeerId, PenaltyInfo>,
 }
@@ -52,6 +58,24 @@ pub trait Validator {
         gossip_app_score: f64,
         reqresp_app_score: f64,
     ) -> Option<PenaltyType>;
+}
+
+#[derive(Debug, Default)]
+pub struct DefaultP2PValidator;
+
+impl Validator for DefaultP2PValidator {
+    fn validate_msg(msg: &Message, old_app_score: f64) -> f64 {
+        0.0
+    }
+
+    fn get_penalty(
+        msg: &Message,
+        gossip_internal_score: f64,
+        gossip_app_score: f64,
+        reqresp_app_score: f64,
+    ) -> Option<PenaltyType> {
+        None
+    }
 }
 
 impl PenaltyPeerStorage {
@@ -83,7 +107,7 @@ impl PenaltyPeerStorage {
 
     pub fn mute_peer_gossip(
         &mut self,
-        peer_id: PeerId,
+        peer_id: &PeerId,
         until: DateTime<Utc>,
     ) -> Result<(), &'static str> {
         let penalty = self
@@ -93,7 +117,7 @@ impl PenaltyPeerStorage {
 
         if let Some(mute_until) = penalty.mute_gossip_until {
             if mute_until > Utc::now() {
-                return Err("Peer is already muted for Gossipsub");
+                return Err("Peer is already muted");
             }
         }
 
@@ -103,7 +127,7 @@ impl PenaltyPeerStorage {
 
     pub fn mute_peer_req_resp(
         &mut self,
-        peer_id: PeerId,
+        peer_id: &PeerId,
         until: DateTime<Utc>,
     ) -> Result<(), &'static str> {
         let penalty = self
@@ -113,7 +137,7 @@ impl PenaltyPeerStorage {
 
         if let Some(mute_until) = penalty.mute_req_resp_until {
             if mute_until > Utc::now() {
-                return Err("Peer is already muted for RequestResponse");
+                return Err("Peer is already muted");
             }
         }
 
@@ -121,11 +145,7 @@ impl PenaltyPeerStorage {
         Ok(())
     }
 
-    pub fn ban_peer(
-        &mut self,
-        peer_id: PeerId,
-        until: Option<DateTime<Utc>>,
-    ) -> Result<(), &'static str> {
+    pub fn ban_peer(&mut self, peer_id: &PeerId, until: DateTime<Utc>) -> Result<(), &'static str> {
         let penalty = self
             .penalties
             .entry(peer_id.clone())
@@ -137,7 +157,7 @@ impl PenaltyPeerStorage {
             }
         }
 
-        penalty.ban_until = until;
+        penalty.ban_until = Some(until);
         Ok(())
     }
 }
