@@ -76,7 +76,6 @@ impl P2PHandle {
         self.events.is_empty()
     }
 
-
     /// Checks if the P2P node is connected to the specified peer.
     /// Returns true if connected, false otherwise.
     pub async fn is_connected(&self, peer_id: PeerId) -> bool {

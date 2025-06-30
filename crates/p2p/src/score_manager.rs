@@ -1,8 +1,10 @@
-use std::{collections::HashMap, env::current_exe};
+use std::collections::HashMap;
 
 use libp2p::PeerId;
 
 pub const DEFAULT_DECAY_FACTOR: f64 = 0.9;
+pub const DEFAULT_REQ_RESP_APP_SCORE: f64 = 0.0;
+pub const DEFAULT_GOSSIP_APP_SCORE: f64 = 0.0;
 
 #[derive(Debug, Clone)]
 pub struct ScoreManager {
@@ -33,18 +35,12 @@ impl ScoreManager {
         self.req_resp_app_score.get(peer_id).cloned()
     }
 
-    pub fn update_gossipsub_app_score(&mut self, peer_id: &PeerId, delta: f64) {
-        self.gossipsub_app_score
-            .entry(peer_id.clone())
-            .and_modify(|score| *score += delta)
-            .or_insert(delta);
+    pub fn update_gossipsub_app_score(&mut self, peer_id: &PeerId, new_score: f64) {
+        self.gossipsub_app_score.insert(peer_id.clone(), new_score);
     }
 
-    pub fn update_req_resp_app_score(&mut self, peer_id: &PeerId, delta: f64) {
-        self.req_resp_app_score
-            .entry(peer_id.clone())
-            .and_modify(|score| *score += delta)
-            .or_insert(delta);
+    pub fn update_req_resp_app_score(&mut self, peer_id: &PeerId, new_score: f64) {
+        self.req_resp_app_score.insert(peer_id.clone(), new_score);
     }
 
     pub fn decay_scores(&mut self) {
