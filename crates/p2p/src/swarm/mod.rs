@@ -33,6 +33,8 @@ use tracing::{debug, error, info, instrument, trace, warn};
 use crate::{
     commands::{Command, QueryP2PStateCommand},
     events::Event,
+    score_manager::{ScoreManager, DEFAULT_DECAY_FACTOR},
+    validator::{PenaltyPeerStorage, Validator},
 };
 
 mod behavior;
@@ -103,6 +105,12 @@ pub struct P2PConfig {
 
     /// List of signers' P2P public keys, whose messages the node is allowed to accept.
     pub signers_allowlist: Vec<P2POperatorPubKey>,
+
+    /// Fields for [`ScoreManager`]s.
+    ///
+    /// This parameter is used to decay the score.
+    /// Default value is [`DEFAULT_DECAY_FACTOR`].
+    pub decay_factor: Option<f64>,
 }
 
 /// Implementation of p2p protocol for BitVM2 data exchange.
@@ -130,6 +138,12 @@ pub struct P2P {
 
     /// Underlying configuration.
     config: P2PConfig,
+
+    /// Score manager.
+    score_manager: ScoreManager,
+
+    /// Storage with penalty for peer's penalty
+    peer_penalty_storage: PenaltyPeerStorage,
 }
 
 /// Alias for P2P and P2PHandle tuple.
@@ -152,6 +166,8 @@ impl P2P {
         let channel_size = channel_size.unwrap_or(256);
         let (events_tx, events_rx) = broadcast::channel(channel_size);
         let (cmds_tx, cmds_rx) = mpsc::channel(64);
+        let score_manager = ScoreManager::new(cfg.decay_factor.unwrap_or(DEFAULT_DECAY_FACTOR));
+        let peer_penalty_storage = PenaltyPeerStorage::new();
 
         Ok((
             Self {
@@ -161,6 +177,8 @@ impl P2P {
                 commands_sender: cmds_tx.clone(),
                 cancellation_token: cancel,
                 config: cfg,
+                score_manager,
+                peer_penalty_storage,
             },
             P2PHandle::new(events_rx, cmds_tx, keypair),
         ))
@@ -645,7 +663,6 @@ impl P2P {
             }
         }
     }
-
 }
 
 /// Constructs swarm builder with existing identity.
