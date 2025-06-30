@@ -580,7 +580,7 @@ impl P2P {
                     info!("Querying my own local listening addresses.");
                     // We clone here because if not clone, we'll receive `Vec<&Multiaddr>`. Ok,
                     // we'll receive Vec of references. Then in enum of `QueryP2PStateCommand`
-                    // will have to specify template lifetime param. Then we'll have to specify it
+                    // we'll have to specify template lifetime param. Then we'll have to specify it
                     // in Commands, then fix a lot of code to specify `<'_>`.
                     //
                     // For the case it seems more reasonable to clone than to struggle with
