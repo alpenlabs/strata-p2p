@@ -43,7 +43,7 @@ impl ScoreManager {
         self.req_resp_app_score.insert(peer_id.clone(), new_score);
     }
 
-    pub fn decay_scores(&mut self) {
+    pub fn apply_decay(&mut self) {
         for (_peer_id, score) in self.gossipsub_app_score.iter_mut() {
             *score = *score * self.decay_factor;
         }
