@@ -117,7 +117,7 @@ impl PenaltyPeerStorage {
 
         if let Some(mute_until) = penalty.mute_gossip_until {
             if mute_until > Utc::now() {
-                return Err("Peer is already muted");
+                return Err("Peer is already muted for gossip");
             }
         }
 
@@ -137,7 +137,7 @@ impl PenaltyPeerStorage {
 
         if let Some(mute_until) = penalty.mute_req_resp_until {
             if mute_until > Utc::now() {
-                return Err("Peer is already muted");
+                return Err("Peer is already muted for request/response");
             }
         }
 

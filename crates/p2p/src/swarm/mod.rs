@@ -599,14 +599,14 @@ where
                 let until = Utc::now() + chrono::Duration::from_std(time_amount).unwrap();
                 match self.peer_penalty_storage.mute_peer_gossip(peer_id, until) {
                     Ok(()) => info!(%peer_id, ?until, "Peer muted for Gossipsub"),
-                    Err(e) => error!(%peer_id, ?e, "Failed to mute peer for Gossipsub"),
+                    Err(e) => error!(%peer_id, ?e, "Failed to mute peer"),
                 }
             }
             PenaltyType::MuteReqresp(time_amount) => {
                 let until = Utc::now() + chrono::Duration::from_std(time_amount).unwrap();
                 match self.peer_penalty_storage.mute_peer_req_resp(peer_id, until) {
                     Ok(()) => info!(%peer_id, ?until, "Peer muted for RequestResponse"),
-                    Err(e) => error!(%peer_id, ?e, "Failed to mute peer for RequestResponse"),
+                    Err(e) => error!(%peer_id, ?e, "Failed to mute peer"),
                 }
             }
             PenaltyType::MuteBoth(time_amount) => {
