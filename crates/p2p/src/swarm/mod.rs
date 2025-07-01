@@ -15,7 +15,8 @@ use handle::P2PHandle;
 use libp2p::{
     core::{muxing::StreamMuxerBox, transport::MemoryTransport, ConnectedPoint},
     gossipsub::{
-        Event as GossipsubEvent, Message, MessageAcceptance, MessageId, PublishError, Sha256Topic,
+        Event as GossipsubEvent, Message, MessageAcceptance, MessageId, PeerScoreParams,
+        PeerScoreThresholds, PublishError, Sha256Topic,
     },
     identity::secp256k1::Keypair,
     noise,
@@ -118,6 +119,20 @@ pub struct P2PConfig {
     /// This parameter is used to decay the score.
     /// Default value is [`DEFAULT_DECAY_FACTOR`].
     pub decay_factor: Option<f64>,
+
+    /// Gossipsub peer scoring parameters.
+    ///
+    /// If `None`, the default parameters will be used.
+    /// Use this to fine-tune how peers are scored for message delivery, invalid messages, etc.
+    /// See [`PeerScoreParams`] for all available options.
+    pub gossipsub_score_params: Option<PeerScoreParams>,
+
+    /// Gossipsub peer score thresholds.
+    ///
+    /// If `None`, the default thresholds will be used.
+    /// These thresholds determine when peers are muted, graylisted, or banned based on their
+    /// score. See [`PeerScoreThresholds`] for details.
+    pub gossipsub_score_thresholds: Option<PeerScoreThresholds>,
 }
 
 /// Implementation of p2p protocol for BitVM2 data exchange.
@@ -808,7 +823,15 @@ macro_rules! finish_swarm {
     ($builder:expr, $cfg:expr) => {
         $builder
             .map_err(|e| ProtocolError::TransportInitialization(e.into()))?
-            .with_behaviour(|_| Behaviour::new(PROTOCOL_NAME, &$cfg.keypair, &$cfg.allowlist))
+            .with_behaviour(|_| {
+                Behaviour::new(
+                    PROTOCOL_NAME,
+                    &$cfg.keypair,
+                    &$cfg.allowlist,
+                    &$cfg.gossipsub_score_params,
+                    &$cfg.gossipsub_score_thresholds,
+                )
+            })
             .map_err(|e| ProtocolError::BehaviourInitialization(e.into()))?
             .with_swarm_config(|c| c.with_idle_connection_timeout($cfg.idle_connection_timeout))
             .build()
