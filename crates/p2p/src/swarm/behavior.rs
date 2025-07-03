@@ -4,7 +4,7 @@ use std::collections::HashSet;
 
 use libp2p::{
     PeerId, StreamProtocol,
-    allow_block_list::{AllowedPeers, Behaviour as AllowListBehaviour},
+    allow_block_list::{Behaviour as AllowListBehaviour, BlockedPeers},
     gossipsub::{
         self, Behaviour as Gossipsub, IdentityTransform, MessageAuthenticity,
         WhitelistSubscriptionFilter,
@@ -38,16 +38,16 @@ pub struct Behaviour {
     pub request_response: RequestResponseRawBehaviour,
 
     /// Connect only allowed peers by peer id.
-    pub allow_list: AllowListBehaviour<AllowedPeers>,
+    pub blacklist_behaviour: AllowListBehaviour<BlockedPeers>,
 }
 
 impl Behaviour {
-    /// Creates a new [`Behaviour`] given a `protocol_name`, [`Keypair`], and an allow list of
+    /// Creates a new [`Behaviour`] given a `protocol_name`, [`Keypair`], and a block list of
     /// [`PeerId`]s.
-    pub fn new(protocol_name: &'static str, keypair: &Keypair, allowlist: &[PeerId]) -> Self {
-        let mut allow_list = AllowListBehaviour::default();
-        for peer in allowlist {
-            allow_list.allow_peer(*peer);
+    pub fn new(protocol_name: &'static str, keypair: &Keypair, blacklist: &[PeerId]) -> Self {
+        let mut blacklist_behaviour = AllowListBehaviour::default();
+        for peer in blacklist {
+            blacklist_behaviour.block_peer(*peer);
         }
 
         let mut filter = HashSet::new();
@@ -73,7 +73,7 @@ impl Behaviour {
                 [(StreamProtocol::new(protocol_name), ProtocolSupport::Full)],
                 RequestResponseConfig::default(),
             ),
-            allow_list,
+            blacklist_behaviour,
         }
     }
 }

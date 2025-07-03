@@ -34,7 +34,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, instrument, trace, warn};
 
 use crate::{
-    commands::{Command, QueryP2PStateCommand},
+    commands::{BanUnbanCommand, Command, QueryP2PStateCommand},
     events::Event,
 };
 
@@ -98,8 +98,8 @@ pub struct P2PConfig {
     /// The node's address.
     pub listening_addr: Multiaddr,
 
-    /// List of [`PeerId`]s that the node is allowed to connect to.
-    pub allowlist: Vec<PeerId>,
+    /// List of [`PeerId`]s that the node is expected to have banned.
+    pub blacklist: Vec<PeerId>,
 
     /// Initial list of nodes to connect to at startup.
     pub connect_to: Vec<Multiaddr>,
@@ -272,11 +272,11 @@ impl P2P {
                     SwarmEvent::Behaviour(BehaviourEvent::Gossipsub(
                         GossipsubEvent::Subscribed { peer_id, .. },
                     )) => {
-                        if self.config.allowlist.contains(&peer_id) {
-                            subscriptions += 1;
-                            info!(%peer_id, %subscriptions, total=self.config.allowlist.len(), "got subscription");
+                        if self.config.blacklist.contains(&peer_id) {
+                            debug!(%peer_id, %subscriptions, total=self.config.blacklist.len(), "got subscription from non-allowlisted peer");
                         } else {
-                            debug!(%peer_id, %subscriptions, total=self.config.allowlist.len(), "got subscription from non-allowlisted peer");
+                            subscriptions += 1;
+                            info!(%peer_id, %subscriptions, total=self.config.blacklist.len(), "got subscription");
                         }
                     }
                     SwarmEvent::ConnectionEstablished {
@@ -310,14 +310,14 @@ impl P2P {
                         elapsed=?start_time.elapsed(),
                         remaining_connections=is_not_connected.len(),
                         subscriptions=subscriptions,
-                        total_allowlist=self.config.allowlist.len(),
+                        total_blacklist=self.config.blacklist.len(),
                         "connection establishment progress"
                     );
                     next_check = Instant::now() + connection_check_interval;
                 }
 
-                if is_not_connected.is_empty() && subscriptions >= self.config.allowlist.len() {
-                    info!("met all connection and subscription requirements");
+                if is_not_connected.is_empty() {
+                    info!("met all connection requirements");
                     return true;
                 }
             }
@@ -333,7 +333,7 @@ impl P2P {
                     elapsed=?start_time.elapsed(),
                     remaining_connections=is_not_connected.len(),
                     subscriptions=subscriptions,
-                    total_allowlist=self.config.allowlist.len(),
+                    total_blacklist=self.config.blacklist.len(),
                     "swarm event loop exited unexpectedly"
                 );
             }
@@ -342,7 +342,7 @@ impl P2P {
                     elapsed=?start_time.elapsed(),
                     remaining_connections=is_not_connected.len(),
                     subscriptions=subscriptions,
-                    total_allowlist=self.config.allowlist.len(),
+                    total_blacklist=self.config.blacklist.len(),
                     "connection establishment timed out after {:?}", general_timeout
                 );
             }
@@ -525,11 +525,13 @@ impl P2P {
                 // Whitelist peer
                 self.swarm
                     .behaviour_mut()
-                    .allow_list
-                    .allow_peer(connect_to_peer_command.peer_id);
+                    .blacklist_behaviour
+                    .unblock_peer(connect_to_peer_command.peer_id);
 
                 // Add the peer to our config lists.
-                self.config.allowlist.push(connect_to_peer_command.peer_id);
+                self.config
+                    .blacklist
+                    .retain(|&x| x != connect_to_peer_command.peer_id);
                 self.config
                     .connect_to
                     .push(connect_to_peer_command.peer_addr.clone());
@@ -592,6 +594,37 @@ impl P2P {
                     Ok(())
                 }
             },
+            Command::BanUnbanCommand {
+                peer_id,
+                peer_addr: _peer_addr,
+                ban_unban,
+            } => {
+                match ban_unban {
+                    BanUnbanCommand::Ban => {
+                        self.swarm
+                            .behaviour_mut()
+                            .gossipsub
+                            .set_application_score(&peer_id, -9000.0); // TODO: fix it so that it
+                        // works with scoring system
+                        self.swarm
+                            .behaviour_mut()
+                            .blacklist_behaviour
+                            .block_peer(peer_id);
+                    }
+                    BanUnbanCommand::Unban => {
+                        self.swarm
+                            .behaviour_mut()
+                            .gossipsub
+                            .set_application_score(&peer_id, 9000.0); // TODO: fix it so that it
+                        // works with scoring system
+                        self.swarm
+                            .behaviour_mut()
+                            .blacklist_behaviour
+                            .unblock_peer(peer_id);
+                    }
+                }
+                Ok(())
+            }
         }
     }
 
@@ -624,16 +657,8 @@ impl P2P {
                 warn!(%peer, %error, %request_id, "Inbound failure");
                 // retry mechanism
                 // get the addr from the peer
-                // it is the same index as the peer in the allowlist
-                let idx = self
-                    .config
-                    .allowlist
-                    .iter()
-                    .position(|id| *id == peer)
-                    .unwrap();
-                let addr = self.config.connect_to[idx].clone();
                 // dial the peer
-                let _ = self.swarm.dial(addr).inspect_err(|err| {
+                let _ = self.swarm.dial(peer).inspect_err(|err| {
                     error!(%peer, %error, %request_id, "Inbound failure");
                     error!(%err, "Failed to connect to peer '{peer}'");
                 });
@@ -712,7 +737,7 @@ macro_rules! finish_swarm {
     ($builder:expr, $cfg:expr) => {
         $builder
             .map_err(|e| ProtocolError::TransportInitialization(e.into()))?
-            .with_behaviour(|_| Behaviour::new(PROTOCOL_NAME, &$cfg.keypair, &$cfg.allowlist))
+            .with_behaviour(|_| Behaviour::new(PROTOCOL_NAME, &$cfg.keypair, &$cfg.blacklist))
             .map_err(|e| ProtocolError::BehaviourInitialization(e.into()))?
             .with_swarm_config(|c| c.with_idle_connection_timeout($cfg.idle_connection_timeout))
             .build()
