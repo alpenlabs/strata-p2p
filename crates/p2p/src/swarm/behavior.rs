@@ -1,6 +1,6 @@
 //! Request-Response [`Behaviour`] and [`NetworkBehaviour`] for the P2P protocol.
 
-use std::collections::HashSet;
+use std::{collections::HashSet, time::Duration};
 
 use libp2p::{
     PeerId, StreamProtocol,
@@ -15,9 +15,12 @@ use libp2p::{
         Behaviour as RequestResponse, Config as RequestResponseConfig, ProtocolSupport,
     },
     swarm::NetworkBehaviour,
+    kad,
 };
 
 use super::{MAX_TRANSMIT_SIZE, TOPIC, codec_raw};
+
+const IPFS_PROTO_NAME: StreamProtocol = StreamProtocol::new("/ipfs/kad/1.0.0");
 
 /// Alias for request-response behaviour with messages serialized by using
 /// homebrewed codec implementation.
@@ -39,6 +42,8 @@ pub struct Behaviour {
 
     /// Connect only allowed peers by peer id.
     pub allow_list: AllowListBehaviour<AllowedPeers>,
+
+    pub kademlia: kad::Behaviour<kad::store::MemoryStore>,
 }
 
 impl Behaviour {
@@ -52,6 +57,14 @@ impl Behaviour {
 
         let mut filter = HashSet::new();
         filter.insert(TOPIC.hash());
+
+        let mut cfg = kad::Config::new(StreamProtocol::new(protocol_name));
+        cfg.set_query_timeout(Duration::from_secs(5 * 60));
+        cfg.set_record_filtering(kad::StoreInserts::FilterBoth);
+        cfg.set_kbucket_inserts(kad::BucketInserts::Manual);
+        // maybe should be increased and give logic of quorum manually
+        cfg.set_caching(kad::Caching::Enabled{max_peers:1});
+        let store = kad::store::MemoryStore::new(keypair.public().to_peer_id());
 
         Self {
             identify: Identify::new(Config::new(protocol_name.to_string(), keypair.public())),
@@ -74,6 +87,7 @@ impl Behaviour {
                 RequestResponseConfig::default(),
             ),
             allow_list,
+            kademlia: kad::Behaviour::with_config(keypair.public().to_peer_id(), store, cfg),
         }
     }
 }
