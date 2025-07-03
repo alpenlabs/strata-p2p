@@ -9,7 +9,7 @@ use std::{
 use behavior::{Behaviour, BehaviourEvent};
 use errors::{P2PResult, ProtocolError};
 use futures::StreamExt as _;
-use handle::P2PHandle;
+use handle::{CommandHandle, GossipHandle, ReqRespHandle};
 use libp2p::{
     Multiaddr, PeerId, Swarm, SwarmBuilder, Transport,
     core::{ConnectedPoint, muxing::StreamMuxerBox, transport::MemoryTransport},
@@ -27,7 +27,7 @@ use libp2p::{
 };
 use tokio::{
     select,
-    sync::{broadcast, mpsc},
+    sync::{broadcast, mpsc, oneshot},
     time::timeout,
 };
 use tokio_util::sync::CancellationToken;
@@ -35,7 +35,7 @@ use tracing::{debug, error, info, instrument, trace, warn};
 
 use crate::{
     commands::{Command, QueryP2PStateCommand},
-    events::Event,
+    events::{GossipEvent, ReqRespEvent},
 };
 
 mod behavior;
@@ -111,8 +111,11 @@ pub struct P2P {
     /// The swarm that handles the networking.
     swarm: Swarm<Behaviour>,
 
-    /// Event channel for the swarm.
-    events: broadcast::Sender<Event>,
+    /// Event channel for the gossip
+    gossip_events: broadcast::Sender<GossipEvent>,
+
+    /// Event channel for request/response
+    req_resp_events: mpsc::Sender<ReqRespEvent>,
 
     /// Command channel for the swarm.
     commands: mpsc::Receiver<Command>,
@@ -132,8 +135,8 @@ pub struct P2P {
     config: P2PConfig,
 }
 
-/// Alias for P2P and P2PHandle tuple.
-pub type P2PWithHandle = (P2P, P2PHandle);
+/// Alias for P2P and ReqRespHandle tuple.
+pub type P2PWithReqRespHandle = (P2P, ReqRespHandle);
 
 impl P2P {
     /// Creates a new P2P instance from the given configuration.
@@ -142,27 +145,30 @@ impl P2P {
         cancel: CancellationToken,
         mut swarm: Swarm<Behaviour>,
         channel_size: Option<usize>,
-    ) -> P2PResult<P2PWithHandle> {
+    ) -> P2PResult<P2PWithReqRespHandle> {
         swarm
             .listen_on(cfg.listening_addr.clone())
             .map_err(ProtocolError::Listen)?;
 
-        let keypair = cfg.keypair.clone();
+        let _keypair = cfg.keypair.clone();
 
         let channel_size = channel_size.unwrap_or(256);
-        let (events_tx, events_rx) = broadcast::channel(channel_size);
+        let (gossip_events_tx, _gossip_events_rx) = broadcast::channel(channel_size);
+        let (req_resp_event_tx, req_resp_event_rx) = mpsc::channel(64);
+
         let (cmds_tx, cmds_rx) = mpsc::channel(64);
 
         Ok((
             Self {
                 swarm,
-                events: events_tx,
+                gossip_events: gossip_events_tx,
+                req_resp_events: req_resp_event_tx,
                 commands: cmds_rx,
                 commands_sender: cmds_tx.clone(),
                 cancellation_token: cancel,
                 config: cfg,
             },
-            P2PHandle::new(events_rx, cmds_tx, keypair),
+            ReqRespHandle::new(req_resp_event_rx),
         ))
     }
 
@@ -171,13 +177,14 @@ impl P2P {
         *self.swarm.local_peer_id()
     }
 
-    /// Creates a new subscribed handler.
-    pub fn new_handle(&self) -> P2PHandle {
-        P2PHandle::new(
-            self.events.subscribe(),
-            self.commands_sender.clone(),
-            self.config.keypair.clone(),
-        )
+    /// Creates new handler for gossip
+    pub fn new_gossip_handle(&self) -> GossipHandle {
+        GossipHandle::new(self.gossip_events.subscribe())
+    }
+
+    /// Creates new handler for commands
+    pub fn new_command_handle(&self) -> CommandHandle {
+        CommandHandle::new(self.commands_sender.clone())
     }
 
     /// Waits until all connections are established and all peers are subscribed to
@@ -432,7 +439,7 @@ impl P2P {
             .source
             .expect("Message must have author as ValidationMode set to Permissive");
 
-        let event = Event::ReceivedMessage(message.data);
+        let event = GossipEvent::ReceivedMessage(message.data);
 
         let propagation_result = self
             .swarm
@@ -448,7 +455,7 @@ impl P2P {
             warn!(?event, "failed to propagate accepted message further");
         }
 
-        self.events
+        self.gossip_events
             .send(event)
             .map_err(|e| ProtocolError::EventsChannelClosed(e.into()))?;
 
@@ -656,16 +663,22 @@ impl P2P {
     ) -> P2PResult<()> {
         match msg {
             request_response::Message::Request {
-                request,
-                channel: _channel,
-                ..
+                request, channel, ..
             } => {
-                let event = Event::ReceivedRequest(request);
-                let _ = self
-                    .events
-                    .send(event)
-                    .map_err(|e| ProtocolError::EventsChannelClosed(e.into()))?;
+                let (tx, rx) = oneshot::channel();
 
+                let event = ReqRespEvent::CustomEvent(request, tx);
+                let _ = self.req_resp_events.send(event).await;
+                let resp = rx.await;
+                let _ = match resp {
+                    Ok(response) => self
+                        .swarm
+                        .behaviour_mut()
+                        .request_response
+                        .send_response(channel, response)
+                        .map_err(|_err| ()),
+                    Err(_err) => Err(()), // here we can do something
+                };
                 Ok(())
             }
 
@@ -679,10 +692,11 @@ impl P2P {
                 }
 
                 // TODO: report/punish peer for invalid message?
-                let event = Event::ReceivedMessage(response);
+                let event = ReqRespEvent::ReceivedMessage(response);
                 let _ = self
-                    .events
+                    .req_resp_events
                     .send(event)
+                    .await
                     .map_err(|e| ProtocolError::EventsChannelClosed(e.into()))?;
                 Ok(())
             }

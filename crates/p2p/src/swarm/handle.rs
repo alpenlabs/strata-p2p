@@ -22,7 +22,7 @@ use tracing::warn;
 
 use crate::{
     commands::{Command, QueryP2PStateCommand},
-    events::Event,
+    events::{GossipEvent, ReqRespEvent},
 };
 
 /// The receiver lagged too far behind. Attempting to receive again will
@@ -34,54 +34,68 @@ pub struct ErrDroppedMsgs(u64);
 
 impl Display for ErrDroppedMsgs {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "P2PHandle dropped {} messages", self.0)
+        write!(f, "GossipHandle dropped {} messages", self.0)
     }
 }
 
-/// Handle to interact with P2P implementation spawned in another async
-/// task. To create a new one, use [`super::P2P::new_handle`].
+/// Handle to receive an event from p2p
 #[derive(Debug)]
-pub struct P2PHandle {
-    /// Event channel. [`super::P2P`] struct will send events via the channel and [`P2PHandle`] is
-    /// expected to get them via receiving side of the channel.
-    events: broadcast::Receiver<Event>,
-
-    /// Command channel. [`P2PHandle`] will send commands via it and [`super::P2P`] struct is
-    /// expected to do logic corresponding to specific [`Command`].
-    commands: mpsc::Sender<Command>,
-
-    /// The [`libp2p::identity::Keypair`]. Used for creating our own [`PeerId`], and if cfg option
-    /// `message-signing` is enabled, to sign messages with it.
-    keypair: Keypair,
+pub struct ReqRespHandle {
+    events: mpsc::Receiver<ReqRespEvent>,
 }
 
-impl P2PHandle {
-    /// Creates a new [`P2PHandle`].
-    pub(crate) const fn new(
-        events: broadcast::Receiver<Event>,
-        commands: mpsc::Sender<Command>,
-        keypair: Keypair,
-    ) -> Self {
-        Self {
-            events,
-            commands,
-            keypair,
-        }
-    }
-
-    /// Sends command to P2P.
-    pub async fn send_command(&self, command: impl Into<Command>) {
-        let _ = self.commands.send(command.into()).await;
+impl ReqRespHandle {
+    pub(crate) const fn new(events: mpsc::Receiver<ReqRespEvent>) -> Self {
+        Self { events }
     }
 
     /// Gets the next event from P2P from events channel.
-    pub async fn next_event(&mut self) -> Result<Event, RecvError> {
+    pub async fn next_event(&mut self) -> Option<ReqRespEvent> {
         self.events.recv().await
     }
 
     /// Checks if the event's channel is empty or not.
     pub fn events_is_empty(&self) -> bool {
         self.events.is_empty()
+    }
+}
+
+/// Handle to receive an event from p2p
+#[derive(Debug)]
+pub struct GossipHandle {
+    events: broadcast::Receiver<GossipEvent>,
+}
+
+impl GossipHandle {
+    pub(crate) const fn new(events: broadcast::Receiver<GossipEvent>) -> Self {
+        Self { events }
+    }
+
+    /// Gets the next event from P2P from events channel.
+    pub async fn next_event(&mut self) -> Result<GossipEvent, RecvError> {
+        self.events.recv().await
+    }
+
+    /// Checks if the event's channel is empty or not.
+    pub fn events_is_empty(&self) -> bool {
+        self.events.is_empty()
+    }
+}
+
+#[derive(Debug)]
+/// Handle to sends commands to p2p
+pub struct CommandHandle {
+    commands: mpsc::Sender<Command>,
+}
+
+impl CommandHandle {
+    pub(crate) const fn new(commands: mpsc::Sender<Command>) -> Self {
+        Self { commands }
+    }
+
+    /// Sends command to P2P.
+    pub async fn send_command(&self, command: impl Into<Command>) {
+        let _ = self.commands.send(command.into()).await;
     }
 
     /// Checks if the P2P node is connected to the specified peer.
@@ -138,18 +152,20 @@ impl P2PHandle {
     }
 }
 
-impl Clone for P2PHandle {
+impl Clone for GossipHandle {
     fn clone(&self) -> Self {
-        Self::new(
-            self.events.resubscribe(),
-            self.commands.clone(),
-            self.keypair.clone(),
-        )
+        Self::new(self.events.resubscribe())
     }
 }
 
-impl Stream for P2PHandle {
-    type Item = Result<Event, ErrDroppedMsgs>;
+impl Clone for CommandHandle {
+    fn clone(&self) -> Self {
+        Self::new(self.commands.clone())
+    }
+}
+
+impl Stream for GossipHandle {
+    type Item = Result<GossipEvent, ErrDroppedMsgs>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let poll = Box::pin(self.next_event()).poll_unpin(cx);
@@ -160,6 +176,19 @@ impl Stream for P2PHandle {
                 warn!(%skipped, "P2P Stream lost messages");
                 Poll::Ready(Some(Err(ErrDroppedMsgs(skipped))))
             }
+            Poll::Pending => Poll::Pending,
+        }
+    }
+}
+
+impl Stream for ReqRespHandle {
+    type Item = Option<ReqRespEvent>;
+
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let poll = Box::pin(self.next_event()).poll_unpin(cx);
+        match poll {
+            Poll::Ready(Some(v)) => Poll::Ready(Some(Some(v))),
+            Poll::Ready(None) => Poll::Ready(None),
             Poll::Pending => Poll::Pending,
         }
     }
