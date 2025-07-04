@@ -1,12 +1,25 @@
 //! Events emitted from P2P.
 
 /// Events emitted from P2P that needs to be handled by the user.
+use tokio::sync::oneshot::Sender;
 
 #[derive(Debug, Clone)]
-pub enum Event {
+/// Events emitted from the gossipsub protocol.
+
+pub enum GossipEvent {
     /// Received message from other peer.
     ReceivedMessage(Vec<u8>),
+}
+
+#[derive(Debug)]
+/// Events emitted from the request/response protocol.
+pub enum ReqRespEvent {
+    /// Custom event
+    CustomEvent(Vec<u8>, Sender<Vec<u8>>), // TODO
 
     /// Received a request from other peer.
     ReceivedRequest(Vec<u8>),
+
+    /// Received message from other peer using request/response
+    ReceivedMessage(Vec<u8>),
 }
