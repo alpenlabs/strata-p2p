@@ -19,7 +19,7 @@ pub(crate) struct User {
 impl User {
     pub(crate) fn new(
         keypair: Keypair,
-        allowlist: Vec<PeerId>,
+        blacklist: Vec<PeerId>,
         connect_to: Vec<Multiaddr>,
         local_addr: Multiaddr,
         cancel: CancellationToken,
@@ -34,7 +34,7 @@ impl User {
             general_timeout: None,
             connection_check_interval: None,
             listening_addr: local_addr,
-            allowlist,
+            blacklist,
             connect_to,
         };
 
@@ -80,7 +80,7 @@ impl Setup {
 
             let user = User::new(
                 keypair.clone(),
-                other_peerids,
+                Vec::new(),
                 other_addrs,
                 addr.clone(),
                 cancel.child_token(),
