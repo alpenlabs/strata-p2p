@@ -2,6 +2,7 @@
 
 use std::time::Duration;
 
+use chrono::Local;
 use libp2p::{Multiaddr, PeerId, build_multiaddr, identity::Keypair};
 use tokio::time::timeout;
 use tokio_util::sync::CancellationToken;
@@ -121,7 +122,6 @@ impl SetupWithHandlers {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn three_handlers_integration() -> anyhow::Result<()> {
-    // --- 1. Setup three nodes with their own handlers ---
     let SetupWithHandlers {
         cancel,
         mut users,
@@ -150,7 +150,6 @@ async fn three_handlers_integration() -> anyhow::Result<()> {
         anyhow::bail!("Not all nodes are fully connected after waiting");
     }
 
-    // --- 2. Node 1 publishes a gossipsub message ---
     let msg = b"hello from node1".to_vec();
     users[0]
         .command
@@ -158,7 +157,6 @@ async fn three_handlers_integration() -> anyhow::Result<()> {
         .await;
     println!("[TEST] Node 1 published gossipsub message");
 
-    // --- 3. All nodes should receive the message via their GossipHandle ---
     for i in 0..3 {
         if i == 0 {
             continue;
@@ -242,5 +240,108 @@ async fn three_handlers_integration() -> anyhow::Result<()> {
         let _ = handle.await;
     }
 
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_async_reqresp_parallelism() -> anyhow::Result<()> {
+    let SetupWithHandlers {
+        cancel,
+        mut users,
+        join_handles,
+    } = SetupWithHandlers::all_to_all(2).await?;
+
+    let req1 = b"request1".to_vec();
+    let req2 = b"request2".to_vec();
+
+    println!("req1 = {:?}", req1);
+    println!("req2 = {:?}", req2);
+    let reqresp_handle = users[1]
+        .reqresp
+        .take()
+        .expect("ReqRespHandle already taken");
+    tokio::spawn(async move {
+        let mut reqresp_handle = reqresp_handle;
+        loop {
+            match reqresp_handle.next_event().await {
+                Some(ReqRespEvent::CustomEvent(data, responder)) => {
+                    println!("[DEBUG] Received request: {:?}", data);
+                    tokio::spawn(async move {
+                        if data == b"request1".to_vec() {
+                            println!("[DEBUG] Handling request1 (will sleep 5s)");
+                            tokio::time::sleep(Duration::from_secs(5)).await;
+                            let _ = responder.send(b"response1".to_vec());
+                            println!("[DEBUG] Sent response1");
+                        } else {
+                            println!("[DEBUG] Handling other request");
+                            let _ = responder.send(b"response2".to_vec());
+                            println!("[DEBUG] Sent response2");
+                        }
+                    });
+                }
+                _ => {}
+            }
+        }
+    });
+
+    let peer_id = users[1].peer_id;
+    let command_handle = users[0].command.clone();
+    command_handle
+        .send_command(Command::RequestMessage {
+            peer_id,
+            data: req1.clone(),
+        })
+        .await;
+    println!("{}", Local::now().format("%Y-%m-%d %H:%M:%S%.3f"));
+    let t_start = std::time::Instant::now();
+    command_handle
+        .send_command(Command::RequestMessage {
+            peer_id,
+            data: req2.clone(),
+        })
+        .await;
+    println!("{}", Local::now().format("%Y-%m-%d %H:%M:%S%.3f"));
+
+    let mut got_resp1 = false;
+    let mut got_resp2 = false;
+    let mut resp1_time = None;
+    let mut resp2_time = None;
+    for _ in 0..2 {
+        let event = timeout(
+            Duration::from_secs(20),
+            users[0].reqresp.as_mut().unwrap().next_event(),
+        )
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("Timeout waiting for response"))?;
+        match event {
+            ReqRespEvent::ReceivedMessage(resp) => {
+                if resp == b"response1".to_vec() {
+                    got_resp1 = true;
+                    resp1_time = Some(t_start.elapsed());
+                    println!("[TEST] Got response1 after {:?}", resp1_time.unwrap());
+                    println!("{:?}", chrono::Local::now());
+                } else if resp == b"response2".to_vec() {
+                    got_resp2 = true;
+                    resp2_time = Some(t_start.elapsed());
+                    println!("[TEST] Got response2 after {:?}", resp2_time.unwrap());
+                    println!("{:?}", chrono::Local::now());
+                } else {
+                    anyhow::bail!("Unexpected response: {:?}", resp);
+                }
+            }
+            _ => {}
+        }
+    }
+    assert!(got_resp1 && got_resp2, "Did not get both responses");
+    println!(
+        "[TEST] Both responses received. Timings: response1 = {:?}, response2 = {:?}",
+        resp1_time.unwrap(),
+        resp2_time.unwrap()
+    );
+
+    cancel.cancel();
+    for handle in join_handles {
+        let _ = handle.await;
+    }
     Ok(())
 }
