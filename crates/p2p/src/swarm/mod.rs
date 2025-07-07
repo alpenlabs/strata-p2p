@@ -457,7 +457,7 @@ impl P2P {
 
         self.gossip_events
             .send(event)
-            .map_err(|e| ProtocolError::EventsChannelClosed(e.into()))?;
+            .map_err(|e| ProtocolError::GossipEventsChannelClosed(e.into()))?;
 
         Ok(())
     }
@@ -668,7 +668,11 @@ impl P2P {
                 let (tx, rx) = oneshot::channel();
 
                 let event = ReqRespEvent::CustomEvent(request, tx);
-                let _ = self.req_resp_events.send(event).await;
+                self.req_resp_events
+                    .send(event)
+                    .await
+                    .map_err(|e| ProtocolError::ReqRespEventChannelClosed(e.into()))?;
+
                 let resp = rx.await;
                 let _ = match resp {
                     Ok(response) => self
@@ -677,7 +681,10 @@ impl P2P {
                         .request_response
                         .send_response(channel, response)
                         .map_err(|_err| ()),
-                    Err(_err) => Err(()), // here we can do something
+                    Err(err) => {
+                        error!("Received error in response: {:?}", err);
+                        Ok(())
+                    }
                 };
                 Ok(())
             }
@@ -693,11 +700,10 @@ impl P2P {
 
                 // TODO: report/punish peer for invalid message?
                 let event = ReqRespEvent::ReceivedMessage(response);
-                let _ = self
-                    .req_resp_events
+                self.req_resp_events
                     .send(event)
                     .await
-                    .map_err(|e| ProtocolError::EventsChannelClosed(e.into()))?;
+                    .map_err(|e| ProtocolError::ReqRespEventChannelClosed(e.into()))?;
                 Ok(())
             }
         }
