@@ -6,7 +6,7 @@ use anyhow::bail;
 use tokio::time::sleep;
 
 use super::common::Setup;
-use crate::{commands::Command, events::Event};
+use crate::{commands::Command, events::GossipEvent};
 /// Tests the gossip protocol in an all to all connected network with multiple IDs.
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn gossip_basic() -> anyhow::Result<()> {
@@ -21,21 +21,16 @@ async fn gossip_basic() -> anyhow::Result<()> {
     let _ = sleep(Duration::from_secs(1)).await;
 
     user_handles[0]
-        .handle
+        .command
         .send_command(Command::PublishMessage {
             data: ("hello").into(),
         })
         .await;
 
-    match user_handles[1].handle.next_event().await {
+    match user_handles[1].gossip.next_event().await {
         Ok(event) => match event {
-            Event::ReceivedMessage(data) => {
+            GossipEvent::ReceivedMessage(data) => {
                 assert_eq!(data, Vec::<u8>::from("hello"));
-            }
-            Event::ReceivedRequest(_) => {
-                bail!(
-                    "Something is insanely wrong: it got request when it should have got just a message."
-                )
             }
         },
         Err(e) => bail!("Something is wrong: {e}"),

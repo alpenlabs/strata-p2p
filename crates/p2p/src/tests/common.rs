@@ -8,11 +8,16 @@ use rand::Rng;
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use tracing::debug;
 
-use crate::swarm::{self, P2P, P2PConfig, handle::P2PHandle};
+use crate::swarm::{
+    self, P2P, P2PConfig,
+    handle::{CommandHandle, GossipHandle, ReqRespHandle},
+};
 
 pub(crate) struct User {
     pub(crate) p2p: P2P,
-    pub(crate) handle: P2PHandle,
+    pub(crate) gossip: GossipHandle,
+    pub(crate) reqresp: ReqRespHandle,
+    pub(crate) command: CommandHandle,
     pub(crate) kp: Keypair,
 }
 
@@ -39,11 +44,15 @@ impl User {
         };
 
         let swarm = swarm::with_inmemory_transport(&config)?;
-        let (p2p, handle) = P2P::from_config(config, cancel, swarm, None)?;
+        let (p2p, reqresp) = P2P::from_config(config, cancel, swarm, None)?;
+        let gossip = p2p.new_gossip_handle();
+        let command = p2p.new_command_handle();
 
         Ok(Self {
-            handle,
             p2p,
+            gossip,
+            reqresp,
+            command,
             kp: keypair,
         })
     }
@@ -52,7 +61,9 @@ impl User {
 /// Auxiliary structure to control users from outside.
 #[expect(dead_code)]
 pub(crate) struct UserHandle {
-    pub(crate) handle: P2PHandle,
+    pub(crate) gossip: GossipHandle,
+    pub(crate) reqresp: ReqRespHandle,
+    pub(crate) command: CommandHandle,
     pub(crate) peer_id: PeerId,
     pub(crate) kp: Keypair,
 }
@@ -152,7 +163,9 @@ impl Setup {
             tasks.spawn(user.p2p.listen());
 
             levers.push(UserHandle {
-                handle: user.handle,
+                gossip: user.gossip,
+                reqresp: user.reqresp,
+                command: user.command,
                 peer_id,
                 kp: user.kp,
             });

@@ -2817,10 +2817,12 @@ dependencies = [
  "chrono",
  "futures",
  "libp2p",
+ "rand 0.9.1",
  "thiserror 2.0.12",
  "tokio",
  "tokio-util",
  "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

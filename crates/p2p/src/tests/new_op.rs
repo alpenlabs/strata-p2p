@@ -2,7 +2,6 @@
 
 use std::time::Duration;
 
-use anyhow::bail;
 use libp2p::{Multiaddr, PeerId, build_multiaddr, identity::Keypair};
 use tokio::{sync::oneshot::channel, time::sleep};
 use tracing::{debug, info};
@@ -11,7 +10,7 @@ use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, util::SubscriberI
 use super::common::Setup;
 use crate::{
     commands::{Command, ConnectToPeerCommand, QueryP2PStateCommand},
-    events::Event,
+    events::GossipEvent,
     tests::common::User,
 };
 
@@ -45,7 +44,7 @@ async fn gossip_new_user() -> anyhow::Result<()> {
     for (index, user_handle) in user_handles.iter().enumerate().take(USERS_NUM) {
         let (tx, rx) = channel::<Vec<Multiaddr>>();
         user_handle
-            .handle
+            .command
             .send_command(Command::QueryP2PState(
                 QueryP2PStateCommand::GetMyListeningAddresses {
                     response_sender: tx,
@@ -101,7 +100,7 @@ async fn gossip_new_user() -> anyhow::Result<()> {
             index, connect_addrs[index], user_handles[index].peer_id
         );
         user_handles[index]
-            .handle
+            .command
             .send_command(Command::ConnectToPeer(ConnectToPeerCommand {
                 peer_id: new_user.kp.public().to_peer_id(),
                 peer_addr: local_addr.clone(),
@@ -117,7 +116,7 @@ async fn gossip_new_user() -> anyhow::Result<()> {
 
     info!("Regular user sending test message");
     user_handles[0]
-        .handle
+        .command
         .send_command(Command::PublishMessage {
             data: message_from_inside.clone(),
         })
@@ -128,7 +127,7 @@ async fn gossip_new_user() -> anyhow::Result<()> {
 
     info!("New user sending test message");
     new_user
-        .handle
+        .command
         .send_command(Command::PublishMessage {
             data: message_from_outsider.clone(),
         })
@@ -144,12 +143,12 @@ async fn gossip_new_user() -> anyhow::Result<()> {
     for user in &mut user_handles {
         info!(peer_id=%user.peer_id, "Checking if user received message");
 
-        while !user.handle.events_is_empty() {
-            let event = user.handle.next_event().await?;
+        while !user.gossip.events_is_empty() {
+            let event = user.gossip.next_event().await?;
             info!(?event, "Received event");
 
             match event {
-                Event::ReceivedMessage(msg) => {
+                GossipEvent::ReceivedMessage(msg) => {
                     if msg == message_from_inside {
                         info!("User received message from regular user");
                         counter_messages_from_regular_user += 1;
@@ -158,16 +157,15 @@ async fn gossip_new_user() -> anyhow::Result<()> {
                         counter_messages_from_outsider += 1;
                     }
                 }
-                _ => bail!("Unexpected event type"),
             }
         }
     }
-    while !new_user.handle.events_is_empty() {
-        let event = new_user.handle.next_event().await?;
+    while !new_user.gossip.events_is_empty() {
+        let event = new_user.gossip.next_event().await?;
         info!(?event, "Received event");
 
         match event {
-            Event::ReceivedMessage(msg) => {
+            GossipEvent::ReceivedMessage(msg) => {
                 if msg == message_from_inside {
                     info!("New user received message from regular user");
                     counter_messages_from_regular_user += 1;
@@ -176,7 +174,6 @@ async fn gossip_new_user() -> anyhow::Result<()> {
                     counter_messages_from_outsider += 1;
                 }
             }
-            _ => bail!("Unexpected event type"),
         }
     }
 
