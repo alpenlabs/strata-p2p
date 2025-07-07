@@ -667,7 +667,7 @@ impl P2P {
             } => {
                 let (tx, rx) = oneshot::channel();
 
-                let event = ReqRespEvent::CustomEvent(request, tx);
+                let event = ReqRespEvent::ReceivedRequest(request, tx);
                 self.req_resp_events
                     .send(event)
                     .await

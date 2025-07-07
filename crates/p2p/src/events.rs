@@ -14,12 +14,8 @@ pub enum GossipEvent {
 #[derive(Debug)]
 /// Events emitted from the request/response protocol.
 pub enum ReqRespEvent {
-    /// Custom event
-    CustomEvent(Vec<u8>, Sender<Vec<u8>>), // TODO
-
     /// Received a request from other peer.
-    ReceivedRequest(Vec<u8>),
-
+    ReceivedRequest(Vec<u8>, Sender<Vec<u8>>),
     /// Received message from other peer using request/response
     ReceivedMessage(Vec<u8>),
 }

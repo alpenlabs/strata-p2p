@@ -9,7 +9,7 @@ use std::{
 };
 
 use futures::{FutureExt, Stream};
-use libp2p::{PeerId, identity::Keypair};
+use libp2p::PeerId;
 use thiserror::Error;
 use tokio::{
     sync::{

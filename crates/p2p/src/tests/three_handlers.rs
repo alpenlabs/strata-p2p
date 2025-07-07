@@ -32,7 +32,7 @@ async fn test_reqresp_basic() -> anyhow::Result<()> {
         .await
         .unwrap()
     {
-        ReqRespEvent::CustomEvent(data, responder) => {
+        ReqRespEvent::ReceivedRequest(data, responder) => {
             info!("Node 2 received request: {:?}", data);
             assert_eq!(data, req_msg, "Node 2 did not receive the correct request");
             let _ = responder.send(b"response from node3".to_vec());
