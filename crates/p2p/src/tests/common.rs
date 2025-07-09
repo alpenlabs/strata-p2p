@@ -62,7 +62,7 @@ impl User {
 #[expect(dead_code)]
 pub(crate) struct UserHandle {
     pub(crate) gossip: GossipHandle,
-    pub(crate) reqresp: Option<ReqRespHandle>,
+    pub(crate) reqresp: ReqRespHandle,
     pub(crate) command: CommandHandle,
     pub(crate) peer_id: PeerId,
     pub(crate) kp: Keypair,
@@ -164,7 +164,7 @@ impl Setup {
 
             levers.push(UserHandle {
                 gossip: user.gossip,
-                reqresp: Some(user.reqresp),
+                reqresp: user.reqresp,
                 command: user.command,
                 peer_id,
                 kp: user.kp,

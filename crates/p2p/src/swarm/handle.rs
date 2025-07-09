@@ -173,7 +173,7 @@ impl Stream for GossipHandle {
             Poll::Ready(Ok(v)) => Poll::Ready(Some(Ok(v))),
             Poll::Ready(Err(RecvError::Closed)) => Poll::Ready(None),
             Poll::Ready(Err(RecvError::Lagged(skipped))) => {
-                warn!(%skipped, "P2P Stream lost messages");
+                warn!(%skipped, "Gossip Stream lost messages");
                 Poll::Ready(Some(Err(ErrDroppedMsgs(skipped))))
             }
             Poll::Pending => Poll::Pending,

@@ -699,7 +699,7 @@ impl P2P {
                 }
 
                 // TODO: report/punish peer for invalid message?
-                let event = ReqRespEvent::ReceivedMessage(response);
+                let event = ReqRespEvent::ReceivedResponse(response);
                 self.req_resp_events
                     .send(event)
                     .await

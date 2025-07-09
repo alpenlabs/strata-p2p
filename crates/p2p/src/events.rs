@@ -5,7 +5,6 @@ use tokio::sync::oneshot::Sender;
 
 #[derive(Debug, Clone)]
 /// Events emitted from the gossipsub protocol.
-
 pub enum GossipEvent {
     /// Received message from other peer.
     ReceivedMessage(Vec<u8>),
@@ -16,6 +15,6 @@ pub enum GossipEvent {
 pub enum ReqRespEvent {
     /// Received a request from other peer.
     ReceivedRequest(Vec<u8>, Sender<Vec<u8>>),
-    /// Received message from other peer using request/response
-    ReceivedMessage(Vec<u8>),
+    /// Received a response from other peer
+    ReceivedResponse(Vec<u8>),
 }

@@ -66,7 +66,7 @@ async fn test_manually_get_all_peers() -> anyhow::Result<()> {
     const USERS_NUM: usize = 6;
 
     let Setup {
-        mut user_handles,
+        user_handles,
         cancel,
         tasks,
     } = Setup::all_to_all(USERS_NUM).await?;
@@ -90,7 +90,7 @@ async fn test_manually_get_all_peers() -> anyhow::Result<()> {
     };
 
     assert!(user_handles[0].gossip.events_is_empty());
-    assert!(user_handles[0].reqresp.as_mut().unwrap().events_is_empty());
+    assert!(user_handles[0].reqresp.events_is_empty());
 
     cancel.cancel();
 
