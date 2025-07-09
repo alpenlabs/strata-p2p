@@ -12,7 +12,7 @@ use super::common::Setup;
 use crate::{
     commands::{BanUnbanCommand, Command, ConnectToPeerCommand, QueryP2PStateCommand},
     events::Event,
-    tests::common::User,
+    tests::common::{MULTIADDR_MEMORY_ID_OFFSET_GOSSIP_NEW_USER, User},
 };
 
 /// Tests sending a gossipsub message from a new user to all existing users.
@@ -27,7 +27,7 @@ async fn gossip_new_user() -> anyhow::Result<()> {
         mut user_handles,
         cancel,
         tasks,
-    } = Setup::all_to_all(USERS_NUM, 200).await?;
+    } = Setup::all_to_all(USERS_NUM, MULTIADDR_MEMORY_ID_OFFSET_GOSSIP_NEW_USER).await?;
 
     // Get connection addresses of old users for the new user to connect to.
     info!("Getting listening addresses for new user");

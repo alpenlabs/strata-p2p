@@ -10,7 +10,13 @@ use tracing::info;
 use tracing_test::traced_test;
 
 use super::common::Setup;
-use crate::commands::{Command, QueryP2PStateCommand};
+use crate::{
+    commands::{Command, QueryP2PStateCommand},
+    tests::common::{
+        MULTIADDR_MEMORY_ID_OFFSET_TEST_IS_CONNECTED,
+        MULTIADDR_MEMORY_ID_OFFSET_TEST_MANUALLY_GET_ALL_PEERS,
+    },
+};
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[traced_test]
@@ -20,7 +26,7 @@ async fn test_is_connected() -> anyhow::Result<()> {
         user_handles,
         cancel,
         tasks,
-    } = Setup::all_to_all(2, 150).await?;
+    } = Setup::all_to_all(2, MULTIADDR_MEMORY_ID_OFFSET_TEST_IS_CONNECTED).await?;
 
     let _ = sleep(Duration::from_secs(1)).await;
 
@@ -77,7 +83,11 @@ async fn test_manually_get_all_peers() -> anyhow::Result<()> {
         user_handles,
         cancel,
         tasks,
-    } = Setup::all_to_all(USERS_NUM, 500).await?;
+    } = Setup::all_to_all(
+        USERS_NUM,
+        MULTIADDR_MEMORY_ID_OFFSET_TEST_MANUALLY_GET_ALL_PEERS,
+    )
+    .await?;
 
     info!("Waiting for users to setup...");
     sleep(Duration::from_secs(2)).await;

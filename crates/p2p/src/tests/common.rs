@@ -9,6 +9,12 @@ use tracing::{debug, trace};
 
 use crate::swarm::{self, P2P, P2PConfig, handle::P2PHandle};
 
+pub(crate) const MULTIADDR_MEMORY_ID_OFFSET_GOSSIP_BASIC: u64 = 120;
+pub(crate) const MULTIADDR_MEMORY_ID_OFFSET_TEST_IS_CONNECTED: u64 = 150;
+pub(crate) const MULTIADDR_MEMORY_ID_OFFSET_GOSSIP_NEW_USER: u64 = 200;
+pub(crate) const MULTIADDR_MEMORY_ID_OFFSET_REQUEST_RESPONSE_BASIC: u64 = 300;
+pub(crate) const MULTIADDR_MEMORY_ID_OFFSET_TEST_MANUALLY_GET_ALL_PEERS: u64 = 500;
+
 pub(crate) struct User {
     pub(crate) p2p: P2P,
     pub(crate) handle: P2PHandle,
