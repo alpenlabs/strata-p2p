@@ -4,7 +4,6 @@ use std::collections::HashSet;
 
 use libp2p::{
     PeerId, StreamProtocol,
-    allow_block_list::{Behaviour as AllowListBehaviour, BlockedPeers},
     gossipsub::{
         self, Behaviour as Gossipsub, IdentityTransform, MessageAuthenticity,
         WhitelistSubscriptionFilter,
@@ -38,9 +37,6 @@ pub struct Behaviour {
     /// Request-response model for recursive discovery of lost or skipped info.
     pub request_response: RequestResponseRawBehaviour,
 
-    /// Blacklist behaviour
-    pub blacklist_behaviour: AllowListBehaviour<BlockedPeers>,
-
     /// Kademlia DHT
     pub kademlia: kad::Behaviour<kad::store::MemoryStore>,
 }
@@ -51,14 +47,8 @@ impl Behaviour {
     pub fn new(
         protocol_name: &'static str,
         keypair: &Keypair,
-        blacklist: &[PeerId],
         kad_protocol_name: StreamProtocol,
     ) -> Self {
-        let mut blacklist_behaviour = AllowListBehaviour::default();
-        for peer in blacklist {
-            blacklist_behaviour.block_peer(*peer);
-        }
-
         let mut filter = HashSet::new();
         filter.insert(TOPIC.hash());
 
@@ -96,7 +86,6 @@ impl Behaviour {
                 [(StreamProtocol::new(protocol_name), ProtocolSupport::Full)],
                 RequestResponseConfig::default(),
             ),
-            blacklist_behaviour,
             kademlia: kad::Behaviour::with_config(keypair.public().to_peer_id(), store, kad_cfg),
         }
     }

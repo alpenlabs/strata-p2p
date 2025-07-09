@@ -10,7 +10,7 @@ use tracing_test::traced_test;
 
 use super::common::Setup;
 use crate::{
-    commands::{BanUnbanCommand, Command, ConnectToPeerCommand, QueryP2PStateCommand},
+    commands::{Command, ConnectToPeerCommand, QueryP2PStateCommand},
     events::Event,
     tests::common::{MULTIADDR_MEMORY_ID_OFFSET_GOSSIP_NEW_USER, User},
 };
@@ -67,7 +67,6 @@ async fn gossip_new_user() -> anyhow::Result<()> {
     );
     let mut new_user = User::new(
         new_user_keypair.clone(),
-        Vec::new(), // doesn't have a blacklist
         Vec::new(), // doesn't know other nodes
         local_addr.clone(),
         cancel.child_token(),
@@ -99,7 +98,6 @@ async fn gossip_new_user() -> anyhow::Result<()> {
     );
     let mut new_user2 = User::new(
         new_user2_keypair.clone(),
-        Vec::new(), // doesn't have a blacklist
         Vec::new(), // doesn't know other nodes
         local_addr2.clone(),
         cancel.child_token(),
@@ -116,69 +114,6 @@ async fn gossip_new_user() -> anyhow::Result<()> {
         // This will start listening for messages
         new_user2.p2p.listen().await;
     });
-
-    // Create a separate listening address for the new user
-    let local_addr3 = build_multiaddr!(Memory(88888890_u64));
-
-    // Generate a keypair for the new user
-    let new_user3_keypair = Keypair::generate_ed25519();
-
-    // Create new user with all necessary information
-    info!(
-        "Creating third new user to listen at {} peer_id: {}",
-        local_addr3,
-        new_user3_keypair.public().to_peer_id()
-    );
-    let mut new_user3 = User::new(
-        new_user3_keypair.clone(),
-        Vec::new(), // doesn't have a blacklist
-        Vec::new(), // doesn't know other nodes
-        local_addr3.clone(),
-        cancel.child_token(),
-    )
-    .unwrap();
-
-    // Run the third new user in a separate task - this call will handle connections
-    tasks.spawn(async move {
-        // This will attempt to establish the connections to other users and subscribe to a topic
-        info!("Third new user is establishing connections");
-        new_user3.p2p.establish_connections().await;
-        info!("Third new user connections established");
-
-        // This will start listening for messages
-        new_user3.p2p.listen().await;
-    });
-
-    // Ask old users to ban third new user
-    for index in 0..connect_addrs.len() {
-        info!(
-            "Asking an old user (index {}, connect_addr: {}, peer_id {}) to ban to third new user",
-            index, connect_addrs[index], user_handles[index].peer_id
-        );
-        user_handles[index]
-            .handle
-            .send_command(Command::BanUnbanCommand {
-                peer_id: new_user3.kp.public().to_peer_id(),
-                peer_addr: local_addr3.clone(),
-                ban_unban: BanUnbanCommand::Ban,
-            })
-            .await;
-    }
-
-    // Ask old users to connect to third new user and therefore remove from their blacklist
-    for index in 0..connect_addrs.len() {
-        info!(
-            "Asking an old user (index {}, connect_addr: {}, peer_id {}) to connect to first new user",
-            index, connect_addrs[index], user_handles[index].peer_id
-        );
-        user_handles[index]
-            .handle
-            .send_command(Command::ConnectToPeer(ConnectToPeerCommand {
-                peer_id: new_user3.kp.public().to_peer_id(),
-                peer_addr: local_addr3.clone(),
-            }))
-            .await;
-    }
 
     // Ask the old users to the first new one
     for index in 0..connect_addrs.len() {
@@ -219,7 +154,6 @@ async fn gossip_new_user() -> anyhow::Result<()> {
     let message_from_inside = Vec::<u8>::from(b"Hello my friends!");
     let message_from_outsider1 = Vec::<u8>::from(b"Hi, I'm new here.");
     let message_from_outsider2 = Vec::<u8>::from(b"Hello there");
-    let message_from_outsider3 = Vec::<u8>::from(b"Hi there");
 
     info!("Regular user sending test message");
     user_handles[0]
@@ -245,21 +179,12 @@ async fn gossip_new_user() -> anyhow::Result<()> {
         })
         .await;
 
-    info!("Third new user sending test message");
-    new_user3
-        .handle
-        .send_command(Command::PublishMessage {
-            data: message_from_outsider3.clone(),
-        })
-        .await;
-
     // Wait for message propagation
     sleep(Duration::from_secs(2)).await;
 
     let mut counter_messages_from_regular_user = 0;
     let mut counter_messages_from_outsider1 = 0;
     let mut counter_messages_from_outsider2 = 0;
-    let mut counter_messages_from_outsider3 = 0;
 
     // Check that existing users received the message
     for user in &mut user_handles {
@@ -280,9 +205,6 @@ async fn gossip_new_user() -> anyhow::Result<()> {
                     } else if msg == message_from_outsider2 {
                         info!("User received message from second new user");
                         counter_messages_from_outsider2 += 1;
-                    } else if msg == message_from_outsider3 {
-                        info!("User received message from third new user");
-                        counter_messages_from_outsider3 += 1;
                     }
                 }
                 _ => bail!("Unexpected event type"),
@@ -305,9 +227,6 @@ async fn gossip_new_user() -> anyhow::Result<()> {
                 } else if msg == message_from_outsider2 {
                     info!("First new user received message from second new user");
                     counter_messages_from_outsider2 += 1;
-                } else if msg == message_from_outsider3 {
-                    info!("First new user received message from third new user");
-                    counter_messages_from_outsider3 += 1;
                 }
             }
             _ => bail!("Unexpected event type"),
@@ -329,33 +248,6 @@ async fn gossip_new_user() -> anyhow::Result<()> {
                 } else if msg == message_from_outsider2 {
                     info!("Second new user received message from second new user");
                     counter_messages_from_outsider2 += 1;
-                } else if msg == message_from_outsider3 {
-                    info!("Second new user received message from third new user");
-                    counter_messages_from_outsider3 += 1;
-                }
-            }
-            _ => bail!("Unexpected event type"),
-        }
-    }
-
-    while !new_user3.handle.events_is_empty() {
-        let event = new_user3.handle.next_event().await?;
-        info!(?event, "Received event");
-
-        match event {
-            Event::ReceivedMessage(msg) => {
-                if msg == message_from_inside {
-                    info!("Third new user received message from regular user");
-                    counter_messages_from_regular_user += 1;
-                } else if msg == message_from_outsider1 {
-                    info!("Third new user received message from first new user");
-                    counter_messages_from_outsider1 += 1;
-                } else if msg == message_from_outsider2 {
-                    info!("Third new user received message from second new user");
-                    counter_messages_from_outsider2 += 1;
-                } else if msg == message_from_outsider3 {
-                    info!("Third new user received message from third new user");
-                    counter_messages_from_outsider3 += 1;
                 }
             }
             _ => bail!("Unexpected event type"),
@@ -367,10 +259,9 @@ async fn gossip_new_user() -> anyhow::Result<()> {
             counter_messages_from_regular_user,
             counter_messages_from_outsider1,
             counter_messages_from_outsider2,
-            counter_messages_from_outsider3
         ),
-        (USERS_NUM + 2, USERS_NUM + 2, USERS_NUM + 2, USERS_NUM + 2),
-        "messages from old users ; messages from first new user ; messages from second new user ; messages from third new user"
+        (USERS_NUM + 1, USERS_NUM + 1, USERS_NUM + 1),
+        "messages from old users ; messages from first new user ; messages from second new user"
     );
     // Clean up
     cancel.cancel();

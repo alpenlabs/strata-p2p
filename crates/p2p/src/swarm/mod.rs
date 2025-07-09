@@ -39,7 +39,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, instrument, trace, warn};
 
 use crate::{
-    commands::{BanUnbanCommand, Command, QueryP2PStateCommand},
+    commands::{Command, QueryP2PStateCommand},
     events::Event,
 };
 
@@ -102,9 +102,6 @@ pub struct P2PConfig {
 
     /// The node's address.
     pub listening_addr: Multiaddr,
-
-    /// List of [`PeerId`]s that the node is expected to have banned.
-    pub blacklist: Vec<PeerId>,
 
     /// Initial list of nodes to connect to at startup.
     pub connect_to: Vec<Multiaddr>,
@@ -313,7 +310,7 @@ impl P2P {
         }
         debug!(topic=%TOPIC.to_string(), %num_retries, %max_retry_count, "finished trying to subscribe to topic");
 
-        let mut subscriptions = 0;
+        let subscriptions = 0;
         let start_time = Instant::now();
         let mut next_check = Instant::now();
 
@@ -324,15 +321,8 @@ impl P2P {
 
                 match event {
                     SwarmEvent::Behaviour(BehaviourEvent::Gossipsub(
-                        GossipsubEvent::Subscribed { peer_id, .. },
-                    )) => {
-                        if self.config.blacklist.contains(&peer_id) {
-                            debug!(%peer_id, %subscriptions, total=self.config.blacklist.len(), "got subscription from non-allowlisted peer");
-                        } else {
-                            subscriptions += 1;
-                            info!(%peer_id, %subscriptions, total=self.config.blacklist.len(), "got subscription");
-                        }
-                    }
+                        GossipsubEvent::Subscribed { peer_id: _, .. },
+                    )) => {}
                     SwarmEvent::ConnectionEstablished {
                         peer_id, endpoint, ..
                     } => {
@@ -364,7 +354,6 @@ impl P2P {
                         elapsed=?start_time.elapsed(),
                         remaining_connections=is_not_connected.len(),
                         subscriptions=subscriptions,
-                        total_blacklist=self.config.blacklist.len(),
                         "connection establishment progress"
                     );
                     next_check = Instant::now() + connection_check_interval;
@@ -387,7 +376,6 @@ impl P2P {
                     elapsed=?start_time.elapsed(),
                     remaining_connections=is_not_connected.len(),
                     subscriptions=subscriptions,
-                    total_blacklist=self.config.blacklist.len(),
                     "swarm event loop exited unexpectedly"
                 );
             }
@@ -396,7 +384,6 @@ impl P2P {
                     elapsed=?start_time.elapsed(),
                     remaining_connections=is_not_connected.len(),
                     subscriptions=subscriptions,
-                    total_blacklist=self.config.blacklist.len(),
                     "connection establishment timed out after {:?}", general_timeout
                 );
             }
@@ -881,19 +868,6 @@ libp2p::kad::InboundRequest::GetRecord
                     "Unblock peer: remove from blacklist_behaviour {}",
                     connect_to_peer_command.peer_id
                 );
-                self.swarm
-                    .behaviour_mut()
-                    .blacklist_behaviour
-                    .unblock_peer(connect_to_peer_command.peer_id);
-
-                // Add the peer to our config lists.
-                trace!(
-                    "Unblock peer: remove from our lists {}",
-                    connect_to_peer_command.peer_id
-                );
-                self.config
-                    .blacklist
-                    .retain(|&x| x != connect_to_peer_command.peer_id);
 
                 trace!(
                     "Add peer to connect_to list {}",
@@ -992,37 +966,6 @@ libp2p::kad::InboundRequest::GetRecord
                     Ok(())
                 }
             },
-            Command::BanUnbanCommand {
-                peer_id,
-                peer_addr: _peer_addr,
-                ban_unban,
-            } => {
-                match ban_unban {
-                    BanUnbanCommand::Ban => {
-                        self.swarm
-                            .behaviour_mut()
-                            .gossipsub
-                            .set_application_score(&peer_id, -9000.0); // TODO: fix it so that it
-                        // works with scoring system
-                        self.swarm
-                            .behaviour_mut()
-                            .blacklist_behaviour
-                            .block_peer(peer_id);
-                    }
-                    BanUnbanCommand::Unban => {
-                        self.swarm
-                            .behaviour_mut()
-                            .gossipsub
-                            .set_application_score(&peer_id, 9000.0); // TODO: fix it so that it
-                        // works with scoring system
-                        self.swarm
-                            .behaviour_mut()
-                            .blacklist_behaviour
-                            .unblock_peer(peer_id);
-                    }
-                }
-                Ok(())
-            }
         }
     }
 
@@ -1139,7 +1082,6 @@ macro_rules! finish_swarm {
                 Behaviour::new(
                     PROTOCOL_NAME,
                     &$cfg.keypair,
-                    &$cfg.blacklist,
                     $cfg.kad_protocol_name
                         .clone()
                         .unwrap_or(StreamProtocol::new("/ipfs/kad_strata-p2p/0.0.1")),

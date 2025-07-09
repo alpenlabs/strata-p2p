@@ -24,7 +24,6 @@ pub(crate) struct User {
 impl User {
     pub(crate) fn new(
         keypair: Keypair,
-        blacklist: Vec<PeerId>,
         connect_to: Vec<Multiaddr>,
         local_addr: Multiaddr,
         cancel: CancellationToken,
@@ -39,7 +38,6 @@ impl User {
             general_timeout: None,
             connection_check_interval: None,
             listening_addr: local_addr,
-            blacklist,
             connect_to,
             kad_protocol_name: Some(StreamProtocol::new("/ipfs/kad_strata-p2p/0.0.1")),
         };
@@ -87,7 +85,6 @@ impl Setup {
 
             let user = User::new(
                 keypair.clone(),
-                Vec::new(),
                 other_addrs,
                 addr.clone(),
                 cancel.child_token(),

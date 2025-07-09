@@ -32,18 +32,6 @@ pub enum Command {
 
     /// Directly queries P2P state (doesn't produce events).
     QueryP2PState(QueryP2PStateCommand),
-
-    /// Ban unban
-    BanUnbanCommand {
-        /// Peer ID.
-        peer_id: PeerId,
-
-        /// Peer address.
-        peer_addr: Multiaddr,
-
-        /// Ban or unban: that is the question.
-        ban_unban: BanUnbanCommand,
-    },
 }
 
 /// Connects to a peer, whitelists peer, and adds peer to the gossip sub network.
@@ -92,14 +80,4 @@ impl From<QueryP2PStateCommand> for Command {
     fn from(v: QueryP2PStateCommand) -> Self {
         Self::QueryP2PState(v)
     }
-}
-
-/// Ban or unban: that is the question.
-#[derive(Debug, Clone)]
-pub enum BanUnbanCommand {
-    /// To ban
-    Ban,
-
-    /// To unban
-    Unban,
 }
