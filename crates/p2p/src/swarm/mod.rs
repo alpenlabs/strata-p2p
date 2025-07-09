@@ -8,7 +8,6 @@ use std::{
 };
 
 use behavior::{Behaviour, BehaviourEvent};
-use chrono::Utc;
 use errors::{P2PResult, ProtocolError};
 use futures::StreamExt as _;
 use handle::P2PHandle;
@@ -341,6 +340,16 @@ where
                     SwarmEvent::OutgoingConnectionError { peer_id, error, .. } => {
                         warn!(?peer_id, %error, "outgoing connection error");
                     }
+                    SwarmEvent::IncomingConnectionError {
+                        connection_id,
+                        local_addr,
+                        send_back_addr,
+                        error,
+                    } => {
+                        warn!(
+                            "Incoming connection error: {connection_id} {local_addr} {send_back_addr} {error}"
+                        );
+                    }
                     _ => {}
                 };
 
@@ -540,6 +549,12 @@ where
     ) -> P2PResult<()> {
         trace!("Got message: {:?}", &message.data);
 
+        let _ = message
+            .source
+            .expect("Message must have author as ValidationMode set to Permissive");
+
+        let event = Event::ReceivedMessage(message.data);
+
         let propagation_result = self
             .swarm
             .behaviour_mut()
@@ -602,17 +617,16 @@ where
 
                 Ok(())
             }
-            Command::RequestMessage { peer_pubkey, data } => {
-                let request_target_pubkey = &peer_pubkey;
-                let request_target_peer_id = &peer_pubkey.peer_id();
-                debug!(%request_target_pubkey, %request_target_peer_id, "Got request message");
+            Command::RequestMessage { peer_id, data } => {
+                let request_target_peer_id = &peer_id;
+                debug!(%request_target_peer_id, "Got request message");
                 trace!(?data, "Got request message");
 
-                if self.swarm.is_connected(&request_target_peer_id) {
+                if self.swarm.is_connected(request_target_peer_id) {
                     self.swarm
                         .behaviour_mut()
                         .request_response
-                        .send_request(&request_target_peer_id, data);
+                        .send_request(request_target_peer_id, data);
                     return Ok(());
                 }
 
@@ -630,6 +644,12 @@ where
             }
             Command::ConnectToPeer(connect_to_peer_command) => {
                 // Whitelist peer
+                self.swarm
+                    .behaviour_mut()
+                    .allow_list
+                    .allow_peer(connect_to_peer_command.peer_id);
+
+                // Add the peer to our config lists.
                 self.config.allowlist.push(connect_to_peer_command.peer_id);
                 self.config
                     .connect_to
@@ -641,11 +661,23 @@ where
                     connect_to_peer_command.peer_addr.clone(),
                 );
 
+                let dialing_opts: DialOpts = DialOpts::peer_id(connect_to_peer_command.peer_id)
+                    .condition(PeerCondition::DisconnectedAndNotDialing)
+                    .addresses(Vec::<Multiaddr>::from([connect_to_peer_command
+                        .peer_addr
+                        .clone()]))
+                    .extend_addresses_through_behaviour()
+                    .build();
+
                 // Connect to peer
-                let _ = self
-                    .swarm
-                    .dial(connect_to_peer_command.peer_addr)
-                    .inspect_err(|err| error!(%err, "Failed to connect to peer"));
+                let _ = self.swarm.dial(dialing_opts).inspect_err(|err| {
+                    error!(
+                        "Failed to connect to peer at peer_addr '{}' : {} {:?}",
+                        connect_to_peer_command.peer_addr.to_string(),
+                        err,
+                        err
+                    )
+                });
 
                 Ok(())
             }
@@ -663,6 +695,21 @@ where
                     info!("Querying connected peers");
                     let peers = self.swarm.connected_peers().cloned().collect();
                     let _ = response_sender.send(peers);
+                    Ok(())
+                }
+                QueryP2PStateCommand::GetMyListeningAddresses { response_sender } => {
+                    info!("Querying my own local listening addresses.");
+                    // We clone here because if not clone, we'll receive `Vec<&Multiaddr>`. Ok,
+                    // we'll receive Vec of references. Then in enum of `QueryP2PStateCommand`
+                    // we'll have to specify template lifetime param. Then we'll have to specify it
+                    // in Commands, then fix a lot of code to specify `<'_>`.
+                    //
+                    // For the case it seems more reasonable to clone than to struggle with
+                    // lifetimes, since we don't expect this
+                    // command be called many times.
+                    let multiaddresses =
+                        self.swarm.listeners().cloned().collect::<Vec<Multiaddr>>();
+                    let _ = response_sender.send(multiaddresses);
                     Ok(())
                 }
             },
@@ -709,7 +756,7 @@ where
                 // dial the peer
                 let _ = self.swarm.dial(addr).inspect_err(|err| {
                     error!(%peer, %error, %request_id, "Inbound failure");
-                    error!(%err, "Failed to connect to peer");
+                    error!(%err, "Failed to connect to peer '{peer}'");
                 });
             }
             RequestResponseEvent::ResponseSent {
@@ -821,7 +868,7 @@ where
 ///
 /// # Implementation details
 ///
-/// Macro is used here, as `libp2p` doesn't expose internal generic types of [`SwarmBuilder`] to
+/// Macro is used here, as [`libp2p`] doesn't expose internal generic types of [`SwarmBuilder`] to
 /// actually specify return type of function. So we use macro for now.
 macro_rules! init_swarm {
     ($cfg:expr) => {
@@ -859,10 +906,10 @@ macro_rules! finish_swarm {
 pub fn with_inmemory_transport(config: &P2PConfig) -> P2PResult<Swarm<Behaviour>> {
     let builder = init_swarm!(config);
     let swarm = finish_swarm!(
-        builder.with_other_transport(|keys| {
+        builder.with_other_transport(|our_keypair| {
             MemoryTransport::new()
                 .upgrade(libp2p::core::upgrade::Version::V1)
-                .authenticate(noise::Config::new(keys).unwrap())
+                .authenticate(noise::Config::new(our_keypair).unwrap())
                 .multiplex(yamux::Config::default())
                 .map(|(p, c), _| (p, StreamMuxerBox::new(c)))
         }),

@@ -1,5 +1,5 @@
 //! Entity to control P2P implementation, spawned in another async task,
-//! and listen to its events through channels.
+//! and listen to its events and send commands through channels.
 
 use std::{
     fmt::Display,
@@ -9,7 +9,7 @@ use std::{
 };
 
 use futures::{FutureExt, Stream};
-use libp2p::{identity::secp256k1::Keypair, PeerId};
+use libp2p::{identity::Keypair, PeerId};
 use thiserror::Error;
 use tokio::{
     sync::{
@@ -25,8 +25,13 @@ use crate::{
     events::Event,
 };
 
+/// The receiver lagged too far behind. Attempting to receive again will
+/// return the oldest message still retained by the channel.
+///
+/// Includes the number of skipped messages.
 #[derive(Debug, Clone, Error)]
 pub struct ErrDroppedMsgs(u64);
+
 impl Display for ErrDroppedMsgs {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "P2PHandle dropped {} messages", self.0)
@@ -37,19 +42,22 @@ impl Display for ErrDroppedMsgs {
 /// task. To create a new one, use [`super::P2P::new_handle`].
 #[derive(Debug)]
 pub struct P2PHandle {
-    /// Event channel for the swarm.
+    /// Event channel. [`super::P2P`] struct will send events via the channel and [`P2PHandle`] is
+    /// expected to get them via receiving side of the channel.
     events: broadcast::Receiver<Event>,
 
-    /// Command channel for the swarm.
+    /// Command channel. [`P2PHandle`] will send commands via it and [`super::P2P`] struct is
+    /// expected to do logic corresponding to specific [`Command`].
     commands: mpsc::Sender<Command>,
 
-    /// The Libp2p secp256k1 keypair used for signing messages.
+    /// The [`libp2p::identity::Keypair`]. Used for creating our own [`PeerId`], and if cfg option
+    /// `message-signing` is enabled, to sign messages with it.
     keypair: Keypair,
 }
 
 impl P2PHandle {
     /// Creates a new [`P2PHandle`].
-    pub(crate) fn new(
+    pub(crate) const fn new(
         events: broadcast::Receiver<Event>,
         commands: mpsc::Sender<Command>,
         keypair: Keypair,
@@ -81,22 +89,22 @@ impl P2PHandle {
     pub async fn is_connected(&self, peer_id: PeerId) -> bool {
         let (sender, receiver) = oneshot::channel();
 
-        // Send the command to check connection
+        // Send the command to check connection.
         let cmd = Command::QueryP2PState(QueryP2PStateCommand::IsConnected {
             peer_id,
             response_sender: sender,
         });
 
-        // Use a cloned sender to avoid borrow issues
+        // Use a cloned sender to avoid borrow issues.
         let cmd_sender = self.commands.clone();
 
         // Send the command
         if cmd_sender.send(cmd).await.is_err() {
-            // If the command channel is closed, assume not connected
+            // If the command channel is closed, assume not connected.
             return false;
         }
 
-        // Wait for response with timeout
+        // Wait for response with timeout.
         // TODO: make this configurable
         match timeout(Duration::from_secs(1), receiver).await {
             Ok(Ok(is_connected)) => is_connected,
@@ -108,20 +116,20 @@ impl P2PHandle {
     pub async fn get_connected_peers(&self) -> Vec<PeerId> {
         let (sender, receiver) = oneshot::channel();
 
-        // Send the command
+        // Send the command.
         let cmd = Command::QueryP2PState(QueryP2PStateCommand::GetConnectedPeers {
             response_sender: sender,
         });
 
-        // Use a cloned sender to avoid borrow issues
+        // Use a cloned sender to avoid borrow issues.
         let cmd_sender = self.commands.clone();
 
-        // If sending fails, return empty list
+        // If sending fails, return empty list.
         if cmd_sender.send(cmd).await.is_err() {
             return Vec::new();
         }
 
-        // Wait for response with timeout
+        // Wait for response with timeout.
         // TODO: make this configurable
         match timeout(Duration::from_secs(1), receiver).await {
             Ok(Ok(peers)) => peers,

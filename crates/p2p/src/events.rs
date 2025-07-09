@@ -1,5 +1,6 @@
 //! Events emitted from P2P.
 
+<<<<<<< HEAD
 /// Events emitted from P2P to handle from operator side.
 ///
 /// # Implementation Details
@@ -14,5 +15,15 @@ pub enum Event {
     ReceivedMessage(Vec<u8>),
 
     /// Received a request from other operator.
+=======
+/// Events emitted from P2P that needs to be handled by the user.
+
+#[derive(Debug, Clone)]
+pub enum Event {
+    /// Received message from other peer.
+    ReceivedMessage(Vec<u8>),
+
+    /// Received a request from other peer.
+>>>>>>> dev-v2
     ReceivedRequest(Vec<u8>),
 }
