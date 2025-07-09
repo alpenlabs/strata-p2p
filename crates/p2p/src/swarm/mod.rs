@@ -150,8 +150,6 @@ impl P2P {
             .listen_on(cfg.listening_addr.clone())
             .map_err(ProtocolError::Listen)?;
 
-        let _keypair = cfg.keypair.clone();
-
         let channel_size = channel_size.unwrap_or(256);
         let (gossip_events_tx, _gossip_events_rx) = broadcast::channel(channel_size);
         let (req_resp_event_tx, req_resp_event_rx) = mpsc::channel(64);
@@ -680,7 +678,7 @@ impl P2P {
                         .behaviour_mut()
                         .request_response
                         .send_response(channel, response)
-                        .map_err(|_err| {
+                        .map_err(|_| {
                             error!("Failed to send response: connection dropped or response channel closed");
                         }),
                     Err(err) => {

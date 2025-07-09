@@ -82,8 +82,8 @@ impl GossipHandle {
     }
 }
 
-#[derive(Debug)]
 /// Handle to sends commands to p2p
+#[derive(Debug)]
 pub struct CommandHandle {
     commands: mpsc::Sender<Command>,
 }

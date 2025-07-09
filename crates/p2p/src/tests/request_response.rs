@@ -1,4 +1,4 @@
-//! Three-handlers integration test for new handler-based architecture.
+//! Request response test
 
 use tracing::info;
 

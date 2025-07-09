@@ -38,12 +38,12 @@ pub enum ProtocolError {
     #[error("Failed to listen: {0}")]
     Listen(#[from] TransportError<io::Error>),
 
-    /// The event channel somehow is closed.
-    #[error("Events channel closed: {0}")]
+    /// The gossip channel somehow is closed.
+    #[error("Gossip channel closed: {0}")]
     GossipEventsChannelClosed(Box<dyn std::error::Error + Sync + Send>),
 
     /// The request response event channel somehow is closed.
-    #[error("Req/resp channel closed: {0}")]
+    #[error("Request response channel closed: {0}")]
     ReqRespEventChannelClosed(Box<dyn std::error::Error + Sync + Send>),
 
     /// Transport error, multiple reasons and OS-dependent.
