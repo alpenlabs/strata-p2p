@@ -200,7 +200,6 @@ impl P2P {
             .unwrap_or(DEFAULT_CONNECTION_CHECK_INTERVAL);
 
         let mut is_not_connected = HashSet::new();
-        let mut counter_how_many_we_dialed_successfully_to = 0_u64;
 
         if !&self.config.connect_to.is_empty() {
             trace!(
@@ -219,7 +218,6 @@ impl P2P {
                     match self.swarm.dial(some_dial_opts) {
                         Ok(()) => {
                             info!(%multiaddr, "dialed peer");
-                            counter_how_many_we_dialed_successfully_to += 1;
                             break;
                         }
 
@@ -242,39 +240,6 @@ impl P2P {
                     }
                 }
             }
-
-            let mut addr_to_id = Vec::<(Multiaddr, PeerId)>::new();
-
-            while counter_how_many_we_dialed_successfully_to != 0
-                && let Some(event) = self.swarm.next().await
-            {
-                if let SwarmEvent::Behaviour(BehaviourEvent::Identify(
-                    identify::Event::Received {
-                        connection_id,
-                        peer_id,
-                        info,
-                    },
-                )) = event
-                {
-                    trace!(
-                        "{connection_id} {peer_id} {info:?} SwarmEvent::Behaviour(BehaviourEvent::Identify(identify::Event::Received"
-                    );
-                    addr_to_id.push((info.listen_addrs[0].clone(), peer_id));
-                    counter_how_many_we_dialed_successfully_to -= 1;
-                }
-            }
-
-            for (multiaddr, peerid) in addr_to_id {
-                debug!(%peerid,%multiaddr, %max_retry_count, "adding a peer to Kademlias buckets.");
-                self.swarm
-                    .behaviour_mut()
-                    .kademlia
-                    .add_address(&peerid, multiaddr);
-            }
-
-            debug!("Attempting to bootstrap DHT");
-            // let queryid: libp2p::kad::QueryId =
-            self.swarm.behaviour_mut().kademlia.bootstrap().unwrap();
         }
 
         let mut num_retries = 0;

@@ -73,7 +73,7 @@ async fn test_is_connected() -> anyhow::Result<()> {
 }
 
 /// Tests the gossip protocol in an all to all connected network with multiple IDs.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 #[traced_test]
 async fn test_manually_get_all_peers() -> anyhow::Result<()> {
     const USERS_NUM: usize = 10;

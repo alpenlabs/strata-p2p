@@ -66,6 +66,12 @@ impl Behaviour {
 
         let store = kad::store::MemoryStore::new(keypair.public().to_peer_id());
 
+        let mut kademlia_behaviour =
+            kad::Behaviour::with_config(keypair.public().to_peer_id(), store, kad_cfg);
+
+        // Enable server mode for DHT
+        kademlia_behaviour.set_mode(Some(kad::Mode::Server));
+
         Self {
             identify: Identify::new(Config::new(protocol_name.to_string(), keypair.public())),
             gossipsub: Gossipsub::new_with_subscription_filter(
@@ -86,7 +92,7 @@ impl Behaviour {
                 [(StreamProtocol::new(protocol_name), ProtocolSupport::Full)],
                 RequestResponseConfig::default(),
             ),
-            kademlia: kad::Behaviour::with_config(keypair.public().to_peer_id(), store, kad_cfg),
+            kademlia: kademlia_behaviour,
         }
     }
 }
