@@ -11,12 +11,17 @@ use errors::{P2PResult, ProtocolError};
 use futures::StreamExt as _;
 use handle::P2PHandle;
 use libp2p::{
-    Multiaddr, PeerId, Swarm, SwarmBuilder, Transport,
+    Multiaddr, PeerId, StreamProtocol, Swarm, SwarmBuilder, Transport,
     core::{ConnectedPoint, muxing::StreamMuxerBox, transport::MemoryTransport},
     gossipsub::{
         Event as GossipsubEvent, Message, MessageAcceptance, MessageId, PublishError, Sha256Topic,
     },
+    identify,
     identity::Keypair,
+    kad::{
+        AddProviderError, AddProviderOk, BootstrapOk, Event as KademliaEvent, GetClosestPeersError,
+        GetClosestPeersOk, GetProvidersError, PutRecordError, PutRecordOk, QueryResult,
+    },
     noise,
     request_response::{self, Event as RequestResponseEvent},
     swarm::{
@@ -98,11 +103,11 @@ pub struct P2PConfig {
     /// The node's address.
     pub listening_addr: Multiaddr,
 
-    /// List of [`PeerId`]s that the node is allowed to connect to.
-    pub allowlist: Vec<PeerId>,
-
     /// Initial list of nodes to connect to at startup.
     pub connect_to: Vec<Multiaddr>,
+
+    /// Kademlia protocol name
+    pub kad_protocol_name: Option<StreamProtocol>,
 }
 
 /// Implementation of P2P protocol data exchange.
@@ -196,34 +201,45 @@ impl P2P {
 
         let mut is_not_connected = HashSet::new();
 
-        for addr in &self.config.connect_to {
-            let mut num_retries = 0;
-            debug!(%addr, %num_retries, %max_retry_count, "attempting to dial peer");
-            loop {
-                match self.swarm.dial(addr.clone()) {
-                    Ok(_) => {
-                        info!(%addr, "dialed peer");
+        if !&self.config.connect_to.is_empty() {
+            trace!(
+                "Will try connect to next peers: {:?}",
+                &self.config.connect_to
+            );
+            for multiaddr in &self.config.connect_to {
+                loop {
+                    if false {
                         break;
                     }
-                    Err(err) => {
-                        warn!(%err, %addr, %num_retries, %max_retry_count, "failed to connect to peer, retrying...");
+                    let mut num_retries = 0;
+                    let some_dial_opts = DialOpts::unknown_peer_id()
+                        .address(multiaddr.clone())
+                        .build();
+                    match self.swarm.dial(some_dial_opts) {
+                        Ok(()) => {
+                            info!(%multiaddr, "dialed peer");
+                            break;
+                        }
+
+                        Err(err) => {
+                            warn!(%err, %multiaddr, %num_retries, %max_retry_count, "failed to connect to peer, retrying...");
+                        }
+                    }
+
+                    // Add a small delay between retries to avoid overwhelming the network
+                    tokio::time::sleep(dial_timeout).await;
+
+                    debug!(%multiaddr, %num_retries, %max_retry_count, "attempting to dial peer again");
+
+                    num_retries += 1;
+
+                    if num_retries > max_retry_count {
+                        error!(%multiaddr, %num_retries, %max_retry_count, "failed to connect to peer after max retries");
+                        is_not_connected.insert(multiaddr);
+                        break;
                     }
                 }
-
-                num_retries += 1;
-
-                if num_retries > max_retry_count {
-                    error!(%addr, %num_retries, %max_retry_count, "failed to connect to peer after max retries");
-                    break;
-                }
-
-                // Add a small delay between retries to avoid overwhelming the network
-                tokio::time::sleep(dial_timeout).await;
-                debug!(%addr, %num_retries, %max_retry_count, "attempting to dial peer again");
             }
-
-            debug!(%addr, %num_retries, %max_retry_count, "finished trying to dial peer");
-            is_not_connected.insert(addr);
         }
 
         let mut num_retries = 0;
@@ -259,7 +275,7 @@ impl P2P {
         }
         debug!(topic=%TOPIC.to_string(), %num_retries, %max_retry_count, "finished trying to subscribe to topic");
 
-        let mut subscriptions = 0;
+        let subscriptions = 0;
         let start_time = Instant::now();
         let mut next_check = Instant::now();
 
@@ -270,15 +286,8 @@ impl P2P {
 
                 match event {
                     SwarmEvent::Behaviour(BehaviourEvent::Gossipsub(
-                        GossipsubEvent::Subscribed { peer_id, .. },
-                    )) => {
-                        if self.config.allowlist.contains(&peer_id) {
-                            subscriptions += 1;
-                            info!(%peer_id, %subscriptions, total=self.config.allowlist.len(), "got subscription");
-                        } else {
-                            debug!(%peer_id, %subscriptions, total=self.config.allowlist.len(), "got subscription from non-allowlisted peer");
-                        }
-                    }
+                        GossipsubEvent::Subscribed { peer_id: _, .. },
+                    )) => {}
                     SwarmEvent::ConnectionEstablished {
                         peer_id, endpoint, ..
                     } => {
@@ -310,14 +319,13 @@ impl P2P {
                         elapsed=?start_time.elapsed(),
                         remaining_connections=is_not_connected.len(),
                         subscriptions=subscriptions,
-                        total_allowlist=self.config.allowlist.len(),
                         "connection establishment progress"
                     );
                     next_check = Instant::now() + connection_check_interval;
                 }
 
-                if is_not_connected.is_empty() && subscriptions >= self.config.allowlist.len() {
-                    info!("met all connection and subscription requirements");
+                if is_not_connected.is_empty() {
+                    info!("met all connection requirements");
                     return true;
                 }
             }
@@ -333,7 +341,6 @@ impl P2P {
                     elapsed=?start_time.elapsed(),
                     remaining_connections=is_not_connected.len(),
                     subscriptions=subscriptions,
-                    total_allowlist=self.config.allowlist.len(),
                     "swarm event loop exited unexpectedly"
                 );
             }
@@ -342,7 +349,6 @@ impl P2P {
                     elapsed=?start_time.elapsed(),
                     remaining_connections=is_not_connected.len(),
                     subscriptions=subscriptions,
-                    total_allowlist=self.config.allowlist.len(),
                     "connection establishment timed out after {:?}", general_timeout
                 );
             }
@@ -395,7 +401,307 @@ impl P2P {
             BehaviourEvent::RequestResponse(event) => {
                 self.handle_request_response_event(event).await
             }
-            _ => Ok(()),
+            BehaviourEvent::Kademlia(event) => self.handle_kademlia_event(event).await,
+            BehaviourEvent::Identify(event) => self.handle_identify_event(event).await,
+        }
+    }
+
+    async fn handle_identify_event(&mut self, event: identify::Event) -> P2PResult<()> {
+        match event {
+            identify::Event::Received {
+                connection_id,
+                peer_id,
+                info,
+            } => {
+                trace!("{connection_id:?} {peer_id} {info:?} identify::Event::Received");
+                self.swarm
+                    .behaviour_mut()
+                    .kademlia
+                    .add_address(&peer_id, info.listen_addrs[0].clone());
+            }
+            identify::Event::Sent {
+                connection_id,
+                peer_id,
+            } => {
+                trace!("{connection_id:?} {peer_id} identify::Event::Sent");
+            }
+            identify::Event::Pushed {
+                connection_id,
+                peer_id,
+                info,
+            } => {
+                trace!("{connection_id:?} {peer_id} {info:?} identify::Event::Pushed");
+            }
+            identify::Event::Error {
+                connection_id,
+                peer_id,
+                error,
+            } => {
+                trace!("{connection_id:?} {peer_id} {error} identify::Event::Error");
+            }
+        };
+        Ok(())
+    }
+
+    /// Handles a [`KademliaEvent`] from the swarm.
+    async fn handle_kademlia_event(&mut self, event: KademliaEvent) -> P2PResult<()> {
+        match event {
+            KademliaEvent::InboundRequest { request } => match request {
+                libp2p::kad::InboundRequest::FindNode { num_closer_peers } => {
+                    trace!("{num_closer_peers} InboundRequest::FindNode");
+                    Ok(())
+                }
+                libp2p::kad::InboundRequest::PutRecord {
+                    source,
+                    connection,
+                    record,
+                } => {
+                    trace!(
+                        "{} {} {:?} InboundRequest::PutRecord",
+                        source, connection, record
+                    );
+                    Ok(())
+                }
+                libp2p::kad::InboundRequest::GetRecord {
+                    num_closer_peers,
+                    present_locally,
+                } => {
+                    trace!(
+                        "
+                    {num_closer_peers}
+                    {present_locally}
+
+libp2p::kad::InboundRequest::GetRecord
+                    "
+                    );
+                    Ok(())
+                }
+                libp2p::kad::InboundRequest::GetProvider {
+                    num_closer_peers,
+                    num_provider_peers,
+                } => {
+                    trace!(
+                        "{num_closer_peers} {num_provider_peers} libp2p::kad::InboundRequest::GetProvider"
+                    );
+                    Ok(())
+                }
+                libp2p::kad::InboundRequest::AddProvider { record } => {
+                    trace!("{record:?} libp2p::kad::InboundRequest::AddProvider");
+                    Ok(())
+                }
+            },
+
+            KademliaEvent::OutboundQueryProgressed {
+                id,
+                result,
+                stats,
+                step,
+            } => match result {
+                QueryResult::Bootstrap(Ok(BootstrapOk {
+                    peer,
+                    num_remaining,
+                })) => {
+                    trace!(
+                        "{id} {stats:?} {step:?} {peer} {num_remaining} QueryResult::Bootstrap(Ok(BootstrapOk "
+                    );
+                    Ok(())
+                }
+                QueryResult::Bootstrap(Err(libp2p::kad::BootstrapError::Timeout {
+                    peer,
+                    num_remaining,
+                })) => {
+                    trace!(
+                        "{id} {stats:?} {step:?} {peer} {num_remaining:?} QueryResult::Bootstrap(Err(BootstrapErr "
+                    );
+                    Ok(())
+                }
+                QueryResult::GetRecord(Ok(libp2p::kad::GetRecordOk::FoundRecord(peer_record))) => {
+                    trace!(
+                        "{id} {stats:?} {step:?} {peer_record:?} QueryResult::GetRecord(Ok(libp2p::kad::GetRecordOk::FoundRecord"
+                    );
+                    Ok(())
+                }
+                QueryResult::GetRecord(Ok(
+                    libp2p::kad::GetRecordOk::FinishedWithNoAdditionalRecord { cache_candidates },
+                )) => {
+                    trace!(
+                        "{id} {stats:?} {step:?} {cache_candidates:?} QueryResult::GetRecord(Ok(libp2p::kad::GetRecordOk::FinishedWithNoAdditionalRecord"
+                    );
+                    Ok(())
+                }
+                QueryResult::GetRecord(Err(libp2p::kad::GetRecordError::Timeout { key })) => {
+                    trace!(
+                        "{id} {stats:?} {step:?} {key:?} QueryResult::GetRecord(Err(libp2p::kad::GetRecordError::Timeout"
+                    );
+                    Ok(())
+                }
+                QueryResult::GetRecord(Err(libp2p::kad::GetRecordError::NotFound {
+                    key,
+                    closest_peers,
+                })) => {
+                    trace!(
+                        "{id} {stats:?} {step:?} {key:?} {closest_peers:?} QueryResult::GetRecord(Err(libp2p::kad::GetRecordError::NotFound"
+                    );
+                    Ok(())
+                }
+                QueryResult::GetRecord(Err(libp2p::kad::GetRecordError::QuorumFailed {
+                    key,
+                    records,
+                    quorum,
+                })) => {
+                    trace!(
+                        "{id} {stats:?} {step:?} {key:?} {records:?} {quorum} QueryResult::GetRecord(Err(libp2p::kad::GetRecordError::QuorumFailed"
+                    );
+                    Ok(())
+                }
+                QueryResult::PutRecord(Ok(PutRecordOk { key })) => {
+                    trace!("{id} {stats:?} {step:?} {key:?} QueryResult::PutRecord(Ok(PutRecordOk");
+                    Ok(())
+                }
+                QueryResult::PutRecord(Err(PutRecordError::QuorumFailed {
+                    key,
+                    success: success_peerids,
+                    quorum,
+                })) => {
+                    trace!(
+                        "{id} {stats:?} {step:?} {key:?} {success_peerids:?} {quorum} QueryResult::PutRecord(Err(PutRecordError::QuorumFailed"
+                    );
+                    Ok(())
+                }
+                QueryResult::PutRecord(Err(PutRecordError::Timeout {
+                    key,
+                    success: success_peerids,
+                    quorum,
+                })) => {
+                    trace!(
+                        "{id} {stats:?} {step:?} {key:?} {success_peerids:?} {quorum} QueryResult::PutRecord(Err(PutRecordError::Timeout"
+                    );
+                    Ok(())
+                }
+                QueryResult::GetProviders(Ok(libp2p::kad::GetProvidersOk::FoundProviders {
+                    key,
+                    providers,
+                })) => {
+                    trace!(
+                        "{id} {stats:?} {step:?} {key:?} {providers:?} QueryResult::GetProviders(Ok(libp2p::kad::GetProvidersOk::FoundProviders"
+                    );
+                    Ok(())
+                }
+                QueryResult::GetProviders(Ok(
+                    libp2p::kad::GetProvidersOk::FinishedWithNoAdditionalRecord { closest_peers },
+                )) => {
+                    trace!(
+                        "{id} {stats:?} {step:?} {closest_peers:?} QueryResult::GetProviders(Ok(libp2p::kad::GetProvidersOk::FinishedWithNoAdditionalRecord"
+                    );
+                    Ok(())
+                }
+                QueryResult::GetProviders(Err(GetProvidersError::Timeout {
+                    key,
+                    closest_peers,
+                })) => {
+                    trace!(
+                        "{id} {stats:?} {step:?} {key:?} {closest_peers:?} QueryResult::GetProviders(Err(GetProvidersError::Timeout"
+                    );
+                    Ok(())
+                }
+                QueryResult::GetClosestPeers(Ok(GetClosestPeersOk { key, peers })) => {
+                    trace!(
+                        "{id} {stats:?} {step:?} {key:?} {peers:?} QueryResult::GetClosestPeers(Ok(GetClosestPeersOk"
+                    );
+                    // since we are manually adding peers, here's a filtering could be implemented
+                    for peer in peers {
+                        self.swarm
+                            .add_peer_address(peer.peer_id, peer.addrs[0].clone());
+                    }
+                    Ok(())
+                }
+                QueryResult::GetClosestPeers(Err(GetClosestPeersError::Timeout { key, peers })) => {
+                    trace!(
+                        "{id} {stats:?} {step:?} {key:?} {peers:?} QueryResult::GetClosestPeers(Ok(GetClosestPeersOk"
+                    );
+                    Ok(())
+                }
+                QueryResult::StartProviding(Ok(AddProviderOk { key })) => {
+                    trace!(
+                        "{id} {stats:?} {step:?} {key:?} QueryResult::StartProviding(Ok(AddProviderOk"
+                    );
+                    Ok(())
+                }
+                QueryResult::StartProviding(Err(AddProviderError::Timeout { key })) => {
+                    trace!(
+                        "{id} {stats:?} {step:?} {key:?} QueryResult::StartProviding(Err(AddProviderError::Timeout"
+                    );
+                    Ok(())
+                }
+                QueryResult::RepublishRecord(Ok(PutRecordOk { key })) => {
+                    trace!(
+                        "{id} {stats:?} {step:?} {key:?} QueryResult::RepublishRecord(Ok(PutRecordOk"
+                    );
+                    Ok(())
+                }
+                QueryResult::RepublishRecord(Err(PutRecordError::QuorumFailed {
+                    key,
+                    success,
+                    quorum,
+                })) => {
+                    trace!(
+                        "{id} {stats:?} {step:?} {key:?} {success:?} {quorum:?} QueryResult::RepublishRecord(Err(PutRecordError::QuorumFailed"
+                    );
+                    Ok(())
+                }
+                QueryResult::RepublishRecord(Err(PutRecordError::Timeout {
+                    key,
+                    success,
+                    quorum,
+                })) => {
+                    trace!(
+                        "{id} {stats:?} {step:?} {key:?} {success:?} {quorum} QueryResult::RepublishRecord(Err(PutRecordError::QuorumFailed"
+                    );
+                    Ok(())
+                }
+                QueryResult::RepublishProvider(Ok(AddProviderOk { key })) => {
+                    trace!(
+                        "{id} {stats:?} {step:?} {key:?} QueryResult::RepublishProvider(Ok(AddProviderOk"
+                    );
+                    Ok(())
+                }
+                QueryResult::RepublishProvider(Err(AddProviderError::Timeout { key })) => {
+                    trace!(
+                        "{id} {stats:?} {step:?} {key:?} QueryResult::RepublishProvider(Err(AddProviderError::Timeout"
+                    );
+                    Ok(())
+                }
+            },
+
+            KademliaEvent::RoutingUpdated {
+                peer,
+                is_new_peer,
+                addresses,
+                bucket_range,
+                old_peer,
+            } => {
+                trace!(
+                    "{peer:?} {is_new_peer:?} {addresses:?} {bucket_range:?} {old_peer:?} KademliaEvent::RoutingUpdated"
+                );
+                Ok(())
+            }
+            KademliaEvent::RoutablePeer { peer, address } => {
+                trace!("{peer:?} {address:?} KademliaEvent::RoutablePeer");
+                Ok(())
+            }
+            KademliaEvent::UnroutablePeer { peer } => {
+                trace!("{peer:?} KademliaEvent::UnroutablePeer");
+                Ok(())
+            }
+
+            KademliaEvent::PendingRoutablePeer { peer, address } => {
+                trace!("{peer:?} {address:?} KademliaEvent::PendingRoutablePeer");
+                Ok(())
+            }
+            KademliaEvent::ModeChanged { new_mode } => {
+                trace!("{new_mode:?} KademliaEvent::ModeChanged");
+                Ok(())
+            }
         }
     }
 
@@ -523,20 +829,35 @@ impl P2P {
             }
             Command::ConnectToPeer(connect_to_peer_command) => {
                 // Whitelist peer
-                self.swarm
-                    .behaviour_mut()
-                    .allow_list
-                    .allow_peer(connect_to_peer_command.peer_id);
+                trace!(
+                    "Unblock peer: remove from blacklist_behaviour {}",
+                    connect_to_peer_command.peer_id
+                );
 
-                // Add the peer to our config lists.
-                self.config.allowlist.push(connect_to_peer_command.peer_id);
+                trace!(
+                    "Add peer to connect_to list {}",
+                    connect_to_peer_command.peer_addr
+                );
                 self.config
                     .connect_to
                     .push(connect_to_peer_command.peer_addr.clone());
 
                 // Add peer to swarm
+                trace!(
+                    "Ask swarm to tell other behaviours that there's a new peer {} {}",
+                    connect_to_peer_command.peer_id, connect_to_peer_command.peer_addr
+                );
                 self.swarm.add_peer_address(
                     connect_to_peer_command.peer_id,
+                    connect_to_peer_command.peer_addr.clone(),
+                );
+
+                trace!(
+                    "Ask explicitly kademlia behaviour to add a new peer {} {}",
+                    connect_to_peer_command.peer_id, connect_to_peer_command.peer_addr
+                );
+                self.swarm.behaviour_mut().kademlia.add_address(
+                    &connect_to_peer_command.peer_id,
                     connect_to_peer_command.peer_addr.clone(),
                 );
 
@@ -548,15 +869,32 @@ impl P2P {
                     .extend_addresses_through_behaviour()
                     .build();
 
-                // Connect to peer
+                // Dial peer ( not fully connect )
+                trace!(
+                    "Try to dial a new peer {} {}",
+                    connect_to_peer_command.peer_id, connect_to_peer_command.peer_addr
+                );
                 let _ = self.swarm.dial(dialing_opts).inspect_err(|err| {
                     error!(
-                        "Failed to connect to peer at peer_addr '{}' : {} {:?}",
+                        "Failed to connect to peer at peer_addr '{}' : {}",
                         connect_to_peer_command.peer_addr.to_string(),
-                        err,
                         err
                     )
                 });
+
+                // Bootstrap DHT so that we connect in the end, maybe.
+                trace!(
+                    "Ask kademlia behaviour to bootstrap itself so that it maybe checks and connects to a new node {} {}",
+                    connect_to_peer_command.peer_id, connect_to_peer_command.peer_addr
+                );
+                let _queryid: libp2p::kad::QueryId =
+                    self.swarm.behaviour_mut().kademlia.bootstrap().unwrap();
+
+                // trace!(
+                //     "TODO: change waiting for 5 secs to waiting for some events to be triggered
+                // {} {}",     connect_to_peer_command.peer_id,
+                // connect_to_peer_command.peer_addr );
+                // tokio::time::sleep(Duration::from_secs(5)).await;
 
                 Ok(())
             }
@@ -573,6 +911,7 @@ impl P2P {
                 QueryP2PStateCommand::GetConnectedPeers { response_sender } => {
                     info!("Querying connected peers");
                     let peers = self.swarm.connected_peers().cloned().collect();
+                    trace!("Querying connected peers: done: {peers:?}");
                     let _ = response_sender.send(peers);
                     Ok(())
                 }
@@ -624,16 +963,8 @@ impl P2P {
                 warn!(%peer, %error, %request_id, "Inbound failure");
                 // retry mechanism
                 // get the addr from the peer
-                // it is the same index as the peer in the allowlist
-                let idx = self
-                    .config
-                    .allowlist
-                    .iter()
-                    .position(|id| *id == peer)
-                    .unwrap();
-                let addr = self.config.connect_to[idx].clone();
                 // dial the peer
-                let _ = self.swarm.dial(addr).inspect_err(|err| {
+                let _ = self.swarm.dial(peer).inspect_err(|err| {
                     error!(%peer, %error, %request_id, "Inbound failure");
                     error!(%err, "Failed to connect to peer '{peer}'");
                 });
@@ -712,7 +1043,15 @@ macro_rules! finish_swarm {
     ($builder:expr, $cfg:expr) => {
         $builder
             .map_err(|e| ProtocolError::TransportInitialization(e.into()))?
-            .with_behaviour(|_| Behaviour::new(PROTOCOL_NAME, &$cfg.keypair, &$cfg.allowlist))
+            .with_behaviour(|_| {
+                Behaviour::new(
+                    PROTOCOL_NAME,
+                    &$cfg.keypair,
+                    $cfg.kad_protocol_name
+                        .clone()
+                        .unwrap_or(StreamProtocol::new("/ipfs/kad_strata-p2p/0.0.1")),
+                )
+            })
             .map_err(|e| ProtocolError::BehaviourInitialization(e.into()))?
             .with_swarm_config(|c| c.with_idle_connection_timeout($cfg.idle_connection_timeout))
             .build()

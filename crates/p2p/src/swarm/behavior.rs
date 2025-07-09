@@ -4,13 +4,13 @@ use std::collections::HashSet;
 
 use libp2p::{
     PeerId, StreamProtocol,
-    allow_block_list::{AllowedPeers, Behaviour as AllowListBehaviour},
     gossipsub::{
         self, Behaviour as Gossipsub, IdentityTransform, MessageAuthenticity,
         WhitelistSubscriptionFilter,
     },
     identify::{Behaviour as Identify, Config},
     identity::Keypair,
+    kad,
     request_response::{
         Behaviour as RequestResponse, Config as RequestResponseConfig, ProtocolSupport,
     },
@@ -37,21 +37,40 @@ pub struct Behaviour {
     /// Request-response model for recursive discovery of lost or skipped info.
     pub request_response: RequestResponseRawBehaviour,
 
-    /// Connect only allowed peers by peer id.
-    pub allow_list: AllowListBehaviour<AllowedPeers>,
+    /// Kademlia DHT
+    pub kademlia: kad::Behaviour<kad::store::MemoryStore>,
 }
 
 impl Behaviour {
-    /// Creates a new [`Behaviour`] given a `protocol_name`, [`Keypair`], and an allow list of
+    /// Creates a new [`Behaviour`] given a `protocol_name`, [`Keypair`], and a block list of
     /// [`PeerId`]s.
-    pub fn new(protocol_name: &'static str, keypair: &Keypair, allowlist: &[PeerId]) -> Self {
-        let mut allow_list = AllowListBehaviour::default();
-        for peer in allowlist {
-            allow_list.allow_peer(*peer);
-        }
-
+    pub fn new(
+        protocol_name: &'static str,
+        keypair: &Keypair,
+        kad_protocol_name: StreamProtocol,
+    ) -> Self {
         let mut filter = HashSet::new();
         filter.insert(TOPIC.hash());
+
+        let mut kad_cfg = kad::Config::new(kad_protocol_name);
+
+        // it is expected that there's going to be manual validation of records
+        kad_cfg.set_record_filtering(kad::StoreInserts::FilterBoth);
+
+        // it is expected that there's going to be manual filtering of peers based on their real
+        // app_pk
+        kad_cfg.set_kbucket_inserts(kad::BucketInserts::Manual);
+
+        // maybe should be increased and give logic of quorum manually
+        kad_cfg.set_caching(kad::Caching::Enabled { max_peers: 1 });
+
+        let store = kad::store::MemoryStore::new(keypair.public().to_peer_id());
+
+        let mut kademlia_behaviour =
+            kad::Behaviour::with_config(keypair.public().to_peer_id(), store, kad_cfg);
+
+        // Enable server mode for DHT
+        kademlia_behaviour.set_mode(Some(kad::Mode::Server));
 
         Self {
             identify: Identify::new(Config::new(protocol_name.to_string(), keypair.public())),
@@ -73,7 +92,7 @@ impl Behaviour {
                 [(StreamProtocol::new(protocol_name), ProtocolSupport::Full)],
                 RequestResponseConfig::default(),
             ),
-            allow_list,
+            kademlia: kademlia_behaviour,
         }
     }
 }

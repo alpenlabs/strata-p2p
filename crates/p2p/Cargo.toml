@@ -17,6 +17,7 @@ libp2p = { workspace = true, features = [
   "macros",
   "yamux",
   "identify",
+  "kad",
 ] }
 
 futures.workspace = true
@@ -29,6 +30,5 @@ tracing.workspace = true
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt", "rt-multi-thread"] }
 tokio-util.workspace = true
-tracing-subscriber.workspace = true
 anyhow = "1.0.95"
-rand = "0.9.1"
+tracing-test = "0.2.5"

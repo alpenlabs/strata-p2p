@@ -4,12 +4,17 @@ use std::time::Duration;
 
 use anyhow::bail;
 use tokio::time::sleep;
+use tracing_test::traced_test;
 
 use super::common::Setup;
-use crate::{commands::Command, events::Event};
+use crate::{
+    commands::Command, events::Event,
+    tests::common::MULTIADDR_MEMORY_ID_OFFSET_REQUEST_RESPONSE_BASIC,
+};
 
 /// Tests the gossip protocol in an all to all connected network with multiple IDs.
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+#[traced_test]
 async fn request_response_basic() -> anyhow::Result<()> {
     const USERS_NUM: usize = 2;
 
@@ -17,7 +22,7 @@ async fn request_response_basic() -> anyhow::Result<()> {
         mut user_handles,
         cancel,
         tasks,
-    } = Setup::all_to_all(USERS_NUM).await?;
+    } = Setup::all_to_all(USERS_NUM, MULTIADDR_MEMORY_ID_OFFSET_REQUEST_RESPONSE_BASIC).await?;
 
     let _ = sleep(Duration::from_secs(1)).await;
 
@@ -37,7 +42,10 @@ async fn request_response_basic() -> anyhow::Result<()> {
                 );
             }
             Event::ReceivedRequest(data) => {
-                assert_eq!(data, Vec::<u8>::from("Hello, it's a request..."));
+                assert_eq!(
+                    String::from_utf8(data),
+                    String::from_utf8(Vec::<u8>::from("Hello, it's a request..."))
+                );
             }
         },
         Err(e) => bail!("Something is wrong: {e}"),
