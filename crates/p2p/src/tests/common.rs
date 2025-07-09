@@ -5,6 +5,7 @@ use std::time::Duration;
 use futures::future::join_all;
 use libp2p::{build_multiaddr, identity::Keypair, Multiaddr, PeerId};
 use rand::Rng;
+use strata_p2p_types::P2POperatorPubKey;
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use tracing::debug;
 
@@ -36,6 +37,9 @@ impl User {
             listening_addr: local_addr,
             allowlist,
             connect_to,
+            decay_factor: None,
+            gossipsub_score_params: None,
+            gossipsub_score_thresholds: None,
         };
 
         let swarm = swarm::with_inmemory_transport(&config)?;

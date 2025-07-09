@@ -23,7 +23,6 @@ use libp2p::{
     swarm::SwarmEvent,
     yamux, Multiaddr, PeerId, Swarm, SwarmBuilder, Transport,
 };
-use strata_p2p_types::P2POperatorPubKey;
 use tokio::{
     select,
     sync::{broadcast, mpsc},
@@ -109,9 +108,6 @@ pub struct P2PConfig {
 
     /// Initial list of nodes to connect to at startup.
     pub connect_to: Vec<Multiaddr>,
-
-    /// List of signers' P2P public keys, whose messages the node is allowed to accept.
-    pub signers_allowlist: Vec<P2POperatorPubKey>,
 
     /// Fields for [`ScoreManager`]s.
     ///
@@ -211,7 +207,7 @@ where
                 peer_penalty_storage,
                 _phantom_data: PhantomData,
             },
-            P2PHandle::new(events_rx, cmds_tx, keypair),
+            P2PHandle::new(events_rx, cmds_tx, keypair.into()),
         ))
     }
 
@@ -225,7 +221,7 @@ where
         P2PHandle::new(
             self.events.subscribe(),
             self.commands_sender.clone(),
-            self.config.keypair.clone(),
+            self.config.keypair.clone().into(),
         )
     }
 
