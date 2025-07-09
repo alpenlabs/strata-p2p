@@ -680,7 +680,9 @@ impl P2P {
                         .behaviour_mut()
                         .request_response
                         .send_response(channel, response)
-                        .map_err(|_err| ()),
+                        .map_err(|_err| {
+                            error!("Failed to send response: connection dropped or response channel closed");
+                        }),
                     Err(err) => {
                         error!("Received error in response: {:?}", err);
                         Ok(())
