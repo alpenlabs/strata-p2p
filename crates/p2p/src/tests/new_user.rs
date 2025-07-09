@@ -6,7 +6,7 @@ use anyhow::bail;
 use libp2p::{Multiaddr, build_multiaddr, identity::Keypair};
 use tokio::{sync::oneshot::channel, time::sleep};
 use tracing::{debug, info};
-use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, util::SubscriberInitExt};
+use tracing_test::traced_test;
 
 use super::common::Setup;
 use crate::{
@@ -17,12 +17,8 @@ use crate::{
 
 /// Tests sending a gossipsub message from a new user to all existing users.
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+#[traced_test]
 async fn gossip_new_user() -> anyhow::Result<()> {
-    tracing_subscriber::registry()
-        .with(EnvFilter::from_default_env())
-        .with(fmt::layer().with_file(true).with_line_number(true))
-        .init();
-
     const USERS_NUM: usize = 9;
 
     info!("Setting up {} users setup all-to-all", USERS_NUM);
@@ -31,7 +27,7 @@ async fn gossip_new_user() -> anyhow::Result<()> {
         mut user_handles,
         cancel,
         tasks,
-    } = Setup::all_to_all(USERS_NUM).await?;
+    } = Setup::all_to_all(USERS_NUM, 200).await?;
 
     // Get connection addresses of old users for the new user to connect to.
     info!("Getting listening addresses for new user");
@@ -64,7 +60,11 @@ async fn gossip_new_user() -> anyhow::Result<()> {
     let new_user_keypair = Keypair::generate_ed25519();
 
     // Create new user with all necessary information
-    info!("Creating new user to listen at {}", local_addr);
+    info!(
+        "Creating new user to listen at {} peer_id: {}",
+        local_addr,
+        new_user_keypair.public().to_peer_id()
+    );
     let mut new_user = User::new(
         new_user_keypair.clone(),
         Vec::new(), // doesn't have a blacklist
@@ -92,7 +92,11 @@ async fn gossip_new_user() -> anyhow::Result<()> {
     let new_user2_keypair = Keypair::generate_ed25519();
 
     // Create new user with all necessary information
-    info!("Creating second new user to listen at {}", local_addr2);
+    info!(
+        "Creating second new user to listen at {} peer_id: {}",
+        local_addr2,
+        new_user2_keypair.public().to_peer_id()
+    );
     let mut new_user2 = User::new(
         new_user2_keypair.clone(),
         Vec::new(), // doesn't have a blacklist
@@ -120,7 +124,11 @@ async fn gossip_new_user() -> anyhow::Result<()> {
     let new_user3_keypair = Keypair::generate_ed25519();
 
     // Create new user with all necessary information
-    info!("Creating third new user to listen at {}", local_addr2);
+    info!(
+        "Creating third new user to listen at {} peer_id: {}",
+        local_addr3,
+        new_user3_keypair.public().to_peer_id()
+    );
     let mut new_user3 = User::new(
         new_user3_keypair.clone(),
         Vec::new(), // doesn't have a blacklist
@@ -172,9 +180,6 @@ async fn gossip_new_user() -> anyhow::Result<()> {
             .await;
     }
 
-    // Wait for existing users to fully initialize
-    sleep(Duration::from_secs(5)).await;
-
     // Ask the old users to the first new one
     for index in 0..connect_addrs.len() {
         info!(
@@ -208,8 +213,8 @@ async fn gossip_new_user() -> anyhow::Result<()> {
     // we maybe should also try connect second user to first user, but gossipsub has to fix it by
     // itself.
 
-    // Give time for the new user to establish connections
-    sleep(Duration::from_secs(5)).await;
+    // Give time for the new users to establish connections
+    sleep(Duration::from_secs(3)).await;
 
     let message_from_inside = Vec::<u8>::from(b"Hello my friends!");
     let message_from_outsider1 = Vec::<u8>::from(b"Hi, I'm new here.");
@@ -224,9 +229,6 @@ async fn gossip_new_user() -> anyhow::Result<()> {
         })
         .await;
 
-    // Wait for message propagation and verify
-    sleep(Duration::from_secs(2)).await;
-
     info!("First new user sending test message");
     new_user
         .handle
@@ -234,9 +236,6 @@ async fn gossip_new_user() -> anyhow::Result<()> {
             data: message_from_outsider1.clone(),
         })
         .await;
-
-    // Wait for message propagation
-    sleep(Duration::from_secs(2)).await;
 
     info!("Second new user sending test message");
     new_user2
@@ -364,26 +363,15 @@ async fn gossip_new_user() -> anyhow::Result<()> {
     }
 
     assert_eq!(
-        counter_messages_from_regular_user,
-        USERS_NUM + 2,
-        "messages from old users"
+        (
+            counter_messages_from_regular_user,
+            counter_messages_from_outsider1,
+            counter_messages_from_outsider2,
+            counter_messages_from_outsider3
+        ),
+        (USERS_NUM + 2, USERS_NUM + 2, USERS_NUM + 2, USERS_NUM + 2),
+        "messages from old users ; messages from first new user ; messages from second new user ; messages from third new user"
     );
-    assert_eq!(
-        counter_messages_from_outsider1,
-        USERS_NUM + 2,
-        "messages from first new user"
-    );
-    assert_eq!(
-        counter_messages_from_outsider2,
-        USERS_NUM + 2,
-        "messages from second new user"
-    );
-    assert_eq!(
-        counter_messages_from_outsider3,
-        USERS_NUM + 2,
-        "messages from third new user"
-    );
-
     // Clean up
     cancel.cancel();
     tasks.wait().await;

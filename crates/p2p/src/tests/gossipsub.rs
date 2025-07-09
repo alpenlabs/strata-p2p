@@ -4,11 +4,14 @@ use std::time::Duration;
 
 use anyhow::bail;
 use tokio::time::sleep;
+use tracing_test::traced_test;
 
 use super::common::Setup;
 use crate::{commands::Command, events::Event};
+
 /// Tests the gossip protocol in an all to all connected network with multiple IDs.
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+#[traced_test]
 async fn gossip_basic() -> anyhow::Result<()> {
     const USERS_NUM: usize = 2;
 
@@ -16,7 +19,7 @@ async fn gossip_basic() -> anyhow::Result<()> {
         mut user_handles,
         cancel,
         tasks,
-    } = Setup::all_to_all(USERS_NUM).await?;
+    } = Setup::all_to_all(USERS_NUM, 120).await?;
 
     let _ = sleep(Duration::from_secs(1)).await;
 
