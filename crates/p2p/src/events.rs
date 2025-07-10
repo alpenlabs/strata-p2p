@@ -15,12 +15,16 @@ pub enum GossipEvent {
 /// Events emitted from the request/response protocol.
 #[derive(Debug)]
 pub enum ReqRespEvent {
-    /// Received a request from other peer. In case request response feature is enabled
+    /// Received a request from other peer (when request-response feature is enabled)
     #[cfg(feature = "request-response")]
     ReceivedRequest(Vec<u8>, Sender<Vec<u8>>),
-    /// Received a request from other peer. In case request response feature is disabled
+    /// Received a request from other peer (when request-response feature is disabled)
     #[cfg(not(feature = "request-response"))]
     ReceivedRequest(Vec<u8>),
-    /// Received a response from other peer
+    /// Received a response from other peer (when request-response feature is enabled)
+    #[cfg(feature = "request-response")]
     ReceivedResponse(Vec<u8>),
+    /// Received a response from other peer (when request-response feature is disabled)
+    #[cfg(not(feature = "request-response"))]
+    ReceivedResponse,
 }

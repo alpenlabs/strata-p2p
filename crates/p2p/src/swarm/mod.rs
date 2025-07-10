@@ -711,20 +711,32 @@ impl P2P {
             }
 
             request_response::Message::Response {
-                request_id,
+                request_id: _request_id,
                 response,
             } => {
-                if response.is_empty() {
-                    warn!(%request_id, ?response, "Received empty response");
-                    return Ok(());
+                #[cfg(not(feature = "request-response"))]
+                {
+                    if !response.is_empty() {
+                        warn!(%_request_id, ?response, "Received not empty response. Invalid for this configuration");
+                        return Ok(());
+                    }
+                    let event = ReqRespEvent::ReceivedResponse;
+                    self.req_resp_events
+                        .send(event)
+                        .await
+                        .map_err(|e| ProtocolError::ReqRespEventChannelClosed(e.into()))?;
                 }
 
-                // TODO: report/punish peer for invalid message?
-                let event = ReqRespEvent::ReceivedResponse(response);
-                self.req_resp_events
-                    .send(event)
-                    .await
-                    .map_err(|e| ProtocolError::ReqRespEventChannelClosed(e.into()))?;
+                #[cfg(feature = "request-response")]
+                {
+                    let event = ReqRespEvent::ReceivedResponse(response);
+                    // TODO: report/punish peer for invalid message?
+                    self.req_resp_events
+                        .send(event)
+                        .await
+                        .map_err(|e| ProtocolError::ReqRespEventChannelClosed(e.into()))?;
+                }
+
                 Ok(())
             }
         }
