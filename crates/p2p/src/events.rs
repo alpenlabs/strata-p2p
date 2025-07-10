@@ -1,6 +1,7 @@
 //! Events emitted from P2P.
 
 /// Events emitted from P2P that needs to be handled by the user.
+#[cfg(feature = "request-response")]
 use tokio::sync::oneshot::Sender;
 
 /// Events emitted from the gossipsub protocol.
@@ -14,8 +15,12 @@ pub enum GossipEvent {
 /// Events emitted from the request/response protocol.
 #[derive(Debug)]
 pub enum ReqRespEvent {
-    /// Received a request from other peer.
+    /// Received a request from other peer. In case request response feature is enabled
+    #[cfg(feature = "request-response")]
     ReceivedRequest(Vec<u8>, Sender<Vec<u8>>),
+    /// Received a request from other peer. In case request response feature is disabled
+    #[cfg(not(feature = "request-response"))]
+    ReceivedRequest(Vec<u8>),
     /// Received a response from other peer
     ReceivedResponse(Vec<u8>),
 }

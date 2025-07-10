@@ -25,9 +25,11 @@ use libp2p::{
     },
     yamux,
 };
+#[cfg(feature = "request-response")]
+use tokio::sync::oneshot;
 use tokio::{
     select,
-    sync::{broadcast, mpsc, oneshot},
+    sync::{broadcast, mpsc},
     time::timeout,
 };
 use tokio_util::sync::CancellationToken;
@@ -663,29 +665,48 @@ impl P2P {
             request_response::Message::Request {
                 request, channel, ..
             } => {
-                let (tx, rx) = oneshot::channel();
+                #[cfg(feature = "request-response")]
+                {
+                    let (tx, rx) = oneshot::channel();
 
-                let event = ReqRespEvent::ReceivedRequest(request, tx);
-                self.req_resp_events
-                    .send(event)
-                    .await
-                    .map_err(|e| ProtocolError::ReqRespEventChannelClosed(e.into()))?;
+                    let event = ReqRespEvent::ReceivedRequest(request, tx);
+                    self.req_resp_events
+                        .send(event)
+                        .await
+                        .map_err(|e| ProtocolError::ReqRespEventChannelClosed(e.into()))?;
 
-                let resp = rx.await;
-                let _ = match resp {
-                    Ok(response) => self
+                    let resp = rx.await;
+                    let _ = match resp {
+                        Ok(response) => self
+                            .swarm
+                            .behaviour_mut()
+                            .request_response
+                            .send_response(channel, response)
+                            .map_err(|_| {
+                                error!("Failed to send response: connection dropped or response channel closed");
+                            }),
+                        Err(err) => {
+                            error!("Received error in response: {:?}", err);
+                            Ok(())
+                        }
+                    };
+                }
+                #[cfg(not(feature = "request-response"))]
+                {
+                    let _ = self
                         .swarm
                         .behaviour_mut()
                         .request_response
-                        .send_response(channel, response)
-                        .map_err(|_| {
-                            error!("Failed to send response: connection dropped or response channel closed");
-                        }),
-                    Err(err) => {
-                        error!("Received error in response: {:?}", err);
-                        Ok(())
-                    }
-                };
+                        .send_response(channel, vec![]) // TODO
+                        .map_err(|_| ());
+
+                    let event = ReqRespEvent::ReceivedRequest(request);
+                    let _ = self
+                        .req_resp_events
+                        .send(event)
+                        .await
+                        .map_err(|e| ProtocolError::ReqRespEventChannelClosed(e.into()))?;
+                }
                 Ok(())
             }
 
