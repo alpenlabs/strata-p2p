@@ -479,7 +479,7 @@ where
         }
     }
 
-    async fn get_all_scores(&self, peer_id: &PeerId) -> (f64, f64, f64) {
+    fn get_all_scores(&self, peer_id: &PeerId) -> (f64, f64, f64) {
         let gossip_internal_score = self
             .swarm
             .behaviour()
@@ -840,7 +840,7 @@ where
         }
 
         let (gossip_internal_score, gossip_app_score, reqresp_app_score) =
-            self.get_all_scores(peer_id).await;
+            self.get_all_scores(peer_id);
 
         if let Some(penalty) = V::get_penalty(
             &msg_type,
