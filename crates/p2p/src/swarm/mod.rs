@@ -4,7 +4,7 @@ use std::{
     collections::HashSet,
     marker::PhantomData,
     sync::LazyLock,
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime},
 };
 
 use behavior::{Behaviour, BehaviourEvent};
@@ -17,10 +17,13 @@ use libp2p::{
         Event as GossipsubEvent, Message, MessageAcceptance, MessageId, PeerScoreParams,
         PeerScoreThresholds, PublishError, Sha256Topic,
     },
-    identity::secp256k1::Keypair,
+    identity::Keypair,
     noise,
     request_response::{self, Event as RequestResponseEvent},
-    swarm::SwarmEvent,
+    swarm::{
+        dial_opts::{DialOpts, PeerCondition},
+        SwarmEvent,
+    },
     yamux, Multiaddr, PeerId, Swarm, SwarmBuilder, Transport,
 };
 use tokio::{
@@ -436,21 +439,21 @@ where
         match penalty {
             PenaltyType::Ignore => return,
             PenaltyType::MuteGossip(time_amount) => {
-                let until = Utc::now() + chrono::Duration::from_std(time_amount).unwrap();
+                let until = SystemTime::now() + time_amount;
                 match self.peer_penalty_storage.mute_peer_gossip(peer_id, until) {
                     Ok(()) => info!(%peer_id, ?until, "Peer muted for Gossipsub"),
                     Err(e) => error!(%peer_id, ?e, "Failed to mute peer"),
                 }
             }
             PenaltyType::MuteReqresp(time_amount) => {
-                let until = Utc::now() + chrono::Duration::from_std(time_amount).unwrap();
+                let until = SystemTime::now() + time_amount;
                 match self.peer_penalty_storage.mute_peer_req_resp(peer_id, until) {
                     Ok(()) => info!(%peer_id, ?until, "Peer muted for RequestResponse"),
                     Err(e) => error!(%peer_id, ?e, "Failed to mute peer"),
                 }
             }
             PenaltyType::MuteBoth(time_amount) => {
-                let until = Utc::now() + chrono::Duration::from_std(time_amount).unwrap();
+                let until = SystemTime::now() + time_amount;
                 let gossip_mute_result = self.peer_penalty_storage.mute_peer_gossip(peer_id, until);
                 let req_resp_mute_result =
                     self.peer_penalty_storage.mute_peer_req_resp(peer_id, until);
@@ -467,9 +470,7 @@ where
                 }
             }
             PenaltyType::Ban(opt_time_amount) => {
-                let until = Utc::now()
-                    + chrono::Duration::from_std(opt_time_amount.unwrap_or(DEFAULT_BAN_PERIOD))
-                        .unwrap();
+                let until = SystemTime::now() + opt_time_amount.unwrap_or(DEFAULT_BAN_PERIOD);
                 match self.peer_penalty_storage.ban_peer(peer_id, until) {
                     Ok(()) => info!(%peer_id, ?until, "Peer banned"),
                     Err(e) => error!(%peer_id, ?e, "Failed to ban peer"),
@@ -549,9 +550,7 @@ where
             .source
             .expect("Message must have author as ValidationMode set to Permissive");
 
-        let event = Event::ReceivedMessage(message.data);
-
-        let propagation_result = self
+        let _propagation_result = self
             .swarm
             .behaviour_mut()
             .gossipsub

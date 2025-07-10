@@ -5,11 +5,13 @@ use std::time::Duration;
 use futures::future::join_all;
 use libp2p::{build_multiaddr, identity::Keypair, Multiaddr, PeerId};
 use rand::Rng;
-use strata_p2p_types::P2POperatorPubKey;
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use tracing::debug;
 
-use crate::swarm::{self, handle::P2PHandle, P2PConfig, P2P};
+use crate::{
+    swarm::{self, handle::P2PHandle, P2PConfig, P2P},
+    validator::DefaultP2PValidator,
+};
 
 pub(crate) struct User {
     pub(crate) p2p: P2P,
@@ -164,5 +166,23 @@ impl Setup {
 
         tasks.close();
         (levers, tasks)
+    }
+}
+
+#[cfg(test)]
+mod send_sync_tests {
+    use super::*;
+
+    // These functions will fail to compile if T is Send or Sync, respectively.
+    fn assert_send<T: ?Sized + Send>() {}
+    fn assert_sync<T: ?Sized + Sync>() {}
+
+    #[test]
+    fn p2p_is_not_send_or_sync() {
+        assert_sync::<DefaultP2PValidator>();
+        assert_send::<DefaultP2PValidator>();
+
+        assert_send::<P2P>();
+        assert_sync::<P2P>();
     }
 }
