@@ -18,7 +18,8 @@ pub enum ReqRespEvent {
     #[cfg(feature = "request-response")]
     ReceivedRequest(Vec<u8>, Sender<Vec<u8>>),
 
-    /// Received a request from other peer.
+    /// NOTE: Even when disabled we still need a request-response mechanism to implement the
+    /// setup phase.
     #[cfg(not(feature = "request-response"))]
     ReceivedRequest(Vec<u8>),
 
@@ -26,7 +27,8 @@ pub enum ReqRespEvent {
     #[cfg(feature = "request-response")]
     ReceivedResponse(Vec<u8>),
 
-    /// Received a response from other peer.
+    /// NOTE: Even when disabled we still need a request-response mechanism to implement the
+    /// setup phase.
     #[cfg(not(feature = "request-response"))]
     ReceivedResponse,
 }

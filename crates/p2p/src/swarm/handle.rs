@@ -38,7 +38,7 @@ impl Display for ErrDroppedMsgs {
     }
 }
 
-/// Handle to receive an event from p2p
+/// Handle to receive a request-response event from P2P.
 #[derive(Debug)]
 pub struct ReqRespHandle {
     events: mpsc::Receiver<ReqRespEvent>,
@@ -62,7 +62,7 @@ impl ReqRespHandle {
     }
 }
 
-/// Handle to receive an event from p2p
+/// Handle to receive a gossipsub event from P2P.
 #[derive(Debug)]
 pub struct GossipHandle {
     events: broadcast::Receiver<GossipEvent>,
@@ -84,7 +84,7 @@ impl GossipHandle {
     }
 }
 
-/// Handle to sends commands to p2p
+/// Handle to sends commands to P2P.
 #[derive(Debug)]
 pub struct CommandHandle {
     commands: mpsc::Sender<Command>,
