@@ -7,7 +7,7 @@ use std::{
 };
 
 use behavior::{Behaviour, BehaviourEvent};
-use errors::{P2PResult, ProtocolError};
+use errors::{Error, P2PResult, ProtocolError};
 use futures::StreamExt as _;
 use handle::{CommandHandle, GossipHandle, ReqRespHandle};
 use libp2p::{
@@ -137,7 +137,7 @@ pub struct P2P {
     config: P2PConfig,
 }
 
-/// Alias for P2P and ReqRespHandle tuple.
+/// Alias for [`P2P`] and [`ReqRespHandle`] tuple.
 pub type P2PWithReqRespHandle = (P2P, ReqRespHandle);
 
 impl P2P {
@@ -177,12 +177,12 @@ impl P2P {
         *self.swarm.local_peer_id()
     }
 
-    /// Creates new handler for gossip
+    /// Creates new handle for gossip
     pub fn new_gossip_handle(&self) -> GossipHandle {
         GossipHandle::new(self.gossip_events.subscribe())
     }
 
-    /// Creates new handler for commands
+    /// Creates new handle for commands
     pub fn new_command_handle(&self) -> CommandHandle {
         CommandHandle::new(self.commands_sender.clone())
     }
@@ -670,14 +670,23 @@ impl P2P {
                     let (tx, rx) = oneshot::channel();
 
                     let event = ReqRespEvent::ReceivedRequest(request, tx);
-                    self.req_resp_events
-                        .send(event)
-                        .await
-                        .map_err(|e| ProtocolError::ReqRespEventChannelClosed(e.into()))?;
+                    let send_result =
+                        timeout(Duration::from_secs(5), self.req_resp_events.send(event)).await;
+                    match send_result {
+                        Ok(Ok(())) => {}
+                        Ok(Err(e)) => {
+                            return Err(Error::Protocol(ProtocolError::ReqRespEventChannelClosed(
+                                e.into(),
+                            )));
+                        }
+                        Err(_) => {
+                            error!("Timeout while sending ReceivedRequest event");
+                        }
+                    }
 
-                    let resp = rx.await;
+                    let resp = timeout(Duration::from_secs(5), rx).await;
                     let _ = match resp {
-                        Ok(response) => self
+                        Ok(Ok(response)) => self
                             .swarm
                             .behaviour_mut()
                             .request_response
@@ -685,8 +694,12 @@ impl P2P {
                             .map_err(|_| {
                                 error!("Failed to send response: connection dropped or response channel closed");
                             }),
-                        Err(err) => {
+                        Ok(Err(err)) => {
                             error!("Received error in response: {:?}", err);
+                            Ok(())
+                        }
+                        Err(_) => {
+                            error!("Timeout waiting for response to request");
                             Ok(())
                         }
                     };
@@ -701,11 +714,19 @@ impl P2P {
                         .map_err(|_| ());
 
                     let event = ReqRespEvent::ReceivedRequest(request);
-                    let _ = self
-                        .req_resp_events
-                        .send(event)
-                        .await
-                        .map_err(|e| ProtocolError::ReqRespEventChannelClosed(e.into()))?;
+                    let send_result =
+                        timeout(Duration::from_secs(5), self.req_resp_events.send(event)).await;
+                    match send_result {
+                        Ok(Ok(())) => {}
+                        Ok(Err(e)) => {
+                            return Err(Error::Protocol(ProtocolError::ReqRespEventChannelClosed(
+                                e.into(),
+                            )));
+                        }
+                        Err(_) => {
+                            error!("Timeout while sending ReceivedRequest event");
+                        }
+                    }
                 }
                 Ok(())
             }
@@ -721,20 +742,37 @@ impl P2P {
                         return Ok(());
                     }
                     let event = ReqRespEvent::ReceivedResponse;
-                    self.req_resp_events
-                        .send(event)
-                        .await
-                        .map_err(|e| ProtocolError::ReqRespEventChannelClosed(e.into()))?;
+                    let send_result =
+                        timeout(Duration::from_secs(5), self.req_resp_events.send(event)).await;
+                    match send_result {
+                        Ok(Ok(())) => {}
+                        Ok(Err(e)) => {
+                            return Err(Error::Protocol(ProtocolError::ReqRespEventChannelClosed(
+                                e.into(),
+                            )));
+                        }
+                        Err(_) => {
+                            error!("Timeout while sending ReceivedResponse event");
+                        }
+                    }
                 }
 
                 #[cfg(feature = "request-response")]
                 {
                     let event = ReqRespEvent::ReceivedResponse(response);
-                    // TODO: report/punish peer for invalid message?
-                    self.req_resp_events
-                        .send(event)
-                        .await
-                        .map_err(|e| ProtocolError::ReqRespEventChannelClosed(e.into()))?;
+                    let send_result =
+                        timeout(Duration::from_secs(5), self.req_resp_events.send(event)).await;
+                    match send_result {
+                        Ok(Ok(())) => {}
+                        Ok(Err(e)) => {
+                            return Err(Error::Protocol(ProtocolError::ReqRespEventChannelClosed(
+                                e.into(),
+                            )));
+                        }
+                        Err(_) => {
+                            error!("Timeout while sending ReceivedResponse event");
+                        }
+                    }
                 }
 
                 Ok(())

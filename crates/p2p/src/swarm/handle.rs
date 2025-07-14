@@ -49,7 +49,9 @@ impl ReqRespHandle {
         Self { events }
     }
 
-    /// Gets the next event from P2P from events channel.
+    /// Gets the next event from the P2P events channel.
+    ///
+    /// This handle can also be used as a [`Stream`] for convenient event processing.
     pub async fn next_event(&mut self) -> Option<ReqRespEvent> {
         self.events.recv().await
     }

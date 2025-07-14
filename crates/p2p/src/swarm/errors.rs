@@ -1,6 +1,6 @@
 //! Swarm errors.
 
-use std::io;
+use std::{error, io};
 
 use libp2p::TransportError;
 use thiserror::Error;
@@ -40,22 +40,23 @@ pub enum ProtocolError {
 
     /// The gossip channel somehow is closed.
     #[error("Gossip channel closed: {0}")]
-    GossipEventsChannelClosed(Box<dyn std::error::Error + Sync + Send>),
+    GossipEventsChannelClosed(Box<dyn error::Error + Sync + Send>),
 
     /// The request response event channel somehow is closed.
+    #[cfg(feature = "request-response")]
     #[error("Request response channel closed: {0}")]
-    ReqRespEventChannelClosed(Box<dyn std::error::Error + Sync + Send>),
+    ReqRespEventChannelClosed(Box<dyn error::Error + Sync + Send>),
 
     /// Transport error, multiple reasons and OS-dependent.
     ///
     /// Can happen on really bad connections.
     #[error("Failed to initialize transport: {0}")]
-    TransportInitialization(Box<dyn std::error::Error + Sync + Send>),
+    TransportInitialization(Box<dyn error::Error + Sync + Send>),
 
     /// Something is wrong on code level. Maybe ours problem, maybe user's misconfiguration or
     /// whatever.
     #[error("Failed to initialize behaviour: {0}")]
-    BehaviourInitialization(Box<dyn std::error::Error + Sync + Send>),
+    BehaviourInitialization(Box<dyn error::Error + Sync + Send>),
 
     /// Failed to send response.
     #[error("Failed to send response: {0}")]
