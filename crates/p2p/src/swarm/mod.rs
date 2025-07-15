@@ -68,6 +68,9 @@ pub const DEFAULT_GENERAL_TIMEOUT: Duration = Duration::from_millis(250);
 /// Global default interval for connection checks.
 pub const DEFAULT_CONNECTION_CHECK_INTERVAL: Duration = Duration::from_millis(500);
 
+/// Global default timeout for channel operations (e.g., sending/receiving on channels).
+pub const DEFAULT_CHANNEL_TIMEOUT: Duration = Duration::from_secs(5);
+
 /// Configuration options for [`P2P`].
 #[derive(Debug, Clone)]
 pub struct P2PConfig {
@@ -105,6 +108,9 @@ pub struct P2PConfig {
 
     /// Initial list of nodes to connect to at startup.
     pub connect_to: Vec<Multiaddr>,
+
+    /// Timeout for channel operations (e.g., sending/receiving on channels).
+    pub channel_timeout: Option<Duration>,
 }
 
 /// Implementation of P2P protocol data exchange.
@@ -113,10 +119,10 @@ pub struct P2P {
     /// The swarm that handles the networking.
     swarm: Swarm<Behaviour>,
 
-    /// Event channel for the gossip
+    /// Event channel for the gossip.
     gossip_events: broadcast::Sender<GossipEvent>,
 
-    /// Event channel for request/response
+    /// Event channel for request/response.
     req_resp_events: mpsc::Sender<ReqRespEvent>,
 
     /// Command channel for the swarm.
@@ -177,12 +183,12 @@ impl P2P {
         *self.swarm.local_peer_id()
     }
 
-    /// Creates new handle for gossip
+    /// Creates new handle for gossip.
     pub fn new_gossip_handle(&self) -> GossipHandle {
         GossipHandle::new(self.gossip_events.subscribe())
     }
 
-    /// Creates new handle for commands
+    /// Creates new handle for commands.
     pub fn new_command_handle(&self) -> CommandHandle {
         CommandHandle::new(self.commands_sender.clone())
     }
@@ -661,6 +667,10 @@ impl P2P {
         _peer_id: PeerId,
         msg: request_response::Message<Vec<u8>, Vec<u8>, Vec<u8>>,
     ) -> P2PResult<()> {
+        let reqresp_timeout = self
+            .config
+            .general_timeout
+            .unwrap_or(DEFAULT_CHANNEL_TIMEOUT);
         match msg {
             request_response::Message::Request {
                 request, channel, ..
@@ -671,7 +681,7 @@ impl P2P {
 
                     let event = ReqRespEvent::ReceivedRequest(request, tx);
                     let send_result =
-                        timeout(Duration::from_secs(5), self.req_resp_events.send(event)).await;
+                        timeout(reqresp_timeout, self.req_resp_events.send(event)).await;
                     match send_result {
                         Ok(Ok(())) => {}
                         Ok(Err(e)) => {
@@ -684,7 +694,7 @@ impl P2P {
                         }
                     }
 
-                    let resp = timeout(Duration::from_secs(5), rx).await;
+                    let resp = timeout(reqresp_timeout, rx).await;
                     let _ = match resp {
                         Ok(Ok(response)) => self
                             .swarm
@@ -695,7 +705,7 @@ impl P2P {
                                 error!("Failed to send response: connection dropped or response channel closed");
                             }),
                         Ok(Err(err)) => {
-                            error!("Received error in response: {:?}", err);
+                            error!("Received error in response: {err:?}");
                             Ok(())
                         }
                         Err(_) => {
@@ -715,7 +725,7 @@ impl P2P {
 
                     let event = ReqRespEvent::ReceivedRequest(request);
                     let send_result =
-                        timeout(Duration::from_secs(5), self.req_resp_events.send(event)).await;
+                        timeout(reqresp_timeout, self.req_resp_events.send(event)).await;
                     match send_result {
                         Ok(Ok(())) => {}
                         Ok(Err(e)) => {
@@ -743,7 +753,7 @@ impl P2P {
                     }
                     let event = ReqRespEvent::ReceivedResponse;
                     let send_result =
-                        timeout(Duration::from_secs(5), self.req_resp_events.send(event)).await;
+                        timeout(reqresp_timeout, self.req_resp_events.send(event)).await;
                     match send_result {
                         Ok(Ok(())) => {}
                         Ok(Err(e)) => {
@@ -761,7 +771,7 @@ impl P2P {
                 {
                     let event = ReqRespEvent::ReceivedResponse(response);
                     let send_result =
-                        timeout(Duration::from_secs(5), self.req_resp_events.send(event)).await;
+                        timeout(reqresp_timeout, self.req_resp_events.send(event)).await;
                     match send_result {
                         Ok(Ok(())) => {}
                         Ok(Err(e)) => {

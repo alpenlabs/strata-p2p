@@ -41,6 +41,7 @@ impl User {
             listening_addr: local_addr,
             allowlist,
             connect_to,
+            channel_timeout: None,
         };
 
         let swarm = swarm::with_inmemory_transport(&config)?;
@@ -118,7 +119,7 @@ impl Setup {
             .map(|_| Keypair::generate_ed25519())
             .collect::<Vec<_>>();
 
-        debug!("len(keypairs):{}", keypairs.len());
+        debug!(len = keypairs.len(), "Generated keypairs for test setup");
 
         let peer_ids = keypairs
             .iter()

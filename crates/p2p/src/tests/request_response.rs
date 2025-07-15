@@ -30,7 +30,7 @@ async fn test_reqresp_basic() -> anyhow::Result<()> {
     {
         match user_handles[1].reqresp.next_event().await.unwrap() {
             ReqRespEvent::ReceivedRequest(data, channel) => {
-                info!("Node 2 received request: {:?}", data);
+                info!(?data, "Node 2 received request");
                 assert_eq!(data, req_msg, "Node 2 did not receive the correct request");
                 let _ = channel.send(resp_msg.clone());
                 info!("Node 2 sent response");
@@ -40,7 +40,7 @@ async fn test_reqresp_basic() -> anyhow::Result<()> {
 
         match user_handles[0].reqresp.next_event().await.unwrap() {
             ReqRespEvent::ReceivedResponse(resp) => {
-                info!("Node 1 received response: {:?}", resp);
+                info!(?resp, "Node 1 received response");
                 assert_eq!(
                     resp, resp_msg,
                     "Node 1 did not receive the correct response",
@@ -54,7 +54,7 @@ async fn test_reqresp_basic() -> anyhow::Result<()> {
     {
         match user_handles[1].reqresp.next_event().await.unwrap() {
             ReqRespEvent::ReceivedRequest(data) => {
-                info!("Node 2 received request: {:?}", data);
+                info!(?data, "Node 2 received request: {:?}");
                 assert_eq!(data, req_msg, "Node 2 did not receive the correct request");
 
                 user_handles[1]
@@ -74,7 +74,7 @@ async fn test_reqresp_basic() -> anyhow::Result<()> {
                     assert_eq!(data, resp_msg);
                 }
             },
-            Err(e) => info!("Something is wrong: {:?}", e),
+            Err(e) => info!(?e, "Something is wrong"),
         }
     }
 

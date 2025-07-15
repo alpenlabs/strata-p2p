@@ -2,7 +2,7 @@
 //! and listen to its events and send commands through channels.
 
 use std::{
-    fmt::Display,
+    fmt::{self, Display},
     pin::Pin,
     task::{Context, Poll},
     time::Duration,
@@ -33,7 +33,7 @@ use crate::{
 pub struct ErrDroppedMsgs(u64);
 
 impl Display for ErrDroppedMsgs {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "GossipHandle dropped {} messages", self.0)
     }
 }
