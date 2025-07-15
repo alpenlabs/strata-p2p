@@ -41,6 +41,8 @@ tokio = { version = "1.42.0", default-features = false, features = [
 tokio-util = { version = "0.7.13", default-features = false, features = ["rt"] }
 tracing = { version = "0.1.41", default-features = false }
 tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
+asynchronous-codec = { version = "0.6", features = ["json"] }
+serde = { version = "1.0.219", features = ["derive"] }
 
 [profile.test.package.proptest]
 opt-level = 3

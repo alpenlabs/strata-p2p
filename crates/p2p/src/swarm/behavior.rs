@@ -16,7 +16,7 @@ use libp2p::{
     },
     swarm::NetworkBehaviour,
 };
-
+use crate::swarm::setup::behavior::SetupBehaviour;
 use super::{MAX_TRANSMIT_SIZE, TOPIC, codec_raw};
 
 /// Alias for request-response behaviour with messages serialized by using
@@ -39,6 +39,8 @@ pub struct Behaviour {
 
     /// Connect only allowed peers by peer id.
     pub allow_list: AllowListBehaviour<AllowedPeers>,
+
+    pub setup: SetupBehaviour,
 }
 
 impl Behaviour {
@@ -74,6 +76,7 @@ impl Behaviour {
                 RequestResponseConfig::default(),
             ),
             allow_list,
+            setup: SetupBehaviour::new(keypair.public().try_into_ed25519().unwrap())
         }
     }
 }
