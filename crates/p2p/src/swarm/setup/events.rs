@@ -4,7 +4,7 @@
 //! of peer-to-peer connections, providing information about handshake progress
 //! and key exchange completion.
 
-use libp2p::{PeerId, identity::ed25519::PublicKey};
+use libp2p::{PeerId, identity::PublicKey};
 
 /// Events emitted during the setup phase of peer connections.
 ///

@@ -10,7 +10,7 @@ use std::{
 };
 
 use libp2p::{
-    PeerId, core::transport::PortUse, identity::ed25519::PublicKey, swarm::NetworkBehaviour,
+    PeerId, core::transport::PortUse, identity::PublicKey, swarm::NetworkBehaviour,
 };
 
 use crate::swarm::setup::{events::SetupEvent, handler::SetupHandler};

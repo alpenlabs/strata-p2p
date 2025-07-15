@@ -76,7 +76,7 @@ impl Behaviour {
                 RequestResponseConfig::default(),
             ),
             allow_list,
-            setup: SetupBehaviour::new(keypair.public().try_into_ed25519().unwrap())
+            setup: SetupBehaviour::new(keypair.public())
         }
     }
 }

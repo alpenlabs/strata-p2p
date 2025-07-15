@@ -9,7 +9,7 @@ use std::{pin::Pin, future::Future};
 use asynchronous_codec::{Framed, JsonCodec};
 use futures::{SinkExt, StreamExt};
 use libp2p::{
-    InboundUpgrade, OutboundUpgrade, Stream, core::UpgradeInfo, identity::ed25519::PublicKey,
+    InboundUpgrade, OutboundUpgrade, Stream, core::UpgradeInfo, identity::PublicKey,
 };
 use serde::{Deserialize, Serialize};
 use tokio::io;
@@ -102,7 +102,7 @@ impl OutboundUpgrade<Stream> for OutboundSetupUpgrade {
     fn upgrade_outbound(self, stream: Stream, _: Self::Info) -> Self::Future {
         Box::pin(async move {
             let app_message = HandshakeMessage {
-                app_public_key: self.app_public_key.to_bytes().to_vec(),
+                app_public_key: self.app_public_key.encode_protobuf(),
             };
             let mut framed = Framed::new(
                 stream,
