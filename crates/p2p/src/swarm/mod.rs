@@ -7,9 +7,15 @@ use std::{
 };
 
 use behavior::{Behaviour, BehaviourEvent};
-use errors::{Error, P2PResult, ProtocolError};
+#[cfg(feature = "request-response")]
+use errors::Error;
+use errors::{P2PResult, ProtocolError};
 use futures::StreamExt as _;
-use handle::{CommandHandle, GossipHandle, ReqRespHandle};
+#[cfg(feature = "request-response")]
+use handle::ReqRespHandle;
+use handle::{CommandHandle, GossipHandle};
+#[cfg(feature = "request-response")]
+use libp2p::request_response::{self, Event as RequestResponseEvent};
 use libp2p::{
     Multiaddr, PeerId, Swarm, SwarmBuilder, Transport,
     core::{ConnectedPoint, muxing::StreamMuxerBox, transport::MemoryTransport},
@@ -18,7 +24,6 @@ use libp2p::{
     },
     identity::Keypair,
     noise,
-    request_response::{self, Event as RequestResponseEvent},
     swarm::{
         SwarmEvent,
         dial_opts::{DialOpts, PeerCondition},
@@ -35,11 +40,12 @@ use tokio::{
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, instrument, trace, warn};
 
+#[cfg(feature = "request-response")]
+use crate::events::ReqRespEvent;
 use crate::{
     commands::{Command, QueryP2PStateCommand},
-    events::{GossipEvent, ReqRespEvent},
+    events::GossipEvent,
 };
-
 mod behavior;
 mod codec_raw;
 pub mod errors;
@@ -123,6 +129,7 @@ pub struct P2P {
     gossip_events: broadcast::Sender<GossipEvent>,
 
     /// Event channel for request/response.
+    #[cfg(feature = "request-response")]
     req_resp_events: mpsc::Sender<ReqRespEvent>,
 
     /// Command channel for the swarm.
@@ -144,7 +151,12 @@ pub struct P2P {
 }
 
 /// Alias for [`P2P`] and [`ReqRespHandle`] tuple.
+#[cfg(feature = "request-response")]
 pub type P2PWithReqRespHandle = (P2P, ReqRespHandle);
+
+/// Alias for [`P2P`]
+#[cfg(not(feature = "request-response"))]
+pub type P2PWithReqRespHandle = P2P;
 
 impl P2P {
     /// Creates a new P2P instance from the given configuration.
@@ -160,22 +172,37 @@ impl P2P {
 
         let channel_size = channel_size.unwrap_or(256);
         let (gossip_events_tx, _gossip_events_rx) = broadcast::channel(channel_size);
+        #[cfg(feature = "request-response")]
         let (req_resp_event_tx, req_resp_event_rx) = mpsc::channel(64);
 
         let (cmds_tx, cmds_rx) = mpsc::channel(64);
 
-        Ok((
-            Self {
+        #[cfg(feature = "request-response")]
+        {
+            Ok((
+                Self {
+                    swarm,
+                    gossip_events: gossip_events_tx,
+                    req_resp_events: req_resp_event_tx,
+                    commands: cmds_rx,
+                    commands_sender: cmds_tx.clone(),
+                    cancellation_token: cancel,
+                    config: cfg,
+                },
+                ReqRespHandle::new(req_resp_event_rx),
+            ))
+        }
+        #[cfg(not(feature = "request-response"))]
+        {
+            Ok(Self {
                 swarm,
                 gossip_events: gossip_events_tx,
-                req_resp_events: req_resp_event_tx,
                 commands: cmds_rx,
                 commands_sender: cmds_tx.clone(),
                 cancellation_token: cancel,
                 config: cfg,
-            },
-            ReqRespHandle::new(req_resp_event_rx),
-        ))
+            })
+        }
     }
 
     /// Returns the [`PeerId`] of the local node.
@@ -405,6 +432,7 @@ impl P2P {
     async fn handle_behaviour_event(&mut self, event: BehaviourEvent) -> P2PResult<()> {
         match event {
             BehaviourEvent::Gossipsub(event) => self.handle_gossip_event(event).await,
+            #[cfg(feature = "request-response")]
             BehaviourEvent::RequestResponse(event) => {
                 self.handle_request_response_event(event).await
             }
@@ -610,6 +638,7 @@ impl P2P {
 
     /// Handles [`RequestResponseEvent`] from the swarm.
     #[instrument(skip(self, event))]
+    #[cfg(feature = "request-response")]
     async fn handle_request_response_event(
         &mut self,
         event: RequestResponseEvent<Vec<u8>, Vec<u8>>,
@@ -662,6 +691,7 @@ impl P2P {
     }
 
     /// Handles [`MessageEvent`] from the swarm.
+    #[cfg(feature = "request-response")]
     async fn handle_message_event(
         &mut self,
         _peer_id: PeerId,
@@ -675,7 +705,6 @@ impl P2P {
             request_response::Message::Request {
                 request, channel, ..
             } => {
-                #[cfg(feature = "request-response")]
                 {
                     let (tx, rx) = oneshot::channel();
 
@@ -714,30 +743,6 @@ impl P2P {
                         }
                     };
                 }
-                #[cfg(not(feature = "request-response"))]
-                {
-                    let _ = self
-                        .swarm
-                        .behaviour_mut()
-                        .request_response
-                        .send_response(channel, vec![]) // TODO
-                        .map_err(|_| ());
-
-                    let event = ReqRespEvent::ReceivedRequest(request);
-                    let send_result =
-                        timeout(reqresp_timeout, self.req_resp_events.send(event)).await;
-                    match send_result {
-                        Ok(Ok(())) => {}
-                        Ok(Err(e)) => {
-                            return Err(Error::Protocol(ProtocolError::ReqRespEventChannelClosed(
-                                e.into(),
-                            )));
-                        }
-                        Err(_) => {
-                            error!("Timeout while sending ReceivedRequest event");
-                        }
-                    }
-                }
                 Ok(())
             }
 
@@ -745,29 +750,6 @@ impl P2P {
                 request_id: _request_id,
                 response,
             } => {
-                #[cfg(not(feature = "request-response"))]
-                {
-                    if !response.is_empty() {
-                        warn!(%_request_id, ?response, "Received not empty response. Invalid for this configuration");
-                        return Ok(());
-                    }
-                    let event = ReqRespEvent::ReceivedResponse;
-                    let send_result =
-                        timeout(reqresp_timeout, self.req_resp_events.send(event)).await;
-                    match send_result {
-                        Ok(Ok(())) => {}
-                        Ok(Err(e)) => {
-                            return Err(Error::Protocol(ProtocolError::ReqRespEventChannelClosed(
-                                e.into(),
-                            )));
-                        }
-                        Err(_) => {
-                            error!("Timeout while sending ReceivedResponse event");
-                        }
-                    }
-                }
-
-                #[cfg(feature = "request-response")]
                 {
                     let event = ReqRespEvent::ReceivedResponse(response);
                     let send_result =

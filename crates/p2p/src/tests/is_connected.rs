@@ -90,6 +90,7 @@ async fn test_manually_get_all_peers() -> anyhow::Result<()> {
     };
 
     assert!(user_handles[0].gossip.events_is_empty());
+    #[cfg(feature = "request-response")]
     assert!(user_handles[0].reqresp.events_is_empty());
 
     cancel.cancel();

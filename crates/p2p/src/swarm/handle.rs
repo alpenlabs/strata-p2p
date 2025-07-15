@@ -20,9 +20,11 @@ use tokio::{
 };
 use tracing::warn;
 
+#[cfg(feature = "request-response")]
+use crate::events::ReqRespEvent;
 use crate::{
     commands::{Command, QueryP2PStateCommand},
-    events::{GossipEvent, ReqRespEvent},
+    events::GossipEvent,
 };
 
 /// The receiver lagged too far behind. Attempting to receive again will
@@ -39,11 +41,13 @@ impl Display for ErrDroppedMsgs {
 }
 
 /// Handle to receive a request-response event from P2P.
+#[cfg(feature = "request-response")]
 #[derive(Debug)]
 pub struct ReqRespHandle {
     events: mpsc::Receiver<ReqRespEvent>,
 }
 
+#[cfg(feature = "request-response")]
 impl ReqRespHandle {
     pub(crate) const fn new(events: mpsc::Receiver<ReqRespEvent>) -> Self {
         Self { events }
@@ -183,6 +187,7 @@ impl Stream for GossipHandle {
     }
 }
 
+#[cfg(feature = "request-response")]
 impl Stream for ReqRespHandle {
     type Item = Option<ReqRespEvent>;
 
