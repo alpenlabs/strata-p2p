@@ -50,6 +50,7 @@ mod behavior;
 mod codec_raw;
 pub mod errors;
 pub mod handle;
+pub mod setup;
 
 /// Global topic name for gossipsub messages.
 // TODO(Velnbur): make this configurable later
