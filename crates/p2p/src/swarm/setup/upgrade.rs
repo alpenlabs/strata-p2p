@@ -4,13 +4,11 @@
 //! handshake protocols, handling the serialization and exchange of handshake messages
 //! over libp2p streams.
 
-use std::{pin::Pin, future::Future};
+use std::{future::Future, pin::Pin};
 
 use asynchronous_codec::{Framed, JsonCodec};
 use futures::{SinkExt, StreamExt};
-use libp2p::{
-    InboundUpgrade, OutboundUpgrade, Stream, core::UpgradeInfo, identity::PublicKey,
-};
+use libp2p::{InboundUpgrade, OutboundUpgrade, Stream, core::UpgradeInfo, identity::PublicKey};
 use serde::{Deserialize, Serialize};
 use tokio::io;
 
@@ -33,7 +31,7 @@ pub struct InboundSetupUpgrade;
 
 impl InboundSetupUpgrade {
     /// Creates a new inbound setup upgrade.
-    pub(super) fn new() -> Self {
+    pub(super) const fn new() -> Self {
         Self
     }
 }

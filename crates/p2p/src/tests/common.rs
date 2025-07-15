@@ -13,12 +13,14 @@ use crate::swarm::{self, P2P, P2PConfig, handle::P2PHandle};
 pub(crate) struct User {
     pub(crate) p2p: P2P,
     pub(crate) handle: P2PHandle,
-    pub(crate) kp: Keypair,
+    pub(crate) app_keypair: Keypair,
+    pub(crate) transport_keypair: Keypair,
 }
 
 impl User {
     pub(crate) fn new(
-        keypair: Keypair,
+        app_keypair: Keypair,
+        transport_keypair: Keypair,
         allowlist: Vec<PeerId>,
         connect_to: Vec<Multiaddr>,
         local_addr: Multiaddr,
@@ -27,7 +29,8 @@ impl User {
         debug!("In User::new: local_addr: {}", local_addr.clone());
 
         let config = P2PConfig {
-            keypair: keypair.clone(),
+            app_public_key: app_keypair.public(),
+            transport_keypair: transport_keypair.clone(),
             idle_connection_timeout: Duration::from_secs(30),
             max_retries: None,
             dial_timeout: None,
@@ -44,17 +47,18 @@ impl User {
         Ok(Self {
             handle,
             p2p,
-            kp: keypair,
+            app_keypair,
+            transport_keypair,
         })
     }
 }
 
 /// Auxiliary structure to control users from outside.
-#[expect(dead_code)]
 pub(crate) struct UserHandle {
     pub(crate) handle: P2PHandle,
     pub(crate) peer_id: PeerId,
-    pub(crate) kp: Keypair,
+    pub(crate) app_keypair: Keypair,
+    pub(crate) transport_keypair: Keypair,
 }
 
 pub(crate) struct Setup {
@@ -67,19 +71,26 @@ impl Setup {
     /// Spawn `n` users that are connected "all-to-all" with handles to them, task tracker
     /// to stop control async tasks they are spawned in.
     pub(crate) async fn all_to_all(n: usize) -> anyhow::Result<Self> {
-        let (keypairs, peer_ids, multiaddresses) = Self::setup_keys_ids_addrs_of_n_users(n);
+        let (app_keypairs, transport_keypairs, peer_ids, multiaddresses) =
+            Self::setup_keys_ids_addrs_of_n_users(n);
 
         let cancel = CancellationToken::new();
         let mut users = Vec::new();
 
-        for (idx, (keypair, addr)) in keypairs.iter().zip(&multiaddresses).enumerate() {
+        for (idx, ((app_keypair, transport_keypair), addr)) in app_keypairs
+            .iter()
+            .zip(&transport_keypairs)
+            .zip(&multiaddresses)
+            .enumerate()
+        {
             let mut other_addrs = multiaddresses.clone();
             other_addrs.remove(idx);
             let mut other_peerids = peer_ids.clone();
             other_peerids.remove(idx);
 
             let user = User::new(
-                keypair.clone(),
+                app_keypair.clone(),
+                transport_keypair.clone(),
                 other_peerids,
                 other_addrs,
                 addr.clone(),
@@ -102,14 +113,27 @@ impl Setup {
     /// addresses.
     fn setup_keys_ids_addrs_of_n_users(
         n: usize,
-    ) -> (Vec<Keypair>, Vec<PeerId>, Vec<libp2p::Multiaddr>) {
-        let keypairs = (0..n)
+    ) -> (
+        Vec<Keypair>,
+        Vec<Keypair>,
+        Vec<PeerId>,
+        Vec<libp2p::Multiaddr>,
+    ) {
+        let app_keypairs = (0..n)
             .map(|_| Keypair::generate_ed25519())
             .collect::<Vec<_>>();
 
-        debug!("len(keypairs):{}", keypairs.len());
+        let transport_keypairs = (0..n)
+            .map(|_| Keypair::generate_ed25519())
+            .collect::<Vec<_>>();
 
-        let peer_ids = keypairs
+        debug!(
+            "len(app_keypairs):{}, len(transport_keypairs):{}",
+            app_keypairs.len(),
+            transport_keypairs.len()
+        );
+
+        let peer_ids = transport_keypairs
             .iter()
             .map(|key| PeerId::from_public_key(&key.clone().public()))
             .collect::<Vec<_>>();
@@ -127,10 +151,10 @@ impl Setup {
         }
 
         let multiaddresses = (multiaddr_base
-            ..(multiaddr_base + u64::try_from(keypairs.len()).unwrap()))
+            ..(multiaddr_base + u64::try_from(transport_keypairs.len()).unwrap()))
             .map(|idx| build_multiaddr!(Memory(idx)))
             .collect::<Vec<_>>();
-        (keypairs, peer_ids, multiaddresses)
+        (app_keypairs, transport_keypairs, peer_ids, multiaddresses)
     }
 
     /// Wait until all users established connections with other users,
@@ -154,7 +178,8 @@ impl Setup {
             levers.push(UserHandle {
                 handle: user.handle,
                 peer_id,
-                kp: user.kp,
+                app_keypair: user.app_keypair,
+                transport_keypair: user.transport_keypair,
             });
         }
 
