@@ -3,10 +3,7 @@
 use tracing::info;
 
 use super::common::Setup;
-use crate::{
-    commands::Command,
-    events::{GossipEvent, ReqRespEvent},
-};
+use crate::{commands::Command, events::ReqRespEvent};
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn test_reqresp_basic() -> anyhow::Result<()> {
