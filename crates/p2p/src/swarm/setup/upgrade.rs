@@ -24,11 +24,13 @@ use crate::{
 pub(crate) struct SetupMessageCodec;
 
 impl Encoder for SetupMessageCodec {
-    type Item = SetupMessage;
+    type Item = (SetupMessage, Vec<u8>); // (message, signature)
     type Error = io::Error;
 
     fn encode(&mut self, item: Self::Item, dst: &mut BytesMut) -> Result<(), Self::Error> {
-        let bytes = item.to_bytes();
+        let (mut message, signature) = item;
+        message.signature = signature; // Set the signature
+        let bytes = message.to_bytes_with_signature();
         dst.extend_from_slice(&(bytes.len() as u32).to_be_bytes());
         dst.extend_from_slice(&bytes);
         Ok(())
@@ -36,7 +38,7 @@ impl Encoder for SetupMessageCodec {
 }
 
 impl Decoder for SetupMessageCodec {
-    type Item = SetupMessage;
+    type Item = (SetupMessage, Vec<u8>); // (message, signature)
     type Error = io::Error;
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
@@ -54,7 +56,10 @@ impl Decoder for SetupMessageCodec {
         let message_bytes = src.split_to(len);
 
         match SetupMessage::from_bytes(&message_bytes) {
-            Ok((message, _)) => Ok(Some(message)),
+            Ok(message) => {
+                let signature = message.signature.clone();
+                Ok(Some((message, signature)))
+            },
             Err(e) => Err(e),
         }
     }
@@ -84,7 +89,7 @@ impl UpgradeInfo for InboundSetupUpgrade {
 }
 
 impl InboundUpgrade<Stream> for InboundSetupUpgrade {
-    type Output = SetupMessage;
+    type Output = (SetupMessage, bool); // (message, signature_valid)
     type Error = io::Error;
     type Future = Pin<Box<dyn Future<Output = Result<Self::Output, Self::Error>> + Send>>;
 
@@ -92,7 +97,11 @@ impl InboundUpgrade<Stream> for InboundSetupUpgrade {
         Box::pin(async move {
             let mut framed = Framed::new(stream, SetupMessageCodec::default());
             match StreamExt::next(&mut framed).await {
-                Some(Ok(message)) => Ok(message),
+                Some(Ok((message, _signature))) => {
+                    // Verify the signature
+                    let signature_valid = message.verify_signature().unwrap_or(false);
+                    Ok((message, signature_valid))
+                },
                 Some(Err(e)) => Err(e),
                 None => Err(io::Error::new(
                     io::ErrorKind::UnexpectedEof,
@@ -147,32 +156,22 @@ impl<S: ApplicationSigner> OutboundUpgrade<Stream> for OutboundSetupUpgrade<S> {
 
     fn upgrade_outbound(self, stream: Stream, _: Self::Info) -> Self::Future {
         Box::pin(async move {
-            // Create message
-            let mut message = SetupMessage::new(
+            // Create a signed message using Message::setup_signed
+            let (message, signature) = crate::message::Message::setup_signed(
                 &self.app_public_key,
                 self.local_peer_id,
                 self.remote_peer_id,
-            );
-
-            // Sign the message
-            let content_to_sign = message.message_for_signing();
-
-            // Get the app public key from the message to find the corresponding private key
-            let app_public_key = message.get_app_public_key().map_err(|e| {
-                io::Error::new(
-                    io::ErrorKind::Other,
-                    format!("Failed to get app public key: {}", e),
-                )
+                &self.signer,
+            ).map_err(|e| {
+                io::Error::new(io::ErrorKind::Other, format!("Failed to create signed message: {}", e))
             })?;
 
-            let signature = self.signer.sign(&content_to_sign, &app_public_key).map_err(|e| {
-                io::Error::new(io::ErrorKind::Other, format!("Signing failed: {}", e))
-            })?;
-
-            message.set_signature(signature);
+            let setup_message = match message {
+                crate::message::Message::Setup(setup_msg) => setup_msg,
+            };
 
             let mut framed = Framed::new(stream, SetupMessageCodec::default());
-            framed.send(message).await?;
+            framed.send((setup_message, signature)).await?;
             framed.close().await
         })
     }

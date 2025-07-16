@@ -29,23 +29,11 @@ pub trait P2PMessage {
     /// Gets the protocol version
     fn version(&self) -> u8;
 
-    /// Creates the message content for signing (excludes signature field)
-    fn message_for_signing(&self) -> Vec<u8>;
-
-    /// Gets the signature bytes
-    fn signature(&self) -> &[u8];
-
-    /// Sets the signature bytes
-    fn set_signature(&mut self, signature: Vec<u8>);
-
-    /// Validates the message format and content
-    fn validate(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
-
     /// Serializes the message to bytes (manual serialization)
     fn to_bytes(&self) -> Vec<u8>;
 
     /// Deserializes the message from bytes (manual deserialization)
-    fn from_bytes(data: &[u8]) -> Result<(Self, Vec<u8>), io::Error>
+    fn from_bytes(data: &[u8]) -> Result<Self, io::Error>
     where
         Self: Sized;
 }
@@ -63,10 +51,67 @@ impl Message {
             remote_peer_id,
         ))
     }
+
+    /// Creates a new signed setup message with the given signer
+    pub fn setup_signed<S: crate::signer::ApplicationSigner>(
+        app_public_key: &PublicKey,
+        local_peer_id: PeerId,
+        remote_peer_id: PeerId,
+        signer: &S,
+    ) -> Result<(Self, Vec<u8>), Box<dyn std::error::Error + Send + Sync>> {
+        // Create the unsigned message first
+        let setup_message = SetupMessage::new(app_public_key, local_peer_id, remote_peer_id);
+        
+        // Get the message bytes for signing
+        let message_bytes = setup_message.to_bytes();
+        
+        // Sign the message
+        let signature = signer.sign(&message_bytes, app_public_key)?;
+        
+        Ok((Message::Setup(setup_message), signature))
+    }
+
+    /// Verifies a message signature
+    pub fn verify_signature(&self, signature: &[u8]) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+        match self {
+            Message::Setup(setup_msg) => {
+                let app_public_key = setup_msg.get_app_public_key()?;
+                let message_bytes = setup_msg.to_bytes();
+                
+                Ok(app_public_key.verify(&message_bytes, signature))
+            }
+        }
+    }
+
+    /// Extracts the message content (without signature) as bytes
+    pub fn to_bytes(&self) -> Vec<u8> {
+        match self {
+            Message::Setup(setup_msg) => setup_msg.to_bytes(),
+        }
+    }
+
+    /// Deserializes a message from bytes, returning both the message and signature
+    pub fn from_bytes(data: &[u8]) -> Result<(Self, Vec<u8>), io::Error> {
+        // For now, we assume it's a setup message based on the protocol ID
+        if data.len() < 2 {
+            return Err(io::Error::new(io::ErrorKind::InvalidData, "Data too short"));
+        }
+        
+        let protocol_id = data[1]; // Second byte is protocol ID
+        
+        match protocol_id {
+            SETUP_PROTOCOL_ID => {
+                let setup_msg = SetupMessage::from_bytes(data)?;
+                let signature = setup_msg.signature.clone();
+                Ok((Message::Setup(setup_msg), signature))
+            }
+            _ => Err(io::Error::new(io::ErrorKind::InvalidData, "Unknown protocol ID")),
+        }
+    }
 }
 
 /// Setup message structure for the handshake protocol.
-/// Format: [version][protocol(setup)][application_pk][transport_id_my][transport_id_their][unix_timestamp]
+/// Format: [version][protocol(setup)][application_pk][local_transport_id][remote_transport_id][unix_timestamp]
 #[derive(Debug, Clone, PartialEq)]
 pub struct SetupMessage {
     /// Protocol version
@@ -76,9 +121,9 @@ pub struct SetupMessage {
     /// The application public key encoded as bytes
     pub app_public_key: Vec<u8>,
     /// My transport ID (PeerId)
-    pub transport_id_my: Vec<u8>,
+    pub local_transport_id: Vec<u8>,
     /// Their transport ID (PeerId)
-    pub transport_id_their: Vec<u8>,
+    pub remote_transport_id: Vec<u8>,
     /// Timestamp of message creation
     pub date: u64,
     /// Signature of the message content
@@ -97,12 +142,13 @@ impl SetupMessage {
             version: PROTOCOL_VERSION,
             protocol: SETUP_PROTOCOL_ID,
             app_public_key: app_public_key.encode_protobuf(),
-            transport_id_my: local_peer_id.to_bytes(),
-            transport_id_their: remote_peer_id.to_bytes(),
+            local_transport_id: local_peer_id.to_bytes(),
+            remote_transport_id: remote_peer_id.to_bytes(),
             date: timestamp,
             signature: Vec::new(),
         }
     }
+
 
     /// Gets the application public key as a libp2p PublicKey.
     pub fn get_app_public_key(
@@ -114,46 +160,41 @@ impl SetupMessage {
 
     /// Gets the local peer ID.
     pub fn get_local_peer_id(&self) -> Result<PeerId, Box<dyn std::error::Error + Send + Sync>> {
-        PeerId::from_bytes(&self.transport_id_my)
+        PeerId::from_bytes(&self.local_transport_id)
             .map_err(|e| format!("Failed to decode local peer ID: {}", e).into())
     }
 
     /// Gets the remote peer ID.
     pub fn get_remote_peer_id(&self) -> Result<PeerId, Box<dyn std::error::Error + Send + Sync>> {
-        PeerId::from_bytes(&self.transport_id_their)
+        PeerId::from_bytes(&self.remote_transport_id)
             .map_err(|e| format!("Failed to decode remote peer ID: {}", e).into())
     }
-}
 
-impl P2PMessage for SetupMessage {
-    fn protocol(&self) -> u8 {
-        self.protocol
+    /// Verifies the signature of this message using the embedded app public key.
+    pub fn verify_signature(&self) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+        // Get the app public key
+        let app_public_key = self.get_app_public_key()?;
+        
+        // Use the same method as signing - to_bytes() which excludes signature
+        let content = self.to_bytes();
+
+        // Verify the signature using libp2p's verification
+        Ok(app_public_key.verify(&content, &self.signature))
     }
 
-    fn version(&self) -> u8 {
-        self.version
+    /// Gets bytes with signature for transmission over the wire
+    pub fn to_bytes_with_signature(&self) -> Vec<u8> {
+        let mut bytes = self.to_bytes();
+        
+        // Write signature length and data
+        bytes.extend_from_slice(&(self.signature.len() as u32).to_be_bytes());
+        bytes.extend_from_slice(&self.signature);
+
+        bytes
     }
 
-    fn message_for_signing(&self) -> Vec<u8> {
-        let mut content = Vec::new();
-        content.push(self.version);
-        content.push(self.protocol);
-        content.extend_from_slice(&self.app_public_key);
-        content.extend_from_slice(&self.transport_id_my);
-        content.extend_from_slice(&self.transport_id_their);
-        content.extend_from_slice(&self.date.to_be_bytes());
-        content
-    }
-
-    fn signature(&self) -> &[u8] {
-        &self.signature
-    }
-
-    fn set_signature(&mut self, signature: Vec<u8>) {
-        self.signature = signature;
-    }
-
-    fn validate(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    /// Validates the message format and content
+    pub fn validate(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         if self.version != PROTOCOL_VERSION {
             return Err(format!("Invalid protocol version: {}", self.version).into());
         }
@@ -166,23 +207,29 @@ impl P2PMessage for SetupMessage {
             return Err("Application public key is empty".into());
         }
 
-        if self.transport_id_my.is_empty() {
+        if self.local_transport_id.is_empty() {
             return Err("Local transport ID is empty".into());
         }
 
-        if self.transport_id_their.is_empty() {
+        if self.remote_transport_id.is_empty() {
             return Err("Remote transport ID is empty".into());
-        }
-
-        if self.date == 0 {
-            return Err("Invalid timestamp".into());
         }
 
         Ok(())
     }
+}
+
+impl P2PMessage for SetupMessage {
+    fn protocol(&self) -> u8 {
+        self.protocol
+    }
+
+    fn version(&self) -> u8 {
+        self.version
+    }
 
     fn to_bytes(&self) -> Vec<u8> {
-        // Manual serialization for SetupMessage
+        // Manual serialization for SetupMessage (without signature for signing purposes)
         let mut bytes = Vec::new();
 
         // Write version (1 byte)
@@ -195,25 +242,21 @@ impl P2PMessage for SetupMessage {
         bytes.extend_from_slice(&(self.app_public_key.len() as u32).to_be_bytes());
         bytes.extend_from_slice(&self.app_public_key);
 
-        // Write transport_id_my length and data
-        bytes.extend_from_slice(&(self.transport_id_my.len() as u32).to_be_bytes());
-        bytes.extend_from_slice(&self.transport_id_my);
+        // Write local_transport_id length and data
+        bytes.extend_from_slice(&(self.local_transport_id.len() as u32).to_be_bytes());
+        bytes.extend_from_slice(&self.local_transport_id);
 
-        // Write transport_id_their length and data
-        bytes.extend_from_slice(&(self.transport_id_their.len() as u32).to_be_bytes());
-        bytes.extend_from_slice(&self.transport_id_their);
+        // Write remote_transport_id length and data
+        bytes.extend_from_slice(&(self.remote_transport_id.len() as u32).to_be_bytes());
+        bytes.extend_from_slice(&self.remote_transport_id);
 
         // Write date (8 bytes)
         bytes.extend_from_slice(&self.date.to_be_bytes());
 
-        // Write signature length and data
-        bytes.extend_from_slice(&(self.signature.len() as u32).to_be_bytes());
-        bytes.extend_from_slice(&self.signature);
-
         bytes
     }
 
-    fn from_bytes(data: &[u8]) -> Result<(Self, Vec<u8>), io::Error> {
+    fn from_bytes(data: &[u8]) -> Result<Self, io::Error> {
         let mut cursor = 0;
 
         if data.len() < 1 {
@@ -249,9 +292,9 @@ impl P2PMessage for SetupMessage {
         let app_public_key = data[cursor..cursor + app_key_len].to_vec();
         cursor += app_key_len;
 
-        // Read transport_id_my
+        // Read local_transport_id
         if data.len() < cursor + 4 {
-            return Err(io::Error::new(io::ErrorKind::InvalidData, "Data too short for transport_id_my length"));
+            return Err(io::Error::new(io::ErrorKind::InvalidData, "Data too short for local_transport_id length"));
         }
         let my_id_len = u32::from_be_bytes([
             data[cursor],
@@ -262,14 +305,14 @@ impl P2PMessage for SetupMessage {
         cursor += 4;
 
         if data.len() < cursor + my_id_len {
-            return Err(io::Error::new(io::ErrorKind::InvalidData, "Data too short for transport_id_my"));
+            return Err(io::Error::new(io::ErrorKind::InvalidData, "Data too short for local_transport_id"));
         }
-        let transport_id_my = data[cursor..cursor + my_id_len].to_vec();
+        let local_transport_id = data[cursor..cursor + my_id_len].to_vec();
         cursor += my_id_len;
 
-        // Read transport_id_their
+        // Read remote_transport_id
         if data.len() < cursor + 4 {
-            return Err(io::Error::new(io::ErrorKind::InvalidData, "Data too short for transport_id_their length"));
+            return Err(io::Error::new(io::ErrorKind::InvalidData, "Data too short for remote_transport_id length"));
         }
         let their_id_len = u32::from_be_bytes([
             data[cursor],
@@ -280,9 +323,9 @@ impl P2PMessage for SetupMessage {
         cursor += 4;
 
         if data.len() < cursor + their_id_len {
-            return Err(io::Error::new(io::ErrorKind::InvalidData, "Data too short for transport_id_their"));
+            return Err(io::Error::new(io::ErrorKind::InvalidData, "Data too short for remote_transport_id"));
         }
-        let transport_id_their = data[cursor..cursor + their_id_len].to_vec();
+        let remote_transport_id = data[cursor..cursor + their_id_len].to_vec();
         cursor += their_id_len;
 
         // Read date
@@ -322,19 +365,12 @@ impl P2PMessage for SetupMessage {
             version,
             protocol,
             app_public_key,
-            transport_id_my,
-            transport_id_their,
+            local_transport_id,
+            remote_transport_id,
             date,
             signature,
         };
-        
-        // Return the message and remaining data
-        let remaining_data = if cursor + sig_len < data.len() {
-            data[cursor + sig_len..].to_vec()
-        } else {
-            Vec::new()
-        };
-        
-        Ok((message, remaining_data))
+
+        Ok(message)
     }
 }

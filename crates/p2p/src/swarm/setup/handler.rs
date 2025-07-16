@@ -13,7 +13,6 @@ use libp2p::{
 };
 
 use crate::{
-    message::P2PMessage,
     signer::ApplicationSigner,
     swarm::setup::{
         events::SetupEvent,
@@ -93,7 +92,18 @@ impl<S: ApplicationSigner> ConnectionHandler for SetupHandler<S> {
     ) {
         match event {
             libp2p::swarm::handler::ConnectionEvent::FullyNegotiatedInbound(inbound) => {
-                let setup_msg = inbound.protocol;
+                let (setup_msg, signature_valid) = inbound.protocol;
+
+                if !signature_valid {
+                    self.pending_events
+                        .push(ConnectionHandlerEvent::NotifyBehaviour(
+                            SetupEvent::SignatureVerificationFailed {
+                                peer_id: PeerId::random(), // Will be set by behavior
+                                error: "Signature verification failed".to_string(),
+                            },
+                        ));
+                    return;
+                }
 
                 // Validate message format
                 if let Err(e) = setup_msg.validate() {
@@ -107,7 +117,7 @@ impl<S: ApplicationSigner> ConnectionHandler for SetupHandler<S> {
                     return;
                 }
 
-                // Get public key for verification
+                // Get public key
                 let app_public_key = match setup_msg.get_app_public_key() {
                     Ok(key) => key,
                     Err(e) => {
@@ -122,9 +132,7 @@ impl<S: ApplicationSigner> ConnectionHandler for SetupHandler<S> {
                     }
                 };
 
-                // For now, we'll accept the message without signature verification
-                // since we don't have the ApplicationSigner instance here.
-                // The signature verification will be handled by the application layer.
+                // Signature is already verified, so we can accept the message
                 self.pending_events
                     .push(ConnectionHandlerEvent::NotifyBehaviour(
                         SetupEvent::AppKeyReceived {
