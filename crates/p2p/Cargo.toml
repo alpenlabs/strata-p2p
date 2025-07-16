@@ -24,7 +24,8 @@ thiserror.workspace = true
 tokio = { workspace = true, features = ["macros", "time"] }
 tokio-util.workspace = true
 tracing.workspace = true
-
+asynchronous-codec.workspace = true
+bytes = "1.5"
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt", "rt-multi-thread"] }

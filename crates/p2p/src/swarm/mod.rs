@@ -6,7 +6,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use behavior::{Behaviour, BehaviourEvent};
+use behavior::Behaviour;
 use errors::{P2PResult, ProtocolError};
 use futures::StreamExt as _;
 use handle::P2PHandle;
@@ -16,11 +16,11 @@ use libp2p::{
     gossipsub::{
         Event as GossipsubEvent, Message, MessageAcceptance, MessageId, PublishError, Sha256Topic,
     },
-    identity::Keypair,
+    identity::{Keypair, PublicKey},
     noise,
     request_response::{self, Event as RequestResponseEvent},
     swarm::{
-        SwarmEvent,
+        NetworkBehaviour, SwarmEvent,
         dial_opts::{DialOpts, PeerCondition},
     },
     yamux,
@@ -36,12 +36,15 @@ use tracing::{debug, error, info, instrument, trace, warn};
 use crate::{
     commands::{Command, QueryP2PStateCommand},
     events::Event,
+    signer::ApplicationSigner,
+    swarm::setup::events::SetupEvent,
 };
 
 mod behavior;
 mod codec_raw;
 pub mod errors;
 pub mod handle;
+pub mod setup;
 
 /// Global topic name for gossipsub messages.
 // TODO(Velnbur): make this configurable later
@@ -68,9 +71,15 @@ pub const DEFAULT_CONNECTION_CHECK_INTERVAL: Duration = Duration::from_millis(50
 
 /// Configuration options for [`P2P`].
 #[derive(Debug, Clone)]
-pub struct P2PConfig {
-    /// [`Keypair`] used as [`PeerId`].
-    pub keypair: Keypair,
+pub struct P2PConfig<S: ApplicationSigner> {
+    /// Long-term application public key.
+    pub app_public_key: PublicKey,
+
+    /// Ephemeral transport keypair.
+    pub transport_keypair: Keypair,
+
+    /// Application signer for signing setup messages.
+    pub signer: S,
 
     /// Idle connection timeout.
     pub idle_connection_timeout: Duration,
@@ -107,9 +116,9 @@ pub struct P2PConfig {
 
 /// Implementation of P2P protocol data exchange.
 #[expect(missing_debug_implementations)]
-pub struct P2P {
+pub struct P2P<S: ApplicationSigner> {
     /// The swarm that handles the networking.
-    swarm: Swarm<Behaviour>,
+    swarm: Swarm<Behaviour<S>>,
 
     /// Event channel for the swarm.
     events: broadcast::Sender<Event>,
@@ -129,41 +138,52 @@ pub struct P2P {
     cancellation_token: CancellationToken,
 
     /// Underlying configuration.
-    config: P2PConfig,
+    config: P2PConfig<S>,
+
+    /// Phantom data for the ApplicationSigner type.
+    _phantom: std::marker::PhantomData<S>,
 }
 
 /// Alias for P2P and P2PHandle tuple.
-pub type P2PWithHandle = (P2P, P2PHandle);
+pub type P2PWithHandle<S> = (P2P<S>, P2PHandle);
 
-impl P2P {
+impl<S: ApplicationSigner> P2P<S> {
     /// Creates a new P2P instance from the given configuration.
     pub fn from_config(
-        cfg: P2PConfig,
+        cfg: P2PConfig<S>,
         cancel: CancellationToken,
-        mut swarm: Swarm<Behaviour>,
+        mut swarm: Swarm<Behaviour<S>>,
         channel_size: Option<usize>,
-    ) -> P2PResult<P2PWithHandle> {
+    ) -> P2PResult<P2PWithHandle<S>> {
         swarm
             .listen_on(cfg.listening_addr.clone())
             .map_err(ProtocolError::Listen)?;
 
-        let keypair = cfg.keypair.clone();
+        let transport_keypair = cfg.transport_keypair.clone();
 
         let channel_size = channel_size.unwrap_or(256);
         let (events_tx, events_rx) = broadcast::channel(channel_size);
         let (cmds_tx, cmds_rx) = mpsc::channel(64);
 
-        Ok((
-            Self {
-                swarm,
-                events: events_tx,
-                commands: cmds_rx,
-                commands_sender: cmds_tx.clone(),
-                cancellation_token: cancel,
-                config: cfg,
-            },
-            P2PHandle::new(events_rx, cmds_tx, keypair),
-        ))
+        let local_peer_id = *swarm.local_peer_id();
+
+        let mut p2p = Self {
+            swarm,
+            events: events_tx,
+            commands: cmds_rx,
+            commands_sender: cmds_tx.clone(),
+            cancellation_token: cancel,
+            config: cfg,
+            _phantom: std::marker::PhantomData,
+        };
+
+        // Set the local peer ID on the setup behavior
+        p2p.swarm
+            .behaviour_mut()
+            .setup
+            .set_local_peer_id(local_peer_id);
+
+        Ok((p2p, P2PHandle::new(events_rx, cmds_tx, transport_keypair)))
     }
 
     /// Returns the [`PeerId`] of the local node.
@@ -176,7 +196,7 @@ impl P2P {
         P2PHandle::new(
             self.events.subscribe(),
             self.commands_sender.clone(),
-            self.config.keypair.clone(),
+            self.config.transport_keypair.clone(),
         )
     }
 
@@ -269,7 +289,7 @@ impl P2P {
                 trace!(?event, "received event from swarm");
 
                 match event {
-                    SwarmEvent::Behaviour(BehaviourEvent::Gossipsub(
+                    SwarmEvent::Behaviour(behavior::BehaviourEvent::Gossipsub(
                         GossipsubEvent::Subscribed { peer_id, .. },
                     )) => {
                         if self.config.allowlist.contains(&peer_id) {
@@ -381,7 +401,10 @@ impl P2P {
     }
 
     /// Handles a [`SwarmEvent`] from the swarm.
-    async fn handle_swarm_event(&mut self, event: SwarmEvent<BehaviourEvent>) -> P2PResult<()> {
+    async fn handle_swarm_event(
+        &mut self,
+        event: SwarmEvent<<Behaviour<S> as NetworkBehaviour>::ToSwarm>,
+    ) -> P2PResult<()> {
         match event {
             SwarmEvent::Behaviour(event) => self.handle_behaviour_event(event).await,
             _ => Ok(()),
@@ -389,12 +412,16 @@ impl P2P {
     }
 
     /// Handles a [`BehaviourEvent`] from the swarm.
-    async fn handle_behaviour_event(&mut self, event: BehaviourEvent) -> P2PResult<()> {
+    async fn handle_behaviour_event(
+        &mut self,
+        event: <Behaviour<S> as NetworkBehaviour>::ToSwarm,
+    ) -> P2PResult<()> {
         match event {
-            BehaviourEvent::Gossipsub(event) => self.handle_gossip_event(event).await,
-            BehaviourEvent::RequestResponse(event) => {
+            behavior::BehaviourEvent::Gossipsub(event) => self.handle_gossip_event(event).await,
+            behavior::BehaviourEvent::RequestResponse(event) => {
                 self.handle_request_response_event(event).await
             }
+            behavior::BehaviourEvent::Setup(event) => self.handle_setup_event(event).await,
             _ => Ok(()),
         }
     }
@@ -591,6 +618,15 @@ impl P2P {
                     let _ = response_sender.send(multiaddresses);
                     Ok(())
                 }
+                QueryP2PStateCommand::GetAppPublicKey {
+                    peer_id,
+                    response_sender,
+                } => {
+                    info!(%peer_id, "Querying app public key for peer");
+                    let app_key = self.swarm.behaviour().setup.get_peer_app_key(&peer_id);
+                    let _ = response_sender.send(app_key);
+                    Ok(())
+                }
             },
         }
     }
@@ -688,6 +724,30 @@ impl P2P {
             }
         }
     }
+
+    /// Handles a [`SetupEvent`] from the swarm.
+    async fn handle_setup_event(&mut self, event: SetupEvent) -> P2PResult<()> {
+        match event {
+            SetupEvent::AppKeyReceived {
+                peer_id,
+                app_public_key,
+            } => {
+                info!(%peer_id, "Received app public key from peer");
+                trace!(%peer_id, ?app_public_key, "App public key details");
+            }
+            SetupEvent::HandshakeComplete { peer_id } => {
+                info!(%peer_id, "Setup handshake completed with peer");
+            }
+            SetupEvent::SignatureVerificationFailed { peer_id, error } => {
+                error!(%peer_id, %error, "Signature verification failed, disconnecting peer");
+                // Drop the connection
+                if let Err(e) = self.swarm.disconnect_peer_id(peer_id) {
+                    warn!(%peer_id, ?e, "Failed to disconnect peer after signature verification failure");
+                }
+            }
+        }
+        Ok(())
+    }
 }
 
 /// Constructs swarm builder with existing identity.
@@ -698,7 +758,7 @@ impl P2P {
 /// actually specify return type of function. So we use macro for now.
 macro_rules! init_swarm {
     ($cfg:expr) => {
-        SwarmBuilder::with_existing_identity($cfg.keypair.clone().into()).with_tokio()
+        SwarmBuilder::with_existing_identity($cfg.transport_keypair.clone().into()).with_tokio()
     };
 }
 
@@ -712,7 +772,15 @@ macro_rules! finish_swarm {
     ($builder:expr, $cfg:expr) => {
         $builder
             .map_err(|e| ProtocolError::TransportInitialization(e.into()))?
-            .with_behaviour(|_| Behaviour::new(PROTOCOL_NAME, &$cfg.keypair, &$cfg.allowlist))
+            .with_behaviour(|_| {
+                Behaviour::new(
+                    PROTOCOL_NAME,
+                    &$cfg.transport_keypair,
+                    &$cfg.app_public_key,
+                    $cfg.signer.clone(),
+                    &$cfg.allowlist,
+                )
+            })
             .map_err(|e| ProtocolError::BehaviourInitialization(e.into()))?
             .with_swarm_config(|c| c.with_idle_connection_timeout($cfg.idle_connection_timeout))
             .build()
@@ -721,7 +789,9 @@ macro_rules! finish_swarm {
 
 /// Constructs swarm from P2P config with inmemory transport. Uses
 /// `/memory/{n}` addresses.
-pub fn with_inmemory_transport(config: &P2PConfig) -> P2PResult<Swarm<Behaviour>> {
+pub fn with_inmemory_transport<S: ApplicationSigner>(
+    config: &P2PConfig<S>,
+) -> P2PResult<Swarm<Behaviour<S>>> {
     let builder = init_swarm!(config);
     let swarm = finish_swarm!(
         builder.with_other_transport(|our_keypair| {
@@ -739,7 +809,9 @@ pub fn with_inmemory_transport(config: &P2PConfig) -> P2PResult<Swarm<Behaviour>
 
 /// Constructs swarm from P2P config with TCP transport. Uses
 /// `/ip4/{addr}/tcp/{port}` addresses.
-pub fn with_tcp_transport(config: &P2PConfig) -> P2PResult<Swarm<Behaviour>> {
+pub fn with_tcp_transport<S: ApplicationSigner>(
+    config: &P2PConfig<S>,
+) -> P2PResult<Swarm<Behaviour<S>>> {
     let builder = init_swarm!(config);
     let swarm = finish_swarm!(
         builder.with_tcp(
