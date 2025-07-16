@@ -21,19 +21,36 @@ use crate::{
     },
 };
 
-/// Mock ApplicationSigner for testing
+
+/// Mock ApplicationSigner for testing that stores the actual keypair
 #[derive(Debug, Clone)]
-pub(crate) struct MockApplicationSigner;
+pub(crate) struct MockApplicationSigner {
+    // Store the actual keypair that corresponds to the app public key
+    app_keypair: Keypair,
+}
+
+impl MockApplicationSigner {
+    pub(crate) fn new(app_keypair: Keypair) -> Self {
+        Self {
+            app_keypair,
+        }
+    }
+}
 
 impl ApplicationSigner for MockApplicationSigner {
     fn sign(
         &self,
         message: &[u8],
-        _app_public_key: &PublicKey,
+        app_public_key: &PublicKey,
     ) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
-        // For mock testing, just generate a signature with a test keypair
-        let keypair = Keypair::generate_ed25519();
-        let signature = keypair.sign(message)?;
+        // Verify that the provided public key matches our stored keypair
+        let our_public_key = self.app_keypair.public();
+        if our_public_key.encode_protobuf() != app_public_key.encode_protobuf() {
+            return Err("Public key mismatch: provided key doesn't match stored keypair".into());
+        }
+        
+        // Sign with the stored keypair
+        let signature = self.app_keypair.sign(message)?;
         Ok(signature)
     }
 }
@@ -62,7 +79,7 @@ impl User {
         let config = P2PConfig {
             app_public_key: app_keypair.public(),
             transport_keypair: transport_keypair.clone(),
-            signer: MockApplicationSigner,
+            signer: MockApplicationSigner::new(app_keypair.clone()),
             idle_connection_timeout: Duration::from_secs(30),
             max_retries: None,
             dial_timeout: None,
