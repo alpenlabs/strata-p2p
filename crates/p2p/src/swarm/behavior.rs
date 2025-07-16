@@ -18,7 +18,7 @@ use libp2p::{
 };
 
 use super::{MAX_TRANSMIT_SIZE, TOPIC, codec_raw};
-use crate::swarm::setup::behavior::SetupBehaviour;
+use crate::{signer::ApplicationSigner, swarm::setup::behavior::SetupBehaviour};
 
 /// Alias for request-response behaviour with messages serialized by using
 /// homebrewed codec implementation.
@@ -28,7 +28,7 @@ pub(crate) type RequestResponseRawBehaviour = RequestResponse<codec_raw::Codec>;
 /// implementation.
 #[expect(missing_debug_implementations)]
 #[derive(NetworkBehaviour)]
-pub struct Behaviour {
+pub struct Behaviour<S: ApplicationSigner> {
     /// Gossipsub - pub/sub model for messages distribution.
     pub gossipsub: Gossipsub<IdentityTransform, WhitelistSubscriptionFilter>,
 
@@ -41,16 +41,18 @@ pub struct Behaviour {
     /// Connect only allowed peers by peer id.
     pub allow_list: AllowListBehaviour<AllowedPeers>,
 
-    pub setup: SetupBehaviour,
+    /// Exchange application public keys before establish the connection.
+    pub setup: SetupBehaviour<S>,
 }
 
-impl Behaviour {
+impl<S: ApplicationSigner> Behaviour<S> {
     /// Creates a new [`Behaviour`] given a `protocol_name`, transport [`Keypair`], app
-    /// [`PublicKey`], and an allow list of [`PeerId`]s.
+    /// [`PublicKey`], signer, and an allow list of [`PeerId`]s.
     pub fn new(
         protocol_name: &'static str,
         transport_keypair: &Keypair,
         app_public_key: &libp2p::identity::PublicKey,
+        signer: S,
         allowlist: &[PeerId],
     ) -> Self {
         let mut allow_list = AllowListBehaviour::default();
@@ -85,7 +87,7 @@ impl Behaviour {
                 RequestResponseConfig::default(),
             ),
             allow_list,
-            setup: SetupBehaviour::new(app_public_key.clone()),
+            setup: SetupBehaviour::new(app_public_key.clone(), transport_keypair.public().to_peer_id(), signer),
         }
     }
 }

@@ -3,15 +3,38 @@
 use std::time::Duration;
 
 use futures::future::join_all;
-use libp2p::{Multiaddr, PeerId, build_multiaddr, identity::Keypair};
+use libp2p::{
+    Multiaddr, PeerId, build_multiaddr,
+    identity::{Keypair, PublicKey},
+};
 use rand::Rng;
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use tracing::debug;
 
-use crate::swarm::{self, P2P, P2PConfig, handle::P2PHandle};
+use crate::{
+    signer::ApplicationSigner,
+    swarm::{self, P2P, P2PConfig, handle::P2PHandle},
+};
+
+/// Mock ApplicationSigner for testing
+#[derive(Debug, Clone)]
+pub(crate) struct MockApplicationSigner;
+
+impl ApplicationSigner for MockApplicationSigner {
+    fn sign(
+        &self,
+        message: &[u8],
+        _app_public_key: &PublicKey,
+    ) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
+        // For mock testing, just generate a signature with a test keypair
+        let keypair = Keypair::generate_ed25519();
+        let signature = keypair.sign(message)?;
+        Ok(signature)
+    }
+}
 
 pub(crate) struct User {
-    pub(crate) p2p: P2P,
+    pub(crate) p2p: P2P<MockApplicationSigner>,
     pub(crate) handle: P2PHandle,
     pub(crate) app_keypair: Keypair,
     pub(crate) transport_keypair: Keypair,
@@ -31,6 +54,7 @@ impl User {
         let config = P2PConfig {
             app_public_key: app_keypair.public(),
             transport_keypair: transport_keypair.clone(),
+            signer: MockApplicationSigner,
             idle_connection_timeout: Duration::from_secs(30),
             max_retries: None,
             dial_timeout: None,
@@ -41,7 +65,8 @@ impl User {
             connect_to,
         };
 
-        let swarm = swarm::with_inmemory_transport(&config)?;
+        // Signer instance is now included in P2PConfig
+        let swarm = swarm::with_inmemory_transport::<MockApplicationSigner>(&config)?;
         let (p2p, handle) = P2P::from_config(config, cancel, swarm, None)?;
 
         Ok(Self {

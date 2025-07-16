@@ -2795,10 +2795,10 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "asynchronous-codec 0.6.2",
+ "bytes",
  "futures",
  "libp2p",
  "rand 0.9.1",
- "serde",
  "thiserror 2.0.12",
  "tokio",
  "tokio-util",

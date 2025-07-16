@@ -6,20 +6,58 @@
 
 use std::{future::Future, pin::Pin};
 
-use asynchronous_codec::{Framed, JsonCodec};
+use asynchronous_codec::{Decoder, Encoder, Framed};
+use bytes::{Buf, BytesMut};
 use futures::{SinkExt, StreamExt};
-use libp2p::{InboundUpgrade, OutboundUpgrade, Stream, core::UpgradeInfo, identity::PublicKey};
-use serde::{Deserialize, Serialize};
+use libp2p::{
+    InboundUpgrade, OutboundUpgrade, PeerId, Stream, core::UpgradeInfo, identity::PublicKey,
+};
 use tokio::io;
 
-/// Message structure for the handshake protocol.
-///
-/// This message is exchanged between peers during the setup phase to
-/// communicate application public keys.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct HandshakeMessage {
-    /// The application public key encoded as bytes
-    pub(crate) app_public_key: Vec<u8>,
+use crate::{
+    message::{P2PMessage, SetupMessage},
+    signer::ApplicationSigner,
+};
+
+/// Custom codec for SetupMessage with manual serialization
+#[derive(Debug, Clone, Default)]
+pub(crate) struct SetupMessageCodec;
+
+impl Encoder for SetupMessageCodec {
+    type Item = SetupMessage;
+    type Error = io::Error;
+
+    fn encode(&mut self, item: Self::Item, dst: &mut BytesMut) -> Result<(), Self::Error> {
+        let bytes = item.to_bytes();
+        dst.extend_from_slice(&(bytes.len() as u32).to_be_bytes());
+        dst.extend_from_slice(&bytes);
+        Ok(())
+    }
+}
+
+impl Decoder for SetupMessageCodec {
+    type Item = SetupMessage;
+    type Error = io::Error;
+
+    fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
+        if src.len() < 4 {
+            return Ok(None);
+        }
+
+        let len = u32::from_be_bytes([src[0], src[1], src[2], src[3]]) as usize;
+
+        if src.len() < 4 + len {
+            return Ok(None);
+        }
+
+        src.advance(4);
+        let message_bytes = src.split_to(len);
+
+        match SetupMessage::from_bytes(&message_bytes) {
+            Ok((message, _)) => Ok(Some(message)),
+            Err(e) => Err(e),
+        }
+    }
 }
 
 /// Inbound upgrade for handling incoming handshake requests.
@@ -46,19 +84,16 @@ impl UpgradeInfo for InboundSetupUpgrade {
 }
 
 impl InboundUpgrade<Stream> for InboundSetupUpgrade {
-    type Output = HandshakeMessage;
+    type Output = SetupMessage;
     type Error = io::Error;
     type Future = Pin<Box<dyn Future<Output = Result<Self::Output, Self::Error>> + Send>>;
 
     fn upgrade_inbound(self, stream: Stream, _: Self::Info) -> Self::Future {
         Box::pin(async move {
-            let mut framed = Framed::new(
-                stream,
-                JsonCodec::<HandshakeMessage, HandshakeMessage>::new(),
-            );
+            let mut framed = Framed::new(stream, SetupMessageCodec::default());
             match StreamExt::next(&mut framed).await {
-                Some(Ok(msg)) => Ok(msg),
-                Some(Err(e)) => Err(io::Error::new(io::ErrorKind::InvalidData, e)),
+                Some(Ok(message)) => Ok(message),
+                Some(Err(e)) => Err(e),
                 None => Err(io::Error::new(
                     io::ErrorKind::UnexpectedEof,
                     "stream closed",
@@ -72,18 +107,31 @@ impl InboundUpgrade<Stream> for InboundSetupUpgrade {
 ///
 /// This upgrade sends the local application public key to remote peers
 /// as part of the handshake protocol.
-#[derive(Debug, Clone)]
-pub struct OutboundSetupUpgrade {
+#[derive(Clone, Debug)]
+pub struct OutboundSetupUpgrade<S: ApplicationSigner> {
     pub(crate) app_public_key: PublicKey,
+    pub(crate) local_peer_id: PeerId,
+    pub(crate) remote_peer_id: PeerId,
+    pub(crate) signer: S,
 }
 
-impl OutboundSetupUpgrade {
-    pub(super) fn new(app_public_key: PublicKey) -> Self {
-        Self { app_public_key }
+impl<S: ApplicationSigner> OutboundSetupUpgrade<S> {
+    pub(super) fn new(
+        app_public_key: PublicKey,
+        local_peer_id: PeerId,
+        remote_peer_id: PeerId,
+        signer: S,
+    ) -> Self {
+        Self {
+            app_public_key,
+            local_peer_id,
+            remote_peer_id,
+            signer,
+        }
     }
 }
 
-impl UpgradeInfo for OutboundSetupUpgrade {
+impl<S: ApplicationSigner> UpgradeInfo for OutboundSetupUpgrade<S> {
     type Info = &'static str;
     type InfoIter = std::iter::Once<Self::Info>;
 
@@ -92,28 +140,40 @@ impl UpgradeInfo for OutboundSetupUpgrade {
     }
 }
 
-impl OutboundUpgrade<Stream> for OutboundSetupUpgrade {
+impl<S: ApplicationSigner> OutboundUpgrade<Stream> for OutboundSetupUpgrade<S> {
     type Output = ();
     type Error = io::Error;
     type Future = Pin<Box<dyn Future<Output = Result<Self::Output, Self::Error>> + Send>>;
 
     fn upgrade_outbound(self, stream: Stream, _: Self::Info) -> Self::Future {
         Box::pin(async move {
-            let app_message = HandshakeMessage {
-                app_public_key: self.app_public_key.encode_protobuf(),
-            };
-            let mut framed = Framed::new(
-                stream,
-                JsonCodec::<HandshakeMessage, HandshakeMessage>::new(),
+            // Create message
+            let mut message = SetupMessage::new(
+                &self.app_public_key,
+                self.local_peer_id,
+                self.remote_peer_id,
             );
-            framed
-                .send(app_message)
-                .await
-                .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
-            framed
-                .close()
-                .await
-                .map_err(|e| io::Error::new(io::ErrorKind::Other, e))
+
+            // Sign the message
+            let content_to_sign = message.message_for_signing();
+
+            // Get the app public key from the message to find the corresponding private key
+            let app_public_key = message.get_app_public_key().map_err(|e| {
+                io::Error::new(
+                    io::ErrorKind::Other,
+                    format!("Failed to get app public key: {}", e),
+                )
+            })?;
+
+            let signature = self.signer.sign(&content_to_sign, &app_public_key).map_err(|e| {
+                io::Error::new(io::ErrorKind::Other, format!("Signing failed: {}", e))
+            })?;
+
+            message.set_signature(signature);
+
+            let mut framed = Framed::new(stream, SetupMessageCodec::default());
+            framed.send(message).await?;
+            framed.close().await
         })
     }
 }
