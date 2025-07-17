@@ -2,7 +2,6 @@
 
 use std::time::Duration;
 
-use anyhow::bail;
 use libp2p::{Multiaddr, PeerId, build_multiaddr, identity::Keypair};
 use tokio::{sync::oneshot::channel, time::sleep};
 use tracing::{debug, info};
@@ -11,7 +10,7 @@ use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, util::SubscriberI
 use super::common::Setup;
 use crate::{
     commands::{Command, ConnectToPeerCommand, QueryP2PStateCommand},
-    events::Event,
+    events::GossipEvent,
     tests::common::User,
 };
 
@@ -28,7 +27,7 @@ async fn gossip_new_user() -> anyhow::Result<()> {
     // Generate a keypair for the new user
     let new_user_keypair = Keypair::generate_ed25519();
 
-    info!("Setting up {} users setup all-to-all", USERS_NUM);
+    info!(users = USERS_NUM, "Setting up users in all-to-all topology");
     // Create the original users with allowlist containing the new user
     let Setup {
         mut user_handles,
@@ -45,7 +44,7 @@ async fn gossip_new_user() -> anyhow::Result<()> {
     for (index, user_handle) in user_handles.iter().enumerate().take(USERS_NUM) {
         let (tx, rx) = channel::<Vec<Multiaddr>>();
         user_handle
-            .handle
+            .command
             .send_command(Command::QueryP2PState(
                 QueryP2PStateCommand::GetMyListeningAddresses {
                     response_sender: tx,
@@ -53,13 +52,7 @@ async fn gossip_new_user() -> anyhow::Result<()> {
             ))
             .await;
         let result = rx.await.unwrap();
-        debug!(
-            "Got next listening multiaddresses for user {index} : {:?}",
-            result
-                .iter()
-                .map(|addr| addr.to_string())
-                .collect::<Vec<_>>()
-        );
+        debug!(index, addresses = ?result, "Retrieved listening addresses");
         connect_addrs.push(result[0].clone());
     }
 
@@ -67,7 +60,7 @@ async fn gossip_new_user() -> anyhow::Result<()> {
     let local_addr = build_multiaddr!(Memory(88888888_u64));
 
     // Create new user with all necessary information
-    info!("Creating new user to listen at {}", local_addr);
+    info!(%local_addr, "Creating new user to listen");
     let mut new_user = User::new(
         new_user_keypair.clone(),
         peer_ids.clone(),
@@ -95,13 +88,16 @@ async fn gossip_new_user() -> anyhow::Result<()> {
     sleep(Duration::from_millis(5000)).await;
 
     // Connect the old users to the new one
-    for index in 0..connect_addrs.len() {
+    for (index, addr) in connect_addrs.iter().enumerate() {
         info!(
-            "Asking an old user (index {}, connect_addr: {}, peer_id {}) to connect to the new user",
-            index, connect_addrs[index], user_handles[index].peer_id
+            index,
+            addr = %addr,
+            old_peer = %user_handles[index].peer_id,
+            new_peer = %new_user.kp.public().to_peer_id(),
+            "Old user connecting to new user"
         );
         user_handles[index]
-            .handle
+            .command
             .send_command(Command::ConnectToPeer(ConnectToPeerCommand {
                 peer_id: new_user.kp.public().to_peer_id(),
                 peer_addr: local_addr.clone(),
@@ -112,12 +108,12 @@ async fn gossip_new_user() -> anyhow::Result<()> {
     // Give time for the new user to establish connections
     sleep(Duration::from_secs(5)).await;
 
-    let message_from_inside = Vec::<u8>::from(b"Hello my friends!");
-    let message_from_outsider = Vec::<u8>::from(b"Hi, I'm new here.");
+    let message_from_inside = b"Hello my friends!".to_vec();
+    let message_from_outsider = b"Hi, I'm new here.".to_vec();
 
     info!("Regular user sending test message");
     user_handles[0]
-        .handle
+        .command
         .send_command(Command::PublishMessage {
             data: message_from_inside.clone(),
         })
@@ -128,7 +124,7 @@ async fn gossip_new_user() -> anyhow::Result<()> {
 
     info!("New user sending test message");
     new_user
-        .handle
+        .command
         .send_command(Command::PublishMessage {
             data: message_from_outsider.clone(),
         })
@@ -142,14 +138,14 @@ async fn gossip_new_user() -> anyhow::Result<()> {
 
     // Check that existing users received the message
     for user in &mut user_handles {
-        info!(peer_id=%user.peer_id, "Checking if user received message");
+        info!(peer_id = %user.peer_id, "Checking if user received message");
 
-        while !user.handle.events_is_empty() {
-            let event = user.handle.next_event().await?;
-            info!(?event, "Received event");
+        while !user.gossip.events_is_empty() {
+            let event = user.gossip.next_event().await?;
+            debug!(?event, "Received event");
 
             match event {
-                Event::ReceivedMessage(msg) => {
+                GossipEvent::ReceivedMessage(msg) => {
                     if msg == message_from_inside {
                         info!("User received message from regular user");
                         counter_messages_from_regular_user += 1;
@@ -158,16 +154,15 @@ async fn gossip_new_user() -> anyhow::Result<()> {
                         counter_messages_from_outsider += 1;
                     }
                 }
-                _ => bail!("Unexpected event type"),
             }
         }
     }
-    while !new_user.handle.events_is_empty() {
-        let event = new_user.handle.next_event().await?;
-        info!(?event, "Received event");
+    while !new_user.gossip.events_is_empty() {
+        let event = new_user.gossip.next_event().await?;
+        debug!(?event, "New user received event");
 
         match event {
-            Event::ReceivedMessage(msg) => {
+            GossipEvent::ReceivedMessage(msg) => {
                 if msg == message_from_inside {
                     info!("New user received message from regular user");
                     counter_messages_from_regular_user += 1;
@@ -176,7 +171,6 @@ async fn gossip_new_user() -> anyhow::Result<()> {
                     counter_messages_from_outsider += 1;
                 }
             }
-            _ => bail!("Unexpected event type"),
         }
     }
 

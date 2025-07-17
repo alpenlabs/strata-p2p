@@ -3,6 +3,10 @@ name = "strata-p2p"
 version.workspace = true
 edition.workspace = true
 
+[features]
+default = ["request-response"]
+request-response = []
+
 [lints]
 workspace = true
 

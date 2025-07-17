@@ -7,9 +7,15 @@ use std::{
 };
 
 use behavior::{Behaviour, BehaviourEvent};
+#[cfg(feature = "request-response")]
+use errors::Error;
 use errors::{P2PResult, ProtocolError};
 use futures::StreamExt as _;
-use handle::P2PHandle;
+#[cfg(feature = "request-response")]
+use handle::ReqRespHandle;
+use handle::{CommandHandle, GossipHandle};
+#[cfg(feature = "request-response")]
+use libp2p::request_response::{self, Event as RequestResponseEvent};
 use libp2p::{
     Multiaddr, PeerId, Swarm, SwarmBuilder, Transport,
     core::{ConnectedPoint, muxing::StreamMuxerBox, transport::MemoryTransport},
@@ -18,13 +24,14 @@ use libp2p::{
     },
     identity::Keypair,
     noise,
-    request_response::{self, Event as RequestResponseEvent},
     swarm::{
         SwarmEvent,
         dial_opts::{DialOpts, PeerCondition},
     },
     yamux,
 };
+#[cfg(feature = "request-response")]
+use tokio::sync::oneshot;
 use tokio::{
     select,
     sync::{broadcast, mpsc},
@@ -33,11 +40,12 @@ use tokio::{
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, instrument, trace, warn};
 
+#[cfg(feature = "request-response")]
+use crate::events::ReqRespEvent;
 use crate::{
     commands::{Command, QueryP2PStateCommand},
-    events::Event,
+    events::GossipEvent,
 };
-
 mod behavior;
 mod codec_raw;
 pub mod errors;
@@ -65,6 +73,9 @@ pub const DEFAULT_GENERAL_TIMEOUT: Duration = Duration::from_millis(250);
 
 /// Global default interval for connection checks.
 pub const DEFAULT_CONNECTION_CHECK_INTERVAL: Duration = Duration::from_millis(500);
+
+/// Global default timeout for channel operations (e.g., sending/receiving on channels).
+pub const DEFAULT_CHANNEL_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Configuration options for [`P2P`].
 #[derive(Debug, Clone)]
@@ -103,6 +114,10 @@ pub struct P2PConfig {
 
     /// Initial list of nodes to connect to at startup.
     pub connect_to: Vec<Multiaddr>,
+
+    /// Timeout for channel operations (e.g., sending/receiving on channels).
+    #[cfg(feature = "request-response")]
+    pub channel_timeout: Option<Duration>,
 }
 
 /// Implementation of P2P protocol data exchange.
@@ -111,8 +126,12 @@ pub struct P2P {
     /// The swarm that handles the networking.
     swarm: Swarm<Behaviour>,
 
-    /// Event channel for the swarm.
-    events: broadcast::Sender<Event>,
+    /// Event channel for the gossip.
+    gossip_events: broadcast::Sender<GossipEvent>,
+
+    /// Event channel for request/response.
+    #[cfg(feature = "request-response")]
+    req_resp_events: mpsc::Sender<ReqRespEvent>,
 
     /// Command channel for the swarm.
     commands: mpsc::Receiver<Command>,
@@ -132,38 +151,66 @@ pub struct P2P {
     config: P2PConfig,
 }
 
-/// Alias for P2P and P2PHandle tuple.
-pub type P2PWithHandle = (P2P, P2PHandle);
+/// Alias for [`P2P`] and [`ReqRespHandle`] tuple.
+#[cfg(feature = "request-response")]
+pub type P2PWithReqRespHandle = (P2P, ReqRespHandle);
 
 impl P2P {
     /// Creates a new P2P instance from the given configuration.
+    #[cfg(feature = "request-response")]
     pub fn from_config(
         cfg: P2PConfig,
         cancel: CancellationToken,
         mut swarm: Swarm<Behaviour>,
         channel_size: Option<usize>,
-    ) -> P2PResult<P2PWithHandle> {
+    ) -> P2PResult<P2PWithReqRespHandle> {
         swarm
             .listen_on(cfg.listening_addr.clone())
             .map_err(ProtocolError::Listen)?;
 
-        let keypair = cfg.keypair.clone();
-
         let channel_size = channel_size.unwrap_or(256);
-        let (events_tx, events_rx) = broadcast::channel(channel_size);
+        let (gossip_events_tx, _gossip_events_rx) = broadcast::channel(channel_size);
+        let (req_resp_event_tx, req_resp_event_rx) = mpsc::channel(64);
         let (cmds_tx, cmds_rx) = mpsc::channel(64);
 
         Ok((
             Self {
                 swarm,
-                events: events_tx,
+                gossip_events: gossip_events_tx,
+                req_resp_events: req_resp_event_tx,
                 commands: cmds_rx,
                 commands_sender: cmds_tx.clone(),
                 cancellation_token: cancel,
                 config: cfg,
             },
-            P2PHandle::new(events_rx, cmds_tx, keypair),
+            ReqRespHandle::new(req_resp_event_rx),
         ))
+    }
+
+    /// Creates a new P2P instance from the given configuration.
+    #[cfg(not(feature = "request-response"))]
+    pub fn from_config(
+        cfg: P2PConfig,
+        cancel: CancellationToken,
+        mut swarm: Swarm<Behaviour>,
+        channel_size: Option<usize>,
+    ) -> P2PResult<P2P> {
+        swarm
+            .listen_on(cfg.listening_addr.clone())
+            .map_err(ProtocolError::Listen)?;
+
+        let channel_size = channel_size.unwrap_or(256);
+        let (gossip_events_tx, _gossip_events_rx) = broadcast::channel(channel_size);
+        let (cmds_tx, cmds_rx) = mpsc::channel(64);
+
+        Ok(Self {
+            swarm,
+            gossip_events: gossip_events_tx,
+            commands: cmds_rx,
+            commands_sender: cmds_tx.clone(),
+            cancellation_token: cancel,
+            config: cfg,
+        })
     }
 
     /// Returns the [`PeerId`] of the local node.
@@ -171,13 +218,14 @@ impl P2P {
         *self.swarm.local_peer_id()
     }
 
-    /// Creates a new subscribed handler.
-    pub fn new_handle(&self) -> P2PHandle {
-        P2PHandle::new(
-            self.events.subscribe(),
-            self.commands_sender.clone(),
-            self.config.keypair.clone(),
-        )
+    /// Creates new handle for gossip.
+    pub fn new_gossip_handle(&self) -> GossipHandle {
+        GossipHandle::new(self.gossip_events.subscribe())
+    }
+
+    /// Creates new handle for commands.
+    pub fn new_command_handle(&self) -> CommandHandle {
+        CommandHandle::new(self.commands_sender.clone())
     }
 
     /// Waits until all connections are established and all peers are subscribed to
@@ -392,6 +440,7 @@ impl P2P {
     async fn handle_behaviour_event(&mut self, event: BehaviourEvent) -> P2PResult<()> {
         match event {
             BehaviourEvent::Gossipsub(event) => self.handle_gossip_event(event).await,
+            #[cfg(feature = "request-response")]
             BehaviourEvent::RequestResponse(event) => {
                 self.handle_request_response_event(event).await
             }
@@ -432,7 +481,7 @@ impl P2P {
             .source
             .expect("Message must have author as ValidationMode set to Permissive");
 
-        let event = Event::ReceivedMessage(message.data);
+        let event = GossipEvent::ReceivedMessage(message.data);
 
         let propagation_result = self
             .swarm
@@ -448,9 +497,9 @@ impl P2P {
             warn!(?event, "failed to propagate accepted message further");
         }
 
-        self.events
+        self.gossip_events
             .send(event)
-            .map_err(|e| ProtocolError::EventsChannelClosed(e.into()))?;
+            .map_err(|e| ProtocolError::GossipEventsChannelClosed(e.into()))?;
 
         Ok(())
     }
@@ -597,6 +646,7 @@ impl P2P {
 
     /// Handles [`RequestResponseEvent`] from the swarm.
     #[instrument(skip(self, event))]
+    #[cfg(feature = "request-response")]
     async fn handle_request_response_event(
         &mut self,
         event: RequestResponseEvent<Vec<u8>, Vec<u8>>,
@@ -649,41 +699,79 @@ impl P2P {
     }
 
     /// Handles [`MessageEvent`] from the swarm.
+    #[cfg(feature = "request-response")]
     async fn handle_message_event(
         &mut self,
         _peer_id: PeerId,
         msg: request_response::Message<Vec<u8>, Vec<u8>, Vec<u8>>,
     ) -> P2PResult<()> {
+        let reqresp_timeout = self
+            .config
+            .channel_timeout
+            .unwrap_or(DEFAULT_CHANNEL_TIMEOUT);
         match msg {
             request_response::Message::Request {
-                request,
-                channel: _channel,
-                ..
+                request, channel, ..
             } => {
-                let event = Event::ReceivedRequest(request);
-                let _ = self
-                    .events
-                    .send(event)
-                    .map_err(|e| ProtocolError::EventsChannelClosed(e.into()))?;
+                {
+                    let (tx, rx) = oneshot::channel();
 
+                    let event = ReqRespEvent::ReceivedRequest(request, tx);
+                    let send_result =
+                        timeout(reqresp_timeout, self.req_resp_events.send(event)).await;
+                    match send_result {
+                        Ok(Ok(())) => {}
+                        Ok(Err(e)) => {
+                            return Err(Error::Protocol(ProtocolError::ReqRespEventChannelClosed(
+                                e.into(),
+                            )));
+                        }
+                        Err(_) => {
+                            error!("Timeout while sending ReceivedRequest event");
+                        }
+                    }
+
+                    let resp = timeout(reqresp_timeout, rx).await;
+                    let _ = match resp {
+                        Ok(Ok(response)) => self
+                            .swarm
+                            .behaviour_mut()
+                            .request_response
+                            .send_response(channel, response)
+                            .map_err(|_| {
+                                error!("Failed to send response: connection dropped or response channel closed");
+                            }),
+                        Ok(Err(err)) => {
+                            error!("Received error in response: {err:?}");
+                            Ok(())
+                        }
+                        Err(_) => {
+                            error!("Timeout waiting for response to request");
+                            Ok(())
+                        }
+                    };
+                }
                 Ok(())
             }
 
-            request_response::Message::Response {
-                request_id,
-                response,
-            } => {
-                if response.is_empty() {
-                    warn!(%request_id, ?response, "Received empty response");
-                    return Ok(());
+            request_response::Message::Response { response, .. } => {
+                {
+                    let event = ReqRespEvent::ReceivedResponse(response);
+                    let send_result =
+                        timeout(reqresp_timeout, self.req_resp_events.send(event)).await;
+                    match send_result {
+                        Ok(Ok(())) => {}
+                        Ok(Err(e)) => {
+                            return Err(Error::Protocol(ProtocolError::ReqRespEventChannelClosed(
+                                e.into(),
+                            )));
+                        }
+                        Err(_) => {
+                            error!("Timeout while sending ReceivedResponse event");
+                        }
+                    }
                 }
 
-                // TODO: report/punish peer for invalid message?
-                let event = Event::ReceivedMessage(response);
-                let _ = self
-                    .events
-                    .send(event)
-                    .map_err(|e| ProtocolError::EventsChannelClosed(e.into()))?;
                 Ok(())
             }
         }
