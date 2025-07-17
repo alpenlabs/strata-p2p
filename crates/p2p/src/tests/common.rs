@@ -127,7 +127,7 @@ impl Setup {
             .map(|_| Keypair::generate_ed25519())
             .collect::<Vec<_>>();
 
-        debug!(len = keypairs.len(), "Generated keypairs for test setup");
+        debug!(len = %keypairs.len(), "Generated keypairs for test setup");
 
         let peer_ids = keypairs
             .iter()

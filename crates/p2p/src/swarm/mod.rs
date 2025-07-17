@@ -116,6 +116,7 @@ pub struct P2PConfig {
     pub connect_to: Vec<Multiaddr>,
 
     /// Timeout for channel operations (e.g., sending/receiving on channels).
+    #[cfg(feature = "request-response")]
     pub channel_timeout: Option<Duration>,
 }
 
@@ -154,12 +155,9 @@ pub struct P2P {
 #[cfg(feature = "request-response")]
 pub type P2PWithReqRespHandle = (P2P, ReqRespHandle);
 
-/// Alias for [`P2P`]
-#[cfg(not(feature = "request-response"))]
-pub type P2PWithReqRespHandle = P2P;
-
 impl P2P {
     /// Creates a new P2P instance from the given configuration.
+    #[cfg(feature = "request-response")]
     pub fn from_config(
         cfg: P2PConfig,
         cancel: CancellationToken,
@@ -172,37 +170,47 @@ impl P2P {
 
         let channel_size = channel_size.unwrap_or(256);
         let (gossip_events_tx, _gossip_events_rx) = broadcast::channel(channel_size);
-        #[cfg(feature = "request-response")]
         let (req_resp_event_tx, req_resp_event_rx) = mpsc::channel(64);
-
         let (cmds_tx, cmds_rx) = mpsc::channel(64);
 
-        #[cfg(feature = "request-response")]
-        {
-            Ok((
-                Self {
-                    swarm,
-                    gossip_events: gossip_events_tx,
-                    req_resp_events: req_resp_event_tx,
-                    commands: cmds_rx,
-                    commands_sender: cmds_tx.clone(),
-                    cancellation_token: cancel,
-                    config: cfg,
-                },
-                ReqRespHandle::new(req_resp_event_rx),
-            ))
-        }
-        #[cfg(not(feature = "request-response"))]
-        {
-            Ok(Self {
+        Ok((
+            Self {
                 swarm,
                 gossip_events: gossip_events_tx,
+                req_resp_events: req_resp_event_tx,
                 commands: cmds_rx,
                 commands_sender: cmds_tx.clone(),
                 cancellation_token: cancel,
                 config: cfg,
-            })
-        }
+            },
+            ReqRespHandle::new(req_resp_event_rx),
+        ))
+    }
+
+    /// Creates a new P2P instance from the given configuration.
+    #[cfg(not(feature = "request-response"))]
+    pub fn from_config(
+        cfg: P2PConfig,
+        cancel: CancellationToken,
+        mut swarm: Swarm<Behaviour>,
+        channel_size: Option<usize>,
+    ) -> P2PResult<P2P> {
+        swarm
+            .listen_on(cfg.listening_addr.clone())
+            .map_err(ProtocolError::Listen)?;
+
+        let channel_size = channel_size.unwrap_or(256);
+        let (gossip_events_tx, _gossip_events_rx) = broadcast::channel(channel_size);
+        let (cmds_tx, cmds_rx) = mpsc::channel(64);
+
+        Ok(Self {
+            swarm,
+            gossip_events: gossip_events_tx,
+            commands: cmds_rx,
+            commands_sender: cmds_tx.clone(),
+            cancellation_token: cancel,
+            config: cfg,
+        })
     }
 
     /// Returns the [`PeerId`] of the local node.
@@ -699,7 +707,7 @@ impl P2P {
     ) -> P2PResult<()> {
         let reqresp_timeout = self
             .config
-            .general_timeout
+            .channel_timeout
             .unwrap_or(DEFAULT_CHANNEL_TIMEOUT);
         match msg {
             request_response::Message::Request {
@@ -746,10 +754,7 @@ impl P2P {
                 Ok(())
             }
 
-            request_response::Message::Response {
-                request_id: _request_id,
-                response,
-            } => {
+            request_response::Message::Response { response, .. } => {
                 {
                     let event = ReqRespEvent::ReceivedResponse(response);
                     let send_result =
