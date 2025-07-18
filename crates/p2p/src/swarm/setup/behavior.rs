@@ -229,12 +229,11 @@ impl<S: ApplicationSigner, F: Filtering> NetworkBehaviour for SetupBehaviour<S, 
                         });
                     }
                     false => {
-                        self.events.push(
-                            SetupBehaviourEvent::AttemptConnectToDisrespectedPeer {
+                        self.events
+                            .push(SetupBehaviourEvent::AttemptConnectToDisrespectedPeer {
                                 peer_id,
                                 app_public_key,
-                            },
-                        );
+                            });
                         self.events_toswarm_unwrapped
                             .push(ToSwarm::CloseConnection {
                                 peer_id,
