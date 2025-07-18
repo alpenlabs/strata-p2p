@@ -4,11 +4,13 @@ version.workspace = true
 edition.workspace = true
 
 [features]
-default = ["request-response"]
+default = ["request-response", "quic"]
 request-response = []
+quic = []
 
 [lints]
 workspace = true
+
 
 [dependencies]
 libp2p = { workspace = true, features = [
@@ -21,6 +23,7 @@ libp2p = { workspace = true, features = [
   "macros",
   "yamux",
   "identify",
+  "quic",
 ] }
 
 futures.workspace = true
