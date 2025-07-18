@@ -35,7 +35,7 @@ pub enum SetupBehaviourEvent {
     /// We received the app_public_key for the peerid, but the app_public_key is in
     /// app_pk_allowlist, therefore closed all connection to the peer with given PeerId (aka
     /// Transport ID)
-    AttemptConnectToPeerNotInAllowedList {
+    AttemptConnectToDisrespectedPeer {
         peer_id: PeerId,
         app_public_key: PublicKey,
     },
