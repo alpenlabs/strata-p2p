@@ -15,7 +15,7 @@ use libp2p::{
 use crate::{
     signer::ApplicationSigner,
     swarm::setup::{
-        events::SetupEvent,
+        events::SetupHandlerEvent,
         upgrade::{InboundSetupUpgrade, OutboundSetupUpgrade},
     },
 };
@@ -27,7 +27,7 @@ use crate::{
 #[derive(Debug)]
 pub struct SetupHandler<S: ApplicationSigner> {
     outbound_substream: Option<SubstreamProtocol<OutboundSetupUpgrade<S>, ()>>,
-    pending_events: Vec<ConnectionHandlerEvent<OutboundSetupUpgrade<S>, (), SetupEvent>>,
+    pending_events: Vec<ConnectionHandlerEvent<OutboundSetupUpgrade<S>, (), SetupHandlerEvent>>,
 }
 
 impl<S: ApplicationSigner> SetupHandler<S> {
@@ -37,8 +37,12 @@ impl<S: ApplicationSigner> SetupHandler<S> {
         remote_transport_id: PeerId,
         signer: S,
     ) -> Self {
-        let upgrade =
-            OutboundSetupUpgrade::new(app_public_key, local_transport_id, remote_transport_id, signer);
+        let upgrade = OutboundSetupUpgrade::new(
+            app_public_key,
+            local_transport_id,
+            remote_transport_id,
+            signer,
+        );
 
         Self {
             outbound_substream: Some(SubstreamProtocol::new(upgrade, ())),
@@ -49,7 +53,7 @@ impl<S: ApplicationSigner> SetupHandler<S> {
 
 impl<S: ApplicationSigner> ConnectionHandler for SetupHandler<S> {
     type FromBehaviour = ();
-    type ToBehaviour = SetupEvent;
+    type ToBehaviour = SetupHandlerEvent;
     type InboundProtocol = InboundSetupUpgrade;
     type OutboundProtocol = OutboundSetupUpgrade<S>;
     type InboundOpenInfo = ();
@@ -97,8 +101,7 @@ impl<S: ApplicationSigner> ConnectionHandler for SetupHandler<S> {
                 if !signature_valid {
                     self.pending_events
                         .push(ConnectionHandlerEvent::NotifyBehaviour(
-                            SetupEvent::SignatureVerificationFailed {
-                                peer_id: PeerId::random(), // Will be set by behavior
+                            SetupHandlerEvent::SignatureVerificationFailed {
                                 error: "Signature verification failed".to_string(),
                             },
                         ));
@@ -109,9 +112,8 @@ impl<S: ApplicationSigner> ConnectionHandler for SetupHandler<S> {
                 if let Err(e) = setup_msg.validate() {
                     self.pending_events
                         .push(ConnectionHandlerEvent::NotifyBehaviour(
-                            SetupEvent::SignatureVerificationFailed {
-                                peer_id: PeerId::random(), // Will be set by behavior
-                                error: format!("Message validation failed: {}", e),
+                            SetupHandlerEvent::SignatureVerificationFailed {
+                                error: format!("Message validation failed: {e}"),
                             },
                         ));
                     return;
@@ -123,9 +125,8 @@ impl<S: ApplicationSigner> ConnectionHandler for SetupHandler<S> {
                     Err(e) => {
                         self.pending_events
                             .push(ConnectionHandlerEvent::NotifyBehaviour(
-                                SetupEvent::SignatureVerificationFailed {
-                                    peer_id: PeerId::random(), // Will be set by behavior
-                                    error: format!("Invalid public key: {}", e),
+                                SetupHandlerEvent::SignatureVerificationFailed {
+                                    error: format!("Invalid public key: {e}"),
                                 },
                             ));
                         return;
@@ -135,26 +136,20 @@ impl<S: ApplicationSigner> ConnectionHandler for SetupHandler<S> {
                 // Signature is already verified, so we can accept the message
                 self.pending_events
                     .push(ConnectionHandlerEvent::NotifyBehaviour(
-                        SetupEvent::AppKeyReceived {
-                            peer_id: PeerId::random(), // Will be set by behavior
-                            app_public_key,
-                        },
+                        SetupHandlerEvent::AppKeyReceived { app_public_key },
                     ));
             }
             libp2p::swarm::handler::ConnectionEvent::FullyNegotiatedOutbound(_outbound) => {
                 self.pending_events
                     .push(ConnectionHandlerEvent::NotifyBehaviour(
-                        SetupEvent::HandshakeComplete {
-                            peer_id: PeerId::random(), // Will be set by behavior
-                        },
+                        SetupHandlerEvent::HandshakeComplete {},
                     ));
             }
             libp2p::swarm::handler::ConnectionEvent::DialUpgradeError(error) => {
                 // Report as signature verification failure for signing errors
                 self.pending_events
                     .push(ConnectionHandlerEvent::NotifyBehaviour(
-                        SetupEvent::SignatureVerificationFailed {
-                            peer_id: PeerId::random(), // Will be set by behavior
+                        SetupHandlerEvent::SignatureVerificationFailed {
                             error: format!("Outbound signing failed: {}", error.error),
                         },
                     ));
@@ -163,8 +158,7 @@ impl<S: ApplicationSigner> ConnectionHandler for SetupHandler<S> {
                 // Report as signature verification failure for verification errors
                 self.pending_events
                     .push(ConnectionHandlerEvent::NotifyBehaviour(
-                        SetupEvent::SignatureVerificationFailed {
-                            peer_id: PeerId::random(), // Will be set by behavior
+                        SetupHandlerEvent::SignatureVerificationFailed {
                             error: format!("Inbound verification failed: {}", error.error),
                         },
                     ));

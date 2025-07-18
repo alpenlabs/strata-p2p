@@ -5,13 +5,12 @@ use std::time::Duration;
 use tokio::time::sleep;
 use tracing::info;
 
-use crate::tests::common::Setup;
+use crate::tests::common::{Setup, init_tracing};
 
 /// Test that get_app_public_key returns the correct key after setup phase.
 #[tokio::test]
 async fn test_get_app_public_key_command() {
-    // Initialize tracing for this test if not already done
-    let _ = tracing_subscriber::fmt::try_init();
+    init_tracing();
 
     info!("Starting get_app_public_key command test");
 
@@ -88,3 +87,4 @@ async fn test_get_app_public_key_command() {
     setup.cancel.cancel();
     setup.tasks.wait().await;
 }
+

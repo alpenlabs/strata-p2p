@@ -4,7 +4,6 @@ use std::collections::HashSet;
 
 use libp2p::{
     PeerId, StreamProtocol,
-    allow_block_list::{AllowedPeers, Behaviour as AllowListBehaviour},
     gossipsub::{
         self, Behaviour as Gossipsub, IdentityTransform, MessageAuthenticity,
         WhitelistSubscriptionFilter,
@@ -17,7 +16,7 @@ use libp2p::{
     swarm::NetworkBehaviour,
 };
 
-use super::{MAX_TRANSMIT_SIZE, TOPIC, codec_raw};
+use super::{MAX_TRANSMIT_SIZE, TOPIC, codec_raw, setup::behavior::Filtering};
 use crate::{signer::ApplicationSigner, swarm::setup::behavior::SetupBehaviour};
 
 /// Alias for request-response behaviour with messages serialized by using
@@ -28,9 +27,9 @@ pub(crate) type RequestResponseRawBehaviour = RequestResponse<codec_raw::Codec>;
 /// implementation.
 #[expect(missing_debug_implementations)]
 #[derive(NetworkBehaviour)]
-pub struct Behaviour<S: ApplicationSigner> {
-    /// Gossipsub - pub/sub model for messages distribution.
-    pub gossipsub: Gossipsub<IdentityTransform, WhitelistSubscriptionFilter>,
+pub struct Behaviour<S: ApplicationSigner, F: Filtering> {
+    /// Exchange application public keys before establish the connection.
+    pub setup: SetupBehaviour<S, F>,
 
     /// Identification of peers, address to connect to, public keys, etc.
     pub identify: Identify,
@@ -38,14 +37,11 @@ pub struct Behaviour<S: ApplicationSigner> {
     /// Request-response model for recursive discovery of lost or skipped info.
     pub request_response: RequestResponseRawBehaviour,
 
-    /// Connect only allowed peers by peer id.
-    pub allow_list: AllowListBehaviour<AllowedPeers>,
-
-    /// Exchange application public keys before establish the connection.
-    pub setup: SetupBehaviour<S>,
+    /// Gossipsub - pub/sub model for messages distribution.
+    pub gossipsub: Gossipsub<IdentityTransform, WhitelistSubscriptionFilter>,
 }
 
-impl<S: ApplicationSigner> Behaviour<S> {
+impl<S: ApplicationSigner, F: Filtering> Behaviour<S, F> {
     /// Creates a new [`Behaviour`] given a `protocol_name`, transport [`Keypair`], app
     /// [`PublicKey`], signer, and an allow list of [`PeerId`]s.
     pub fn new(
@@ -53,13 +49,8 @@ impl<S: ApplicationSigner> Behaviour<S> {
         transport_keypair: &Keypair,
         app_public_key: &libp2p::identity::PublicKey,
         signer: S,
-        allowlist: &[PeerId],
+        filtering: F,
     ) -> Self {
-        let mut allow_list = AllowListBehaviour::default();
-        for peer in allowlist {
-            allow_list.allow_peer(*peer);
-        }
-
         let mut filter = HashSet::new();
         filter.insert(TOPIC.hash());
 
@@ -86,8 +77,12 @@ impl<S: ApplicationSigner> Behaviour<S> {
                 [(StreamProtocol::new(protocol_name), ProtocolSupport::Full)],
                 RequestResponseConfig::default(),
             ),
-            allow_list,
-            setup: SetupBehaviour::new(app_public_key.clone(), transport_keypair.public().to_peer_id(), signer),
+            setup: SetupBehaviour::new(
+                app_public_key.clone(),
+                transport_keypair.public().to_peer_id(),
+                signer,
+                filtering,
+            ),
         }
     }
 }

@@ -5,10 +5,14 @@ use libp2p::PeerId;
 use tokio::{sync::oneshot, time::sleep};
 
 use super::common::Setup;
-use crate::commands::{Command, QueryP2PStateCommand};
+use crate::{
+    commands::{Command, QueryP2PStateCommand},
+    tests::common::init_tracing,
+};
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_is_connected() -> anyhow::Result<()> {
+    init_tracing();
     // Set up two connected user_handles
     let Setup {
         user_handles,
@@ -63,6 +67,7 @@ async fn test_is_connected() -> anyhow::Result<()> {
 /// Tests the gossip protocol in an all to all connected network with multiple IDs.
 #[tokio::test(flavor = "multi_thread", worker_threads = 6)]
 async fn test_manually_get_all_peers() -> anyhow::Result<()> {
+    init_tracing();
     const USERS_NUM: usize = 6;
 
     let Setup {

@@ -1,43 +1,37 @@
 //! Connect to Peer Command tests.
 
-use std::time::Duration;
+use std::{collections::HashSet, time::Duration};
 
 use anyhow::bail;
-use libp2p::{Multiaddr, PeerId, build_multiaddr, identity::Keypair};
+use libp2p::{Multiaddr, build_multiaddr, identity::Keypair};
 use tokio::{sync::oneshot::channel, time::sleep};
 use tracing::{debug, info};
-use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, util::SubscriberInitExt};
 
 use super::common::Setup;
 use crate::{
     commands::{Command, ConnectToPeerCommand, QueryP2PStateCommand},
     events::Event,
-    tests::common::User,
+    swarm::setup::behavior::BanList,
+    tests::common::{User, init_tracing},
 };
 
 /// Tests sending a gossipsub message from a new user to all existing users.
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn gossip_new_user() -> anyhow::Result<()> {
-    tracing_subscriber::registry()
-        .with(EnvFilter::from_default_env())
-        .with(fmt::layer().with_file(true).with_line_number(true))
-        .init();
-
+    init_tracing();
     const USERS_NUM: usize = 9;
 
     // Generate a keypair for the new user
     let new_user_app_keypair = Keypair::generate_ed25519();
 
     info!("Setting up {} users setup all-to-all", USERS_NUM);
+
     // Create the original users with allowlist containing the new user
     let Setup {
         mut user_handles,
         cancel,
         tasks,
     } = Setup::all_to_all(USERS_NUM).await?;
-
-    // Create peer IDs of existing users
-    let peer_ids: Vec<PeerId> = user_handles.iter().map(|op| op.peer_id).collect();
 
     // Get connection addresses of old users for the new user to connect to.
     info!("Getting listening addresses for new user");
@@ -72,9 +66,9 @@ async fn gossip_new_user() -> anyhow::Result<()> {
     let mut new_user = User::new(
         new_user_app_keypair.clone(),
         new_user_transport_keypair.clone(),
-        peer_ids.clone(),
         connect_addrs.clone(), // Connect directly to existing users
         local_addr.clone(),
+        BanList::new(HashSet::new()),
         cancel.child_token(),
     )
     .unwrap();
