@@ -839,7 +839,7 @@ impl<S: ApplicationSigner, F: Filtering> P2P<S, F> {
                     warn!(%peer_id, ?e, "Failed to disconnect peer after signature verification failure");
                 }
             }
-            SetupBehaviourEvent::AttemptConnectToPeerNotInAllowedList {
+            SetupBehaviourEvent::AttemptConnectToDisrespectedPeer {
                 peer_id,
                 app_public_key,
             } => {

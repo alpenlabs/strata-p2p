@@ -230,7 +230,7 @@ impl<S: ApplicationSigner, F: Filtering> NetworkBehaviour for SetupBehaviour<S, 
                     }
                     false => {
                         self.events.push(
-                            SetupBehaviourEvent::AttemptConnectToPeerNotInAllowedList {
+                            SetupBehaviourEvent::AttemptConnectToDisrespectedPeer {
                                 peer_id,
                                 app_public_key,
                             },
