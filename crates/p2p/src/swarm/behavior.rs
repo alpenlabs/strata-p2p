@@ -1,4 +1,7 @@
 //! Request-Response [`Behaviour`] and [`NetworkBehaviour`] for the P2P protocol.
+// Allow missing docs to avoid 'missing documentation for a variant' error from NetworkBehaviour
+// derive.
+#![allow(missing_docs)]
 
 use std::collections::HashSet;
 
