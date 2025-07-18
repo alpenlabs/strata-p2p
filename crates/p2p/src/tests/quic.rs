@@ -15,6 +15,30 @@ use crate::swarm::{P2PConfig, behavior::Behaviour, with_default_transport};
 
 const DISCONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 const WAIT_CONNECTION_TIMEOUT: Duration = Duration::from_secs(10);
+const GENERAL_TIMEOUT: Duration = Duration::from_secs(2);
+const IDLE_CONNECTION_TIMEOUT: Duration = Duration::from_secs(10);
+const MAX_RETRIES: usize = 3;
+const CONNECTION_CHECK_INTERVAL: Duration = Duration::from_millis(100);
+
+fn make_swarm(
+    keypair: &Keypair,
+    allowlist: Vec<libp2p::PeerId>,
+    listening_addr: Multiaddr,
+) -> Swarm<Behaviour> {
+    let cfg = P2PConfig {
+        keypair: keypair.clone(),
+        idle_connection_timeout: IDLE_CONNECTION_TIMEOUT,
+        max_retries: Some(MAX_RETRIES),
+        dial_timeout: Some(GENERAL_TIMEOUT),
+        general_timeout: Some(GENERAL_TIMEOUT),
+        connection_check_interval: Some(CONNECTION_CHECK_INTERVAL),
+        listening_addr,
+        allowlist,
+        connect_to: vec![],
+        channel_timeout: None,
+    };
+    with_default_transport(&cfg).expect("build swarm")
+}
 
 #[tokio::test]
 async fn test_quic_and_tcp_connectivity_ipv4_ipv6() {
@@ -28,49 +52,20 @@ async fn test_quic_and_tcp_connectivity_ipv4_ipv6() {
     let peer_id_a = keypair_a.public().to_peer_id();
     let peer_id_b = keypair_b.public().to_peer_id();
 
-    let mut swarm_a = {
-        let cfg = P2PConfig {
-            keypair: keypair_a.clone(),
-            idle_connection_timeout: Duration::from_secs(10),
-            max_retries: Some(3),
-            dial_timeout: Some(Duration::from_secs(2)),
-            general_timeout: Some(Duration::from_secs(2)),
-            connection_check_interval: Some(Duration::from_millis(100)),
-            listening_addr: tcp4_base.clone(),
-            allowlist: vec![peer_id_b],
-            connect_to: vec![],
-            channel_timeout: None,
-        };
-        let mut s = with_default_transport(&cfg).expect("build listener swarm");
-        s.listen_on(tcp4_base.clone()).unwrap();
-        s.listen_on(quic4_base.clone()).unwrap();
-        s.listen_on(tcp6_base.clone()).unwrap();
-        s.listen_on(quic6_base.clone()).unwrap();
-        s
-    };
+    let mut swarm_a = make_swarm(&keypair_a, vec![peer_id_b], tcp4_base.clone());
+    swarm_a.listen_on(tcp4_base.clone()).unwrap();
+    swarm_a.listen_on(quic4_base.clone()).unwrap();
+    swarm_a.listen_on(tcp6_base.clone()).unwrap();
+    swarm_a.listen_on(quic6_base.clone()).unwrap();
 
-    let mut swarm_b = {
-        let cfg = P2PConfig {
-            keypair: keypair_b.clone(),
-            idle_connection_timeout: Duration::from_secs(10),
-            max_retries: Some(3),
-            dial_timeout: Some(Duration::from_secs(2)),
-            general_timeout: Some(Duration::from_secs(2)),
-            connection_check_interval: Some(Duration::from_millis(100)),
-            listening_addr: tcp4_base.clone(),
-            allowlist: vec![peer_id_a],
-            connect_to: vec![],
-            channel_timeout: None,
-        };
-        with_default_transport(&cfg).expect("build dialer swarm")
-    };
+    let mut swarm_b = make_swarm(&keypair_b, vec![peer_id_a], tcp4_base.clone());
 
     let (tcp4_addr, quic4_addr, tcp6_addr, quic6_addr) = {
         let mut tcp4_addr = None;
         let mut quic4_addr = None;
         let mut tcp6_addr = None;
         let mut quic6_addr = None;
-        let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+        let deadline = tokio::time::Instant::now() + GENERAL_TIMEOUT;
         while tokio::time::Instant::now() < deadline {
             if let Ok(Some(SwarmEvent::NewListenAddr { address, .. })) =
                 timeout(deadline - tokio::time::Instant::now(), swarm_a.next()).await
