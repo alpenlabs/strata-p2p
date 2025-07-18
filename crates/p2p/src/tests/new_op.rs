@@ -100,7 +100,7 @@ async fn gossip_new_user() -> anyhow::Result<()> {
             .command
             .send_command(Command::ConnectToPeer(ConnectToPeerCommand {
                 peer_id: new_user.kp.public().to_peer_id(),
-                peer_addr: local_addr.clone(),
+                peer_addrs: vec![local_addr.clone()],
             }))
             .await;
     }
