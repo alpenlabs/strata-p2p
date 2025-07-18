@@ -11,7 +11,7 @@ use libp2p::{
 use tokio::time::timeout;
 use tracing::info;
 
-use crate::swarm::{Behaviour, P2PConfig, with_default_transport};
+use crate::swarm::{P2PConfig, behavior::Behaviour, with_default_transport};
 
 const DISCONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 const WAIT_CONNECTION_TIMEOUT: Duration = Duration::from_secs(10);
@@ -39,6 +39,7 @@ async fn test_quic_and_tcp_connectivity_ipv4_ipv6() {
             listening_addr: tcp4_base.clone(),
             allowlist: vec![peer_id_b],
             connect_to: vec![],
+            channel_timeout: None,
         };
         let mut s = with_default_transport(&cfg).expect("build listener swarm");
         s.listen_on(tcp4_base.clone()).unwrap();
@@ -59,6 +60,7 @@ async fn test_quic_and_tcp_connectivity_ipv4_ipv6() {
             listening_addr: tcp4_base.clone(),
             allowlist: vec![peer_id_a],
             connect_to: vec![],
+            channel_timeout: None,
         };
         with_default_transport(&cfg).expect("build dialer swarm")
     };

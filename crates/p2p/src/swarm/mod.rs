@@ -47,7 +47,7 @@ use crate::{
     commands::{Command, QueryP2PStateCommand},
     events::GossipEvent,
 };
-mod behavior;
+pub mod behavior;
 mod codec_raw;
 pub mod errors;
 pub mod handle;
