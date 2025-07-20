@@ -2,6 +2,8 @@
 
 pub mod commands;
 pub mod events;
+pub mod message;
+pub mod signer;
 pub mod swarm;
 
 #[cfg(test)]

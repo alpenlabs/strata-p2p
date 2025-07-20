@@ -3,20 +3,43 @@
 use std::time::Duration;
 
 use futures::future::join_all;
-use libp2p::{Multiaddr, PeerId, build_multiaddr, identity::Keypair};
+use libp2p::{
+    Multiaddr, PeerId, build_multiaddr,
+    identity::{Keypair, PublicKey},
+};
 use rand::Rng;
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use tracing::debug;
 
 #[cfg(feature = "request-response")]
 use crate::swarm::handle::ReqRespHandle;
-use crate::swarm::{
-    self, P2P, P2PConfig,
-    handle::{CommandHandle, GossipHandle},
+use crate::{
+    signer::ApplicationSigner,
+    swarm::{
+        self, P2P, P2PConfig,
+        handle::{CommandHandle, GossipHandle, P2PHandle},
+    },
 };
 
+/// Mock ApplicationSigner for testing
+#[derive(Debug, Clone)]
+pub(crate) struct MockApplicationSigner;
+
+impl ApplicationSigner for MockApplicationSigner {
+    fn sign(
+        &self,
+        message: &[u8],
+        _app_public_key: &PublicKey,
+    ) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
+        // For mock testing, just generate a signature with a test keypair
+        let keypair = Keypair::generate_ed25519();
+        let signature = keypair.sign(message)?;
+        Ok(signature)
+    }
+}
+
 pub(crate) struct User {
-    pub(crate) p2p: P2P,
+    pub(crate) p2p: P2P<MockApplicationSigner>,
     pub(crate) gossip: GossipHandle,
     #[cfg(feature = "request-response")]
     pub(crate) reqresp: ReqRespHandle,
@@ -39,6 +62,7 @@ impl User {
         let config = P2PConfig {
             app_public_key: app_keypair.public(),
             transport_keypair: transport_keypair.clone(),
+            signer: MockApplicationSigner,
             idle_connection_timeout: Duration::from_secs(30),
             max_retries: None,
             dial_timeout: None,
@@ -50,13 +74,14 @@ impl User {
             channel_timeout: None,
         };
 
-        let swarm = swarm::with_inmemory_transport(&config)?;
         #[cfg(feature = "request-response")]
         let (p2p, reqresp) = P2P::from_config(config, cancel, swarm, None)?;
         #[cfg(not(feature = "request-response"))]
         let p2p = P2P::from_config(config, cancel, swarm, None)?;
         let gossip = p2p.new_gossip_handle();
         let command = p2p.new_command_handle();
+        // Signer instance is now included in P2PConfig
+        let swarm = swarm::with_inmemory_transport::<MockApplicationSigner>(&config)?;
 
         Ok(Self {
             p2p,

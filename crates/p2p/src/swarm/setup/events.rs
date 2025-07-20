@@ -25,4 +25,9 @@ pub enum SetupEvent {
     /// This event is fired when the entire handshake protocol has finished,
     /// signifying that the connection is ready for application-level communication.
     HandshakeComplete { peer_id: PeerId },
+    /// Indicates that signature verification failed.
+    ///
+    /// This event is fired when the signature verification fails for a peer's
+    /// handshake message, indicating the connection should be dropped.
+    SignatureVerificationFailed { peer_id: PeerId, error: String },
 }

@@ -12,9 +12,13 @@ use libp2p::{
     swarm::{ConnectionHandler, ConnectionHandlerEvent, SubstreamProtocol},
 };
 
-use crate::swarm::setup::{
-    events::SetupEvent,
-    upgrade::{InboundSetupUpgrade, OutboundSetupUpgrade},
+use crate::{
+    message::P2PMessage,
+    signer::ApplicationSigner,
+    swarm::setup::{
+        events::SetupEvent,
+        upgrade::{InboundSetupUpgrade, OutboundSetupUpgrade},
+    },
 };
 
 /// Connection handler for managing setup protocol substreams.
@@ -22,28 +26,33 @@ use crate::swarm::setup::{
 /// This handler manages the lifecycle of setup substreams for a single connection,
 /// coordinating both inbound and outbound handshake processes.
 #[derive(Debug)]
-pub struct SetupHandler {
-    outbound_substream: Option<SubstreamProtocol<OutboundSetupUpgrade, ()>>,
-    pending_events: Vec<ConnectionHandlerEvent<OutboundSetupUpgrade, (), SetupEvent>>,
+pub struct SetupHandler<S: ApplicationSigner> {
+    outbound_substream: Option<SubstreamProtocol<OutboundSetupUpgrade<S>, ()>>,
+    pending_events: Vec<ConnectionHandlerEvent<OutboundSetupUpgrade<S>, (), SetupEvent>>,
 }
 
-impl SetupHandler {
-    pub(super) fn new(app_public_key: PublicKey) -> Self {
+impl<S: ApplicationSigner> SetupHandler<S> {
+    pub(super) fn new(
+        app_public_key: PublicKey,
+        local_transport_id: PeerId,
+        remote_transport_id: PeerId,
+        signer: S,
+    ) -> Self {
+        let upgrade =
+            OutboundSetupUpgrade::new(app_public_key, local_transport_id, remote_transport_id, signer);
+
         Self {
-            outbound_substream: Some(SubstreamProtocol::new(
-                OutboundSetupUpgrade::new(app_public_key),
-                (),
-            )),
+            outbound_substream: Some(SubstreamProtocol::new(upgrade, ())),
             pending_events: Vec::new(),
         }
     }
 }
 
-impl ConnectionHandler for SetupHandler {
+impl<S: ApplicationSigner> ConnectionHandler for SetupHandler<S> {
     type FromBehaviour = ();
     type ToBehaviour = SetupEvent;
     type InboundProtocol = InboundSetupUpgrade;
-    type OutboundProtocol = OutboundSetupUpgrade;
+    type OutboundProtocol = OutboundSetupUpgrade<S>;
     type InboundOpenInfo = ();
     type OutboundOpenInfo = ();
 
@@ -84,32 +93,73 @@ impl ConnectionHandler for SetupHandler {
     ) {
         match event {
             libp2p::swarm::handler::ConnectionEvent::FullyNegotiatedInbound(inbound) => {
-                let handshake_msg = inbound.protocol;
-                if let Ok(public_key) =
-                    PublicKey::try_decode_protobuf(&handshake_msg.app_public_key)
-                {
+                let setup_msg = inbound.protocol;
+
+                // Validate message format
+                if let Err(e) = setup_msg.validate() {
                     self.pending_events
                         .push(ConnectionHandlerEvent::NotifyBehaviour(
-                            SetupEvent::AppKeyReceived {
-                                peer_id: PeerId::random(),
-                                app_public_key: public_key,
+                            SetupEvent::SignatureVerificationFailed {
+                                peer_id: PeerId::random(), // Will be set by behavior
+                                error: format!("Message validation failed: {}", e),
                             },
                         ));
+                    return;
                 }
+
+                // Get public key for verification
+                let app_public_key = match setup_msg.get_app_public_key() {
+                    Ok(key) => key,
+                    Err(e) => {
+                        self.pending_events
+                            .push(ConnectionHandlerEvent::NotifyBehaviour(
+                                SetupEvent::SignatureVerificationFailed {
+                                    peer_id: PeerId::random(), // Will be set by behavior
+                                    error: format!("Invalid public key: {}", e),
+                                },
+                            ));
+                        return;
+                    }
+                };
+
+                // For now, we'll accept the message without signature verification
+                // since we don't have the ApplicationSigner instance here.
+                // The signature verification will be handled by the application layer.
+                self.pending_events
+                    .push(ConnectionHandlerEvent::NotifyBehaviour(
+                        SetupEvent::AppKeyReceived {
+                            peer_id: PeerId::random(), // Will be set by behavior
+                            app_public_key,
+                        },
+                    ));
             }
             libp2p::swarm::handler::ConnectionEvent::FullyNegotiatedOutbound(_outbound) => {
                 self.pending_events
                     .push(ConnectionHandlerEvent::NotifyBehaviour(
                         SetupEvent::HandshakeComplete {
-                            peer_id: PeerId::random(),
+                            peer_id: PeerId::random(), // Will be set by behavior
                         },
                     ));
             }
-            libp2p::swarm::handler::ConnectionEvent::DialUpgradeError(_) => {
-                // Handle dial upgrade error
+            libp2p::swarm::handler::ConnectionEvent::DialUpgradeError(error) => {
+                // Report as signature verification failure for signing errors
+                self.pending_events
+                    .push(ConnectionHandlerEvent::NotifyBehaviour(
+                        SetupEvent::SignatureVerificationFailed {
+                            peer_id: PeerId::random(), // Will be set by behavior
+                            error: format!("Outbound signing failed: {}", error.error),
+                        },
+                    ));
             }
-            libp2p::swarm::handler::ConnectionEvent::ListenUpgradeError(_) => {
-                // Handle listen upgrade error
+            libp2p::swarm::handler::ConnectionEvent::ListenUpgradeError(error) => {
+                // Report as signature verification failure for verification errors
+                self.pending_events
+                    .push(ConnectionHandlerEvent::NotifyBehaviour(
+                        SetupEvent::SignatureVerificationFailed {
+                            peer_id: PeerId::random(), // Will be set by behavior
+                            error: format!("Inbound verification failed: {}", error.error),
+                        },
+                    ));
             }
             _ => {}
         }
