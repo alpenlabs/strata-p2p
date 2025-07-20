@@ -5,3 +5,4 @@ pub(crate) mod new_op;
 
 #[cfg(feature = "request-response")]
 pub(crate) mod request_response;
+pub(crate) mod setup;

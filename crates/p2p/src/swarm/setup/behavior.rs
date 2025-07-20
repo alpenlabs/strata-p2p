@@ -9,9 +9,7 @@ use std::{
     task::{Context, Poll},
 };
 
-use libp2p::{
-    PeerId, core::transport::PortUse, identity::PublicKey, swarm::NetworkBehaviour,
-};
+use libp2p::{PeerId, core::transport::PortUse, identity::PublicKey, swarm::NetworkBehaviour};
 
 use crate::swarm::setup::{events::SetupEvent, handler::SetupHandler};
 
@@ -32,6 +30,11 @@ impl SetupBehaviour {
         }
     }
 
+    /// Gets the app public key for a specific peer.
+    /// Returns None if we don't have the key (not connected or key exchange hasn't happened).
+    pub fn get_peer_app_key(&self, peer_id: &PeerId) -> Option<PublicKey> {
+        self.peer_app_keys.get(peer_id).cloned()
+    }
 }
 
 impl NetworkBehaviour for SetupBehaviour {

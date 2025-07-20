@@ -25,7 +25,7 @@ async fn gossip_new_user() -> anyhow::Result<()> {
     const USERS_NUM: usize = 9;
 
     // Generate a keypair for the new user
-    let new_user_keypair = Keypair::generate_ed25519();
+    let new_user_app_keypair = Keypair::generate_ed25519();
 
     info!(users = USERS_NUM, "Setting up users in all-to-all topology");
     // Create the original users with allowlist containing the new user
@@ -60,9 +60,15 @@ async fn gossip_new_user() -> anyhow::Result<()> {
     let local_addr = build_multiaddr!(Memory(88888888_u64));
 
     // Create new user with all necessary information
+<<<<<<< HEAD
     info!(%local_addr, "Creating new user to listen");
+=======
+    info!("Creating new user to listen at {}", local_addr);
+    let new_user_transport_keypair = Keypair::generate_ed25519();
+>>>>>>> 130a0a8 (added command & test)
     let mut new_user = User::new(
-        new_user_keypair.clone(),
+        new_user_app_keypair.clone(),
+        new_user_transport_keypair.clone(),
         peer_ids.clone(),
         connect_addrs.clone(), // Connect directly to existing users
         local_addr.clone(),
@@ -99,7 +105,7 @@ async fn gossip_new_user() -> anyhow::Result<()> {
         user_handles[index]
             .command
             .send_command(Command::ConnectToPeer(ConnectToPeerCommand {
-                peer_id: new_user.kp.public().to_peer_id(),
+                peer_id: new_user.transport_keypair.public().to_peer_id(),
                 peer_addr: local_addr.clone(),
             }))
             .await;

@@ -1,6 +1,6 @@
 //! Commands for P2P implementation from operator implementation.
 
-use libp2p::{Multiaddr, PeerId};
+use libp2p::{Multiaddr, PeerId, identity::PublicKey};
 use tokio::sync::oneshot;
 
 /// Commands that users can send to the P2P node.
@@ -73,6 +73,15 @@ pub enum QueryP2PStateCommand {
     GetMyListeningAddresses {
         /// Channel to send the response back.
         response_sender: oneshot::Sender<Vec<Multiaddr>>,
+    },
+
+    /// Gets the app public key for a specific peer.
+    /// Returns None if we are not connected to the peer or key exchange hasn't happened yet.
+    GetAppPublicKey {
+        /// Peer ID to get the app public key for.
+        peer_id: PeerId,
+        /// Channel to send the response back.
+        response_sender: oneshot::Sender<Option<PublicKey>>,
     },
 }
 

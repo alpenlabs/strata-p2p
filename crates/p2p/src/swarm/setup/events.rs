@@ -24,7 +24,5 @@ pub enum SetupEvent {
     ///
     /// This event is fired when the entire handshake protocol has finished,
     /// signifying that the connection is ready for application-level communication.
-    HandshakeComplete {
-        peer_id: PeerId,
-    },
+    HandshakeComplete { peer_id: PeerId },
 }

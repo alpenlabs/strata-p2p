@@ -85,7 +85,9 @@ impl ConnectionHandler for SetupHandler {
         match event {
             libp2p::swarm::handler::ConnectionEvent::FullyNegotiatedInbound(inbound) => {
                 let handshake_msg = inbound.protocol;
-                if let Ok(public_key) = PublicKey::try_decode_protobuf(&handshake_msg.app_public_key) {
+                if let Ok(public_key) =
+                    PublicKey::try_decode_protobuf(&handshake_msg.app_public_key)
+                {
                     self.pending_events
                         .push(ConnectionHandlerEvent::NotifyBehaviour(
                             SetupEvent::AppKeyReceived {

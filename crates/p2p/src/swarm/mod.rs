@@ -22,7 +22,7 @@ use libp2p::{
     gossipsub::{
         Event as GossipsubEvent, Message, MessageAcceptance, MessageId, PublishError, Sha256Topic,
     },
-    identity::Keypair,
+    identity::{Keypair, PublicKey},
     noise,
     swarm::{
         SwarmEvent,
@@ -45,6 +45,7 @@ use crate::events::ReqRespEvent;
 use crate::{
     commands::{Command, QueryP2PStateCommand},
     events::GossipEvent,
+    swarm::setup::events::SetupEvent,
 };
 mod behavior;
 mod codec_raw;
@@ -81,8 +82,11 @@ pub const DEFAULT_CHANNEL_TIMEOUT: Duration = Duration::from_secs(5);
 /// Configuration options for [`P2P`].
 #[derive(Debug, Clone)]
 pub struct P2PConfig {
-    /// [`Keypair`] used as [`PeerId`].
-    pub keypair: Keypair,
+    /// Long-term application public key.
+    pub app_public_key: PublicKey,
+
+    /// Ephemeral transport keypair.
+    pub transport_keypair: Keypair,
 
     /// Idle connection timeout.
     pub idle_connection_timeout: Duration,
@@ -445,6 +449,7 @@ impl P2P {
             BehaviourEvent::RequestResponse(event) => {
                 self.handle_request_response_event(event).await
             }
+            BehaviourEvent::Setup(event) => self.handle_setup_event(event).await,
             _ => Ok(()),
         }
     }
@@ -641,6 +646,15 @@ impl P2P {
                     let _ = response_sender.send(multiaddresses);
                     Ok(())
                 }
+                QueryP2PStateCommand::GetAppPublicKey {
+                    peer_id,
+                    response_sender,
+                } => {
+                    info!(%peer_id, "Querying app public key for peer");
+                    let app_key = self.swarm.behaviour().setup.get_peer_app_key(&peer_id);
+                    let _ = response_sender.send(app_key);
+                    Ok(())
+                }
             },
         }
     }
@@ -777,6 +791,23 @@ impl P2P {
             }
         }
     }
+
+    /// Handles a [`SetupEvent`] from the swarm.
+    async fn handle_setup_event(&mut self, event: SetupEvent) -> P2PResult<()> {
+        match event {
+            SetupEvent::AppKeyReceived {
+                peer_id,
+                app_public_key,
+            } => {
+                info!(%peer_id, "Received app public key from peer");
+                trace!(%peer_id, ?app_public_key, "App public key details");
+            }
+            SetupEvent::HandshakeComplete { peer_id } => {
+                info!(%peer_id, "Setup handshake completed with peer");
+            }
+        }
+        Ok(())
+    }
 }
 
 /// Constructs swarm builder with existing identity.
@@ -787,7 +818,7 @@ impl P2P {
 /// actually specify return type of function. So we use macro for now.
 macro_rules! init_swarm {
     ($cfg:expr) => {
-        SwarmBuilder::with_existing_identity($cfg.keypair.clone().into()).with_tokio()
+        SwarmBuilder::with_existing_identity($cfg.transport_keypair.clone().into()).with_tokio()
     };
 }
 
@@ -801,7 +832,14 @@ macro_rules! finish_swarm {
     ($builder:expr, $cfg:expr) => {
         $builder
             .map_err(|e| ProtocolError::TransportInitialization(e.into()))?
-            .with_behaviour(|_| Behaviour::new(PROTOCOL_NAME, &$cfg.keypair, &$cfg.allowlist))
+            .with_behaviour(|_| {
+                Behaviour::new(
+                    PROTOCOL_NAME,
+                    &$cfg.transport_keypair,
+                    &$cfg.app_public_key,
+                    &$cfg.allowlist,
+                )
+            })
             .map_err(|e| ProtocolError::BehaviourInitialization(e.into()))?
             .with_swarm_config(|c| c.with_idle_connection_timeout($cfg.idle_connection_timeout))
             .build()

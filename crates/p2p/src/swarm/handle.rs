@@ -9,7 +9,10 @@ use std::{
 };
 
 use futures::{FutureExt, Stream};
-use libp2p::PeerId;
+use libp2p::{
+    PeerId,
+    identity::{Keypair, PublicKey},
+};
 use thiserror::Error;
 use tokio::{
     sync::{
@@ -154,6 +157,33 @@ impl CommandHandle {
         match timeout(Duration::from_secs(1), receiver).await {
             Ok(Ok(peers)) => peers,
             _ => Vec::new(), // Timeout or channel closed
+        }
+    }
+
+    /// Gets the app public key for a specific peer.
+    /// Returns None if we are not connected to the peer or key exchange hasn't happened yet.
+    pub async fn get_app_public_key(&self, peer_id: PeerId) -> Option<PublicKey> {
+        let (sender, receiver) = oneshot::channel();
+
+        // Send the command.
+        let cmd = Command::QueryP2PState(QueryP2PStateCommand::GetAppPublicKey {
+            peer_id,
+            response_sender: sender,
+        });
+
+        // Use a cloned sender to avoid borrow issues.
+        let cmd_sender = self.commands.clone();
+
+        // If sending fails, return None.
+        if cmd_sender.send(cmd).await.is_err() {
+            return None;
+        }
+
+        // Wait for response with timeout.
+        // TODO: make this configurable
+        match timeout(Duration::from_secs(1), receiver).await {
+            Ok(Ok(app_key)) => app_key,
+            _ => None, // Timeout or channel closed
         }
     }
 }
