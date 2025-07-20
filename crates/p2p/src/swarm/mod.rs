@@ -30,6 +30,7 @@ use libp2p::{
     },
     yamux,
 };
+use setup::behavior::Filtering;
 #[cfg(feature = "request-response")]
 use tokio::sync::oneshot;
 use tokio::{
@@ -43,10 +44,10 @@ use tracing::{debug, error, info, instrument, trace, warn};
 #[cfg(feature = "request-response")]
 use crate::events::ReqRespEvent;
 use crate::{
-    commands::{Command, QueryP2PStateCommand},
+    commands::{Command, FilteringActionCommand, QueryP2PStateCommand},
     events::GossipEvent,
     signer::ApplicationSigner,
-    swarm::setup::events::SetupEvent,
+    swarm::setup::events::SetupBehaviourEvent,
 };
 mod behavior;
 mod codec_raw;
@@ -82,7 +83,7 @@ pub const DEFAULT_CHANNEL_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Configuration options for [`P2P`].
 #[derive(Debug, Clone)]
-pub struct P2PConfig<S: ApplicationSigner> {
+pub struct P2PConfig<S: ApplicationSigner, F: Filtering> {
     /// Long-term application public key.
     pub app_public_key: PublicKey,
 
@@ -118,8 +119,8 @@ pub struct P2PConfig<S: ApplicationSigner> {
     /// The node's address.
     pub listening_addr: Multiaddr,
 
-    /// List of [`PeerId`]s that the node is allowed to connect to.
-    pub allowlist: Vec<PeerId>,
+    /// List of banned app [`PublicKey`]s.
+    pub filtering: F,
 
     /// Initial list of nodes to connect to at startup.
     pub connect_to: Vec<Multiaddr>,
@@ -131,9 +132,9 @@ pub struct P2PConfig<S: ApplicationSigner> {
 
 /// Implementation of P2P protocol data exchange.
 #[expect(missing_debug_implementations)]
-pub struct P2P<S: ApplicationSigner> {
+pub struct P2P<S: ApplicationSigner, F: Filtering> {
     /// The swarm that handles the networking.
-    swarm: Swarm<Behaviour<S>>,
+    swarm: Swarm<Behaviour<S, F>>,
 
     /// Event channel for the gossip.
     gossip_events: broadcast::Sender<GossipEvent>,
@@ -157,25 +158,28 @@ pub struct P2P<S: ApplicationSigner> {
     cancellation_token: CancellationToken,
 
     /// Underlying configuration.
-    config: P2PConfig<S>,
+    config: P2PConfig<S, F>,
 
     /// Phantom data for the ApplicationSigner type.
-    _phantom: std::marker::PhantomData<S>,
+    _phantom_signer: std::marker::PhantomData<S>,
+
+    /// Phantom data for the Filtering type.
+    _phantom_filtering: std::marker::PhantomData<F>,
 }
 
 /// Alias for [`P2P`] and [`ReqRespHandle`] tuple.
 #[cfg(feature = "request-response")]
-pub type P2PWithReqRespHandle<S> = (P2P<S>, ReqRespHandle);
+pub type P2PWithReqRespHandle<S, F> = (P2P<S, F>, ReqRespHandle);
 
-impl<S: ApplicationSigner> P2P<S> {
+impl<S: ApplicationSigner, F: Filtering> P2P<S, F> {
     /// Creates a new P2P instance from the given configuration.
     #[cfg(feature = "request-response")]
     pub fn from_config(
-        cfg: P2PConfig<S>,
+        cfg: P2PConfig<S, F>,
         cancel: CancellationToken,
-        mut swarm: Swarm<Behaviour<S>>,
+        mut swarm: Swarm<Behaviour<S, F>>,
         channel_size: Option<usize>,
-    ) -> P2PResult<P2PWithReqRespHandle<S>> {
+    ) -> P2PResult<P2PWithReqRespHandle<S, F>> {
         swarm
             .listen_on(cfg.listening_addr.clone())
             .map_err(ProtocolError::Listen)?;
@@ -199,7 +203,8 @@ impl<S: ApplicationSigner> P2P<S> {
                 commands_sender: cmds_tx.clone(),
                 cancellation_token: cancel,
                 config: cfg,
-                _phantom: std::marker::PhantomData,
+                _phantom_signer: std::marker::PhantomData,
+                _phantom_filtering: std::marker::PhantomData,
             },
             ReqRespHandle::new(req_resp_event_rx),
         ))
@@ -221,6 +226,12 @@ impl<S: ApplicationSigner> P2P<S> {
         let (gossip_events_tx, _gossip_events_rx) = broadcast::channel(channel_size);
         let (cmds_tx, cmds_rx) = mpsc::channel(64);
 
+        // Set the local peer ID on the setup behavior
+        p2p.swarm
+            .behaviour_mut()
+            .setup
+            .set_local_peer_id(local_peer_id);
+
         Ok(Self {
             swarm,
             gossip_events: gossip_events_tx,
@@ -228,6 +239,8 @@ impl<S: ApplicationSigner> P2P<S> {
             commands_sender: cmds_tx.clone(),
             cancellation_token: cancel,
             config: cfg,
+            _phantom_signer: std::marker::PhantomData,
+            _phantom_filtering: std::marker::PhantomData,
         })
     }
 
@@ -336,14 +349,9 @@ impl<S: ApplicationSigner> P2P<S> {
 
                 match event {
                     SwarmEvent::Behaviour(behavior::BehaviourEvent::Gossipsub(
-                        GossipsubEvent::Subscribed { peer_id, .. },
+                        GossipsubEvent::Subscribed { peer_id: _, .. },
                     )) => {
-                        if self.config.allowlist.contains(&peer_id) {
-                            subscriptions += 1;
-                            info!(%peer_id, %subscriptions, total=self.config.allowlist.len(), "got subscription");
-                        } else {
-                            debug!(%peer_id, %subscriptions, total=self.config.allowlist.len(), "got subscription from non-allowlisted peer");
-                        }
+                        subscriptions += 1;
                     }
                     SwarmEvent::ConnectionEstablished {
                         peer_id, endpoint, ..
@@ -376,13 +384,12 @@ impl<S: ApplicationSigner> P2P<S> {
                         elapsed=?start_time.elapsed(),
                         remaining_connections=is_not_connected.len(),
                         subscriptions=subscriptions,
-                        total_allowlist=self.config.allowlist.len(),
                         "connection establishment progress"
                     );
                     next_check = Instant::now() + connection_check_interval;
                 }
 
-                if is_not_connected.is_empty() && subscriptions >= self.config.allowlist.len() {
+                if is_not_connected.is_empty() {
                     info!("met all connection and subscription requirements");
                     return true;
                 }
@@ -399,7 +406,6 @@ impl<S: ApplicationSigner> P2P<S> {
                     elapsed=?start_time.elapsed(),
                     remaining_connections=is_not_connected.len(),
                     subscriptions=subscriptions,
-                    total_allowlist=self.config.allowlist.len(),
                     "swarm event loop exited unexpectedly"
                 );
             }
@@ -408,7 +414,6 @@ impl<S: ApplicationSigner> P2P<S> {
                     elapsed=?start_time.elapsed(),
                     remaining_connections=is_not_connected.len(),
                     subscriptions=subscriptions,
-                    total_allowlist=self.config.allowlist.len(),
                     "connection establishment timed out after {:?}", general_timeout
                 );
             }
@@ -449,7 +454,7 @@ impl<S: ApplicationSigner> P2P<S> {
     /// Handles a [`SwarmEvent`] from the swarm.
     async fn handle_swarm_event(
         &mut self,
-        event: SwarmEvent<<Behaviour<S> as NetworkBehaviour>::ToSwarm>,
+        event: SwarmEvent<<Behaviour<S, F> as NetworkBehaviour>::ToSwarm>,
     ) -> P2PResult<()> {
         match event {
             SwarmEvent::Behaviour(event) => self.handle_behaviour_event(event).await,
@@ -460,7 +465,7 @@ impl<S: ApplicationSigner> P2P<S> {
     /// Handles a [`BehaviourEvent`] from the swarm.
     async fn handle_behaviour_event(
         &mut self,
-        event: <Behaviour<S> as NetworkBehaviour>::ToSwarm,
+        event: <Behaviour<S, F> as NetworkBehaviour>::ToSwarm,
     ) -> P2PResult<()> {
         match event {
             BehaviourEvent::Gossipsub(event) => self.handle_gossip_event(event).await,
@@ -596,18 +601,6 @@ impl<S: ApplicationSigner> P2P<S> {
                 Ok(())
             }
             Command::ConnectToPeer(connect_to_peer_command) => {
-                // Whitelist peer
-                self.swarm
-                    .behaviour_mut()
-                    .allow_list
-                    .allow_peer(connect_to_peer_command.peer_id);
-
-                // Add the peer to our config lists.
-                self.config.allowlist.push(connect_to_peer_command.peer_id);
-                self.config
-                    .connect_to
-                    .push(connect_to_peer_command.peer_addr.clone());
-
                 // Add peer to swarm
                 self.swarm.add_peer_address(
                     connect_to_peer_command.peer_id,
@@ -670,11 +663,36 @@ impl<S: ApplicationSigner> P2P<S> {
                     response_sender,
                 } => {
                     info!(%peer_id, "Querying app public key for peer");
-                    let app_key = self.swarm.behaviour().setup.get_peer_app_key(&peer_id);
+                    let app_key = self
+                        .swarm
+                        .behaviour()
+                        .setup
+                        .get_app_key_by_peer_id(&peer_id);
                     let _ = response_sender.send(app_key);
                     Ok(())
                 }
             },
+            Command::FilteringAction(
+                FilteringActionCommand::DisrespectAppPkToCloseConnection { app_pk },
+            ) => {
+                self.swarm
+                    .behaviour_mut()
+                    .setup
+                    .get_mut_access_whole_filtering()
+                    .disrespect_app_pk_to_disallow_connection(app_pk);
+                Ok(())
+            }
+            Command::FilteringAction(FilteringActionCommand::RespectAppPkToAllowConnection {
+                app_pk,
+            }) => {
+                self.swarm
+                    .behaviour_mut()
+                    .setup
+                    .get_mut_access_whole_filtering()
+                    .respect_app_pk_to_allow_connection(app_pk);
+
+                Ok(())
+            }
         }
     }
 
@@ -703,21 +721,11 @@ impl<S: ApplicationSigner> P2P<S> {
                 peer,
                 request_id,
                 error,
-                ..
+                connection_id: _,
             } => {
                 warn!(%peer, %error, %request_id, "Inbound failure");
-                // retry mechanism
-                // get the addr from the peer
-                // it is the same index as the peer in the allowlist
-                let idx = self
-                    .config
-                    .allowlist
-                    .iter()
-                    .position(|id| *id == peer)
-                    .unwrap();
-                let addr = self.config.connect_to[idx].clone();
                 // dial the peer
-                let _ = self.swarm.dial(addr).inspect_err(|err| {
+                let _ = self.swarm.dial(peer).inspect_err(|err| {
                     error!(%peer, %error, %request_id, "Inbound failure");
                     error!(%err, "Failed to connect to peer '{peer}'");
                 });
@@ -812,24 +820,31 @@ impl<S: ApplicationSigner> P2P<S> {
     }
 
     /// Handles a [`SetupEvent`] from the swarm.
-    async fn handle_setup_event(&mut self, event: SetupEvent) -> P2PResult<()> {
+    async fn handle_setup_event(&mut self, event: SetupBehaviourEvent) -> P2PResult<()> {
         match event {
-            SetupEvent::AppKeyReceived {
+            SetupBehaviourEvent::AppKeyReceived {
                 peer_id,
                 app_public_key,
             } => {
                 info!(%peer_id, "Received app public key from peer");
                 trace!(%peer_id, ?app_public_key, "App public key details");
             }
-            SetupEvent::HandshakeComplete { peer_id } => {
+            SetupBehaviourEvent::HandshakeComplete { peer_id } => {
                 info!(%peer_id, "Setup handshake completed with peer");
             }
-            SetupEvent::SignatureVerificationFailed { peer_id, error } => {
+            SetupBehaviourEvent::SignatureVerificationFailed { peer_id, error } => {
                 error!(%peer_id, %error, "Signature verification failed, disconnecting peer");
                 // Drop the connection
                 if let Err(e) = self.swarm.disconnect_peer_id(peer_id) {
                     warn!(%peer_id, ?e, "Failed to disconnect peer after signature verification failure");
                 }
+            }
+            SetupBehaviourEvent::AttemptConnectToPeerNotInAllowedList {
+                peer_id,
+                app_public_key,
+            } => {
+                info!(%peer_id, "Received app public key from a banned peer");
+                trace!(%peer_id, ?app_public_key, "App public key details");
             }
         }
         Ok(())
@@ -864,7 +879,7 @@ macro_rules! finish_swarm {
                     &$cfg.transport_keypair,
                     &$cfg.app_public_key,
                     $cfg.signer.clone(),
-                    &$cfg.allowlist,
+                    $cfg.filtering.clone(),
                 )
             })
             .map_err(|e| ProtocolError::BehaviourInitialization(e.into()))?
@@ -875,9 +890,9 @@ macro_rules! finish_swarm {
 
 /// Constructs swarm from P2P config with inmemory transport. Uses
 /// `/memory/{n}` addresses.
-pub fn with_inmemory_transport<S: ApplicationSigner>(
-    config: &P2PConfig<S>,
-) -> P2PResult<Swarm<Behaviour<S>>> {
+pub fn with_inmemory_transport<S: ApplicationSigner, F: Filtering>(
+    config: &P2PConfig<S, F>,
+) -> P2PResult<Swarm<Behaviour<S, F>>> {
     let builder = init_swarm!(config);
     let swarm = finish_swarm!(
         builder.with_other_transport(|our_keypair| {
@@ -895,9 +910,9 @@ pub fn with_inmemory_transport<S: ApplicationSigner>(
 
 /// Constructs swarm from P2P config with TCP transport. Uses
 /// `/ip4/{addr}/tcp/{port}` addresses.
-pub fn with_tcp_transport<S: ApplicationSigner>(
-    config: &P2PConfig<S>,
-) -> P2PResult<Swarm<Behaviour<S>>> {
+pub fn with_tcp_transport<S: ApplicationSigner, F: Filtering>(
+    config: &P2PConfig<S, F>,
+) -> P2PResult<Swarm<Behaviour<S, F>>> {
     let builder = init_swarm!(config);
     let swarm = finish_swarm!(
         builder.with_tcp(

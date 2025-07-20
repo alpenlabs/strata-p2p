@@ -1,6 +1,6 @@
 //! Helper functions for the P2P tests.
 
-use std::time::Duration;
+use std::{collections::HashSet, sync::Once, time::Duration};
 
 use futures::future::join_all;
 use libp2p::{
@@ -10,6 +10,7 @@ use libp2p::{
 use rand::Rng;
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use tracing::debug;
+use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, util::SubscriberInitExt};
 
 #[cfg(feature = "request-response")]
 use crate::swarm::handle::ReqRespHandle;
@@ -17,10 +18,24 @@ use crate::{
     signer::ApplicationSigner,
     swarm::{
         self, P2P, P2PConfig,
-        handle::{CommandHandle, GossipHandle, P2PHandle},
+        handle::{CommandHandle, GossipHandle},
+        setup::behavior::{BanList, Filtering},
     },
 };
 
+/// Only attempt to start tracing once
+///
+/// it is needed for supporting plain `cargo test`
+pub(crate) fn init_tracing() {
+    static INIT: Once = Once::new();
+
+    INIT.call_once(|| {
+        tracing_subscriber::registry()
+            .with(EnvFilter::from_default_env())
+            .with(fmt::layer().with_file(true).with_line_number(true))
+            .init();
+    });
+}
 
 /// Mock ApplicationSigner for testing that stores the actual keypair
 #[derive(Debug, Clone)]
@@ -30,10 +45,8 @@ pub(crate) struct MockApplicationSigner {
 }
 
 impl MockApplicationSigner {
-    pub(crate) fn new(app_keypair: Keypair) -> Self {
-        Self {
-            app_keypair,
-        }
+    pub(crate) const fn new(app_keypair: Keypair) -> Self {
+        Self { app_keypair }
     }
 }
 
@@ -48,15 +61,15 @@ impl ApplicationSigner for MockApplicationSigner {
         if our_public_key.encode_protobuf() != app_public_key.encode_protobuf() {
             return Err("Public key mismatch: provided key doesn't match stored keypair".into());
         }
-        
+
         // Sign with the stored keypair
         let signature = self.app_keypair.sign(message)?;
         Ok(signature)
     }
 }
 
-pub(crate) struct User {
-    pub(crate) p2p: P2P<MockApplicationSigner>,
+pub(crate) struct User<F: Filtering> {
+    pub(crate) p2p: P2P<MockApplicationSigner, F>,
     pub(crate) gossip: GossipHandle,
     #[cfg(feature = "request-response")]
     pub(crate) reqresp: ReqRespHandle,
@@ -65,13 +78,13 @@ pub(crate) struct User {
     pub(crate) transport_keypair: Keypair,
 }
 
-impl User {
+impl<F: Filtering> User<F> {
     pub(crate) fn new(
         app_keypair: Keypair,
         transport_keypair: Keypair,
-        allowlist: Vec<PeerId>,
         connect_to: Vec<Multiaddr>,
         local_addr: Multiaddr,
+        filtering: F,
         cancel: CancellationToken,
     ) -> anyhow::Result<Self> {
         debug!(%local_addr, "Creating new user with local address");
@@ -86,10 +99,12 @@ impl User {
             general_timeout: None,
             connection_check_interval: None,
             listening_addr: local_addr,
-            allowlist,
+            filtering,
             connect_to,
             channel_timeout: None,
         };
+
+        let swarm = swarm::with_inmemory_transport::<MockApplicationSigner, F>(&config)?;
 
         #[cfg(feature = "request-response")]
         let (p2p, reqresp) = P2P::from_config(config, cancel, swarm, None)?;
@@ -98,7 +113,6 @@ impl User {
         let gossip = p2p.new_gossip_handle();
         let command = p2p.new_command_handle();
         // Signer instance is now included in P2PConfig
-        let swarm = swarm::with_inmemory_transport::<MockApplicationSigner>(&config)?;
 
         Ok(Self {
             p2p,
@@ -113,6 +127,7 @@ impl User {
 }
 
 /// Auxiliary structure to control users from outside.
+#[expect(dead_code)]
 pub(crate) struct UserHandle {
     pub(crate) gossip: GossipHandle,
     #[cfg(feature = "request-response")]
@@ -153,9 +168,9 @@ impl Setup {
             let user = User::new(
                 app_keypair.clone(),
                 transport_keypair.clone(),
-                other_peerids,
                 other_addrs,
                 addr.clone(),
+                BanList::new(HashSet::new()),
                 cancel.child_token(),
             )?;
 
@@ -221,7 +236,8 @@ impl Setup {
 
     /// Wait until all users established connections with other users,
     /// and then spawn [`P2P::listen`]s in separate tasks using [`TaskTracker`].
-    async fn start_users(mut users: Vec<User>) -> (Vec<UserHandle>, TaskTracker) {
+    async fn start_users<F: Filtering>(mut users: Vec<User<F>>) -> (Vec<UserHandle>, TaskTracker) {
+        // wait until all of them established connections and subscriptions
         join_all(
             users
                 .iter_mut()

@@ -59,7 +59,7 @@ impl Decoder for SetupMessageCodec {
             Ok(message) => {
                 let signature = message.signature.clone();
                 Ok(Some((message, signature)))
-            },
+            }
             Err(e) => Err(e),
         }
     }
@@ -95,13 +95,13 @@ impl InboundUpgrade<Stream> for InboundSetupUpgrade {
 
     fn upgrade_inbound(self, stream: Stream, _: Self::Info) -> Self::Future {
         Box::pin(async move {
-            let mut framed = Framed::new(stream, SetupMessageCodec::default());
+            let mut framed = Framed::new(stream, SetupMessageCodec);
             match StreamExt::next(&mut framed).await {
                 Some(Ok((message, _signature))) => {
                     // Verify the signature
                     let signature_valid = message.verify_signature().unwrap_or(false);
                     Ok((message, signature_valid))
-                },
+                }
                 Some(Err(e)) => Err(e),
                 None => Err(io::Error::new(
                     io::ErrorKind::UnexpectedEof,
@@ -125,7 +125,7 @@ pub struct OutboundSetupUpgrade<S: ApplicationSigner> {
 }
 
 impl<S: ApplicationSigner> OutboundSetupUpgrade<S> {
-    pub(super) fn new(
+    pub(super) const fn new(
         app_public_key: PublicKey,
         local_peer_id: PeerId,
         remote_peer_id: PeerId,
@@ -162,15 +162,12 @@ impl<S: ApplicationSigner> OutboundUpgrade<Stream> for OutboundSetupUpgrade<S> {
                 self.local_peer_id,
                 self.remote_peer_id,
                 &self.signer,
-            ).map_err(|e| {
-                io::Error::new(io::ErrorKind::Other, format!("Failed to create signed message: {}", e))
-            })?;
+            )
+            .map_err(|e| io::Error::other(format!("Failed to create signed message: {e}")))?;
 
-            let setup_message = match message {
-                crate::message::Message::Setup(setup_msg) => setup_msg,
-            };
+            let crate::message::Message::Setup(setup_message) = message;
 
-            let mut framed = Framed::new(stream, SetupMessageCodec::default());
+            let mut framed = Framed::new(stream, SetupMessageCodec);
             framed.send((setup_message, signature)).await?;
             framed.close().await
         })

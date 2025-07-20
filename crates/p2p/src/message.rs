@@ -3,8 +3,10 @@
 //! This module provides an extensible message system that supports different
 //! message types for the P2P protocol, including setup and gossip messages.
 
-use std::io;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::{
+    io,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use libp2p::{PeerId, identity::PublicKey};
 
@@ -61,23 +63,26 @@ impl Message {
     ) -> Result<(Self, Vec<u8>), Box<dyn std::error::Error + Send + Sync>> {
         // Create the unsigned message first
         let setup_message = SetupMessage::new(app_public_key, local_peer_id, remote_peer_id);
-        
+
         // Get the message bytes for signing
         let message_bytes = setup_message.to_bytes();
-        
+
         // Sign the message
         let signature = signer.sign(&message_bytes, app_public_key)?;
-        
+
         Ok((Message::Setup(setup_message), signature))
     }
 
     /// Verifies a message signature
-    pub fn verify_signature(&self, signature: &[u8]) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+    pub fn verify_signature(
+        &self,
+        signature: &[u8],
+    ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
         match self {
             Message::Setup(setup_msg) => {
                 let app_public_key = setup_msg.get_app_public_key()?;
                 let message_bytes = setup_msg.to_bytes();
-                
+
                 Ok(app_public_key.verify(&message_bytes, signature))
             }
         }
@@ -96,22 +101,26 @@ impl Message {
         if data.len() < 2 {
             return Err(io::Error::new(io::ErrorKind::InvalidData, "Data too short"));
         }
-        
+
         let protocol_id = data[1]; // Second byte is protocol ID
-        
+
         match protocol_id {
             SETUP_PROTOCOL_ID => {
                 let setup_msg = SetupMessage::from_bytes(data)?;
                 let signature = setup_msg.signature.clone();
                 Ok((Message::Setup(setup_msg), signature))
             }
-            _ => Err(io::Error::new(io::ErrorKind::InvalidData, "Unknown protocol ID")),
+            _ => Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "Unknown protocol ID",
+            )),
         }
     }
 }
 
 /// Setup message structure for the handshake protocol.
-/// Format: [version][protocol(setup)][application_pk][local_transport_id][remote_transport_id][unix_timestamp]
+/// Format: \[version\]\[protocol(setup)\]\[application_pk\]\[local_transport_id\]\
+/// [remote_transport_id\]\[unix_timestamp\]
 #[derive(Debug, Clone, PartialEq)]
 pub struct SetupMessage {
     /// Protocol version
@@ -149,32 +158,31 @@ impl SetupMessage {
         }
     }
 
-
     /// Gets the application public key as a libp2p PublicKey.
     pub fn get_app_public_key(
         &self,
     ) -> Result<PublicKey, Box<dyn std::error::Error + Send + Sync>> {
         PublicKey::try_decode_protobuf(&self.app_public_key)
-            .map_err(|e| format!("Failed to decode application public key: {}", e).into())
+            .map_err(|e| format!("Failed to decode application public key: {e}").into())
     }
 
     /// Gets the local peer ID.
     pub fn get_local_peer_id(&self) -> Result<PeerId, Box<dyn std::error::Error + Send + Sync>> {
         PeerId::from_bytes(&self.local_transport_id)
-            .map_err(|e| format!("Failed to decode local peer ID: {}", e).into())
+            .map_err(|e| format!("Failed to decode local peer ID: {e}").into())
     }
 
     /// Gets the remote peer ID.
     pub fn get_remote_peer_id(&self) -> Result<PeerId, Box<dyn std::error::Error + Send + Sync>> {
         PeerId::from_bytes(&self.remote_transport_id)
-            .map_err(|e| format!("Failed to decode remote peer ID: {}", e).into())
+            .map_err(|e| format!("Failed to decode remote peer ID: {e}").into())
     }
 
     /// Verifies the signature of this message using the embedded app public key.
     pub fn verify_signature(&self) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
         // Get the app public key
         let app_public_key = self.get_app_public_key()?;
-        
+
         // Use the same method as signing - to_bytes() which excludes signature
         let content = self.to_bytes();
 
@@ -185,7 +193,7 @@ impl SetupMessage {
     /// Gets bytes with signature for transmission over the wire
     pub fn to_bytes_with_signature(&self) -> Vec<u8> {
         let mut bytes = self.to_bytes();
-        
+
         // Write signature length and data
         bytes.extend_from_slice(&(self.signature.len() as u32).to_be_bytes());
         bytes.extend_from_slice(&self.signature);
@@ -259,8 +267,11 @@ impl P2PMessage for SetupMessage {
     fn from_bytes(data: &[u8]) -> Result<Self, io::Error> {
         let mut cursor = 0;
 
-        if data.len() < 1 {
-            return Err(io::Error::new(io::ErrorKind::InvalidData, "Data too short for version"));
+        if data.is_empty() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "Data too short for version",
+            ));
         }
 
         // Read version
@@ -269,14 +280,20 @@ impl P2PMessage for SetupMessage {
 
         // Read protocol
         if data.len() < cursor + 1 {
-            return Err(io::Error::new(io::ErrorKind::InvalidData, "Data too short for protocol"));
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "Data too short for protocol",
+            ));
         }
         let protocol = data[cursor];
         cursor += 1;
 
         // Read app_public_key
         if data.len() < cursor + 4 {
-            return Err(io::Error::new(io::ErrorKind::InvalidData, "Data too short for app_public_key length"));
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "Data too short for app_public_key length",
+            ));
         }
         let app_key_len = u32::from_be_bytes([
             data[cursor],
@@ -287,14 +304,20 @@ impl P2PMessage for SetupMessage {
         cursor += 4;
 
         if data.len() < cursor + app_key_len {
-            return Err(io::Error::new(io::ErrorKind::InvalidData, "Data too short for app_public_key"));
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "Data too short for app_public_key",
+            ));
         }
         let app_public_key = data[cursor..cursor + app_key_len].to_vec();
         cursor += app_key_len;
 
         // Read local_transport_id
         if data.len() < cursor + 4 {
-            return Err(io::Error::new(io::ErrorKind::InvalidData, "Data too short for local_transport_id length"));
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "Data too short for local_transport_id length",
+            ));
         }
         let my_id_len = u32::from_be_bytes([
             data[cursor],
@@ -305,14 +328,20 @@ impl P2PMessage for SetupMessage {
         cursor += 4;
 
         if data.len() < cursor + my_id_len {
-            return Err(io::Error::new(io::ErrorKind::InvalidData, "Data too short for local_transport_id"));
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "Data too short for local_transport_id",
+            ));
         }
         let local_transport_id = data[cursor..cursor + my_id_len].to_vec();
         cursor += my_id_len;
 
         // Read remote_transport_id
         if data.len() < cursor + 4 {
-            return Err(io::Error::new(io::ErrorKind::InvalidData, "Data too short for remote_transport_id length"));
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "Data too short for remote_transport_id length",
+            ));
         }
         let their_id_len = u32::from_be_bytes([
             data[cursor],
@@ -323,14 +352,20 @@ impl P2PMessage for SetupMessage {
         cursor += 4;
 
         if data.len() < cursor + their_id_len {
-            return Err(io::Error::new(io::ErrorKind::InvalidData, "Data too short for remote_transport_id"));
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "Data too short for remote_transport_id",
+            ));
         }
         let remote_transport_id = data[cursor..cursor + their_id_len].to_vec();
         cursor += their_id_len;
 
         // Read date
         if data.len() < cursor + 8 {
-            return Err(io::Error::new(io::ErrorKind::InvalidData, "Data too short for date"));
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "Data too short for date",
+            ));
         }
         let date = u64::from_be_bytes([
             data[cursor],
@@ -346,7 +381,10 @@ impl P2PMessage for SetupMessage {
 
         // Read signature
         if data.len() < cursor + 4 {
-            return Err(io::Error::new(io::ErrorKind::InvalidData, "Data too short for signature length"));
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "Data too short for signature length",
+            ));
         }
         let sig_len = u32::from_be_bytes([
             data[cursor],
@@ -357,7 +395,10 @@ impl P2PMessage for SetupMessage {
         cursor += 4;
 
         if data.len() < cursor + sig_len {
-            return Err(io::Error::new(io::ErrorKind::InvalidData, "Data too short for signature"));
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "Data too short for signature",
+            ));
         }
         let signature = data[cursor..cursor + sig_len].to_vec();
 
