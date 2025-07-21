@@ -68,9 +68,9 @@ impl Message {
         local_peer_id: PeerId,
         remote_peer_id: PeerId,
         signer: &S,
-    ) -> Result<(Self, Vec<u8>), Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         // Create the unsigned message first
-        let setup_message = SetupMessage::new(app_public_key, local_peer_id, remote_peer_id);
+        let mut setup_message = SetupMessage::new(app_public_key, local_peer_id, remote_peer_id);
 
         // Get the message bytes for signing
         let message_bytes = setup_message.to_bytes();
@@ -78,7 +78,9 @@ impl Message {
         // Sign the message
         let signature = signer.sign(&message_bytes, app_public_key)?;
 
-        Ok((Message::Setup(setup_message), signature))
+        setup_message.signature = signature;
+
+        Ok(Message::Setup(setup_message))
     }
 
     /// Verifies a message signature

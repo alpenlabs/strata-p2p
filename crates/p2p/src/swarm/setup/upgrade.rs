@@ -24,12 +24,11 @@ use crate::{
 pub(crate) struct SetupMessageCodec;
 
 impl Encoder for SetupMessageCodec {
-    type Item = (SetupMessage, Vec<u8>); // (message, signature)
+    type Item = SetupMessage; // (message, signature)
     type Error = io::Error;
 
     fn encode(&mut self, item: Self::Item, dst: &mut BytesMut) -> Result<(), Self::Error> {
-        let (mut message, signature) = item;
-        message.signature = signature; // Set the signature
+        let message = item;
         let bytes = message.to_bytes_with_signature();
         dst.extend_from_slice(&(bytes.len() as u32).to_be_bytes());
         dst.extend_from_slice(&bytes);
@@ -154,7 +153,7 @@ impl<S: ApplicationSigner> OutboundUpgrade<Stream> for OutboundSetupUpgrade<S> {
     fn upgrade_outbound(self, stream: Stream, _: Self::Info) -> Self::Future {
         Box::pin(async move {
             // Create a signed message using Message::setup_signed
-            let (message, signature) = Message::setup_signed(
+            let message = Message::setup_signed(
                 &self.app_public_key,
                 self.local_peer_id,
                 self.remote_peer_id,
@@ -165,7 +164,7 @@ impl<S: ApplicationSigner> OutboundUpgrade<Stream> for OutboundSetupUpgrade<S> {
             let Message::Setup(setup_message) = message;
 
             let mut framed = Framed::new(stream, SetupMessageCodec);
-            framed.send((setup_message, signature)).await?;
+            framed.send(setup_message).await?;
             framed.close().await
         })
     }
