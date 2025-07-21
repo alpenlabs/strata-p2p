@@ -16,7 +16,7 @@ use libp2p::{
     swarm::NetworkBehaviour,
 };
 
-use super::{codec_raw, filtering::Filtering, MAX_TRANSMIT_SIZE, TOPIC};
+use super::{codec_raw,  MAX_TRANSMIT_SIZE, TOPIC};
 use crate::{signer::ApplicationSigner, swarm::setup::behavior::SetupBehaviour};
 
 /// Alias for request-response behaviour with messages serialized by using
@@ -27,9 +27,9 @@ pub(crate) type RequestResponseRawBehaviour = RequestResponse<codec_raw::Codec>;
 /// implementation.
 #[expect(missing_debug_implementations)]
 #[derive(NetworkBehaviour)]
-pub struct Behaviour<S: ApplicationSigner, F: Filtering> {
+pub struct Behaviour<S: ApplicationSigner> {
     /// Exchange application public keys before establish the connection.
-    pub setup: SetupBehaviour<S, F>,
+    pub setup: SetupBehaviour<S>,
 
     /// Identification of peers, address to connect to, public keys, etc.
     pub identify: Identify,
@@ -41,7 +41,7 @@ pub struct Behaviour<S: ApplicationSigner, F: Filtering> {
     pub gossipsub: Gossipsub<IdentityTransform, WhitelistSubscriptionFilter>,
 }
 
-impl<S: ApplicationSigner, F: Filtering> Behaviour<S, F> {
+impl<S: ApplicationSigner> Behaviour<S> {
     /// Creates a new [`Behaviour`] given a `protocol_name`, transport [`Keypair`], app
     /// [`PublicKey`], signer, and an allow list of [`PeerId`]s.
     pub fn new(
@@ -49,7 +49,7 @@ impl<S: ApplicationSigner, F: Filtering> Behaviour<S, F> {
         transport_keypair: &Keypair,
         app_public_key: &libp2p::identity::PublicKey,
         signer: S,
-        filtering: F,
+        filtering: HashSet<libp2p::identity::PublicKey>,
     ) -> Self {
         let mut filter = HashSet::new();
         filter.insert(TOPIC.hash());

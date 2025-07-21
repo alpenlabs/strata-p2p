@@ -4,7 +4,10 @@
 //! of peer-to-peer connections, including handshake coordination and application
 //! public key exchange.
 
-use std::task::{Context, Poll};
+use std::{
+    collections::HashSet,
+    task::{Context, Poll},
+};
 
 use bimap::BiHashMap;
 use libp2p::{
@@ -16,33 +19,30 @@ use libp2p::{
 
 use crate::{
     signer::ApplicationSigner,
-    swarm::{
-        filtering::Filtering,
-        setup::{
-            events::{SetupBehaviourEvent, SetupHandlerEvent},
-            handler::SetupHandler,
-        },
+    swarm::setup::{
+        events::{SetupBehaviourEvent, SetupHandlerEvent},
+        handler::SetupHandler,
     },
 };
 
 /// Network behavior for managing the setup phase.
 #[derive(Debug)]
-pub struct SetupBehaviour<S: ApplicationSigner, F: Filtering> {
+pub struct SetupBehaviour<S: ApplicationSigner> {
     app_public_key: PublicKey,
     local_transport_id: PeerId,
     signer: S,
     peer_app_keys: BiHashMap<PeerId, PublicKey>,
     events: Vec<SetupBehaviourEvent>,
     events_toswarm_unwrapped: Vec<ToSwarm<SetupBehaviourEvent, ()>>,
-    app_pk_filtering: F,
+    app_pk_allow_list: HashSet<PublicKey>,
 }
 
-impl<S: ApplicationSigner, F: Filtering> SetupBehaviour<S, F> {
+impl<S: ApplicationSigner> SetupBehaviour<S> {
     pub(crate) fn new(
         app_public_key: PublicKey,
         transport_id: PeerId,
         signer: S,
-        app_pk_filtering: F,
+        app_pk_allow_list: HashSet<PublicKey>,
     ) -> Self {
         Self {
             app_public_key,
@@ -51,7 +51,7 @@ impl<S: ApplicationSigner, F: Filtering> SetupBehaviour<S, F> {
             peer_app_keys: BiHashMap::new(),
             events: Vec::new(),
             events_toswarm_unwrapped: Vec::new(),
-            app_pk_filtering,
+            app_pk_allow_list,
         }
     }
 
@@ -74,23 +74,23 @@ impl<S: ApplicationSigner, F: Filtering> SetupBehaviour<S, F> {
     }
 
     /// Copy filtering.
-    pub fn get_whole_filtering(self) -> F {
-        self.app_pk_filtering
+    pub fn get_whole_filtering(self) -> HashSet<PublicKey> {
+        self.app_pk_allow_list
     }
 
     /// Const access to filtering.
-    pub const fn get_access_whole_filtering(&self) -> &F {
-        &self.app_pk_filtering
+    pub const fn get_access_whole_filtering(&self) -> &HashSet<PublicKey> {
+        &self.app_pk_allow_list
     }
 
     /// Mutable access to filtering.
     #[expect(clippy::missing_const_for_fn, reason = "false positive")]
-    pub fn get_mut_access_whole_filtering(&mut self) -> &mut F {
-        &mut self.app_pk_filtering
+    pub fn get_mut_access_whole_filtering(&mut self) -> &mut HashSet<PublicKey> {
+        &mut self.app_pk_allow_list
     }
 }
 
-impl<S: ApplicationSigner, F: Filtering> NetworkBehaviour for SetupBehaviour<S, F> {
+impl<S: ApplicationSigner> NetworkBehaviour for SetupBehaviour<S> {
     type ConnectionHandler = SetupHandler<S>;
     type ToSwarm = SetupBehaviourEvent;
 
@@ -138,10 +138,7 @@ impl<S: ApplicationSigner, F: Filtering> NetworkBehaviour for SetupBehaviour<S, 
         match event {
             SetupHandlerEvent::AppKeyReceived { app_public_key } => {
                 self.peer_app_keys.insert(peer_id, app_public_key.clone());
-                match self
-                    .app_pk_filtering
-                    .is_app_pk_respected_enough_to_connect(&app_public_key)
-                {
+                match self.app_pk_allow_list.contains(&app_public_key) {
                     true => {
                         self.events.push(SetupBehaviourEvent::AppKeyReceived {
                             peer_id,

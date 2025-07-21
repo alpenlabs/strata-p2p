@@ -10,7 +10,6 @@ use behavior::{Behaviour, BehaviourEvent};
 #[cfg(feature = "request-response")]
 use errors::Error;
 use errors::{P2PResult, ProtocolError};
-use filtering::Filtering;
 use futures::StreamExt as _;
 #[cfg(feature = "request-response")]
 use handle::ReqRespHandle;
@@ -52,7 +51,6 @@ use crate::{
 mod behavior;
 mod codec_raw;
 pub mod errors;
-pub mod filtering;
 pub mod handle;
 pub mod setup;
 
@@ -84,7 +82,7 @@ pub const DEFAULT_CHANNEL_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Configuration options for [`P2P`].
 #[derive(Debug, Clone)]
-pub struct P2PConfig<S: ApplicationSigner, F: Filtering> {
+pub struct P2PConfig<S: ApplicationSigner> {
     /// Long-term application public key.
     pub app_public_key: PublicKey,
 
@@ -120,8 +118,8 @@ pub struct P2PConfig<S: ApplicationSigner, F: Filtering> {
     /// The node's address.
     pub listening_addr: Multiaddr,
 
-    /// List of banned app [`PublicKey`]s.
-    pub filtering: F,
+    /// List of allowed application [`PublicKey`]s.
+    pub filtering: HashSet<PublicKey>,
 
     /// Initial list of nodes to connect to at startup.
     pub connect_to: Vec<Multiaddr>,
@@ -133,9 +131,9 @@ pub struct P2PConfig<S: ApplicationSigner, F: Filtering> {
 
 /// Implementation of P2P protocol data exchange.
 #[expect(missing_debug_implementations)]
-pub struct P2P<S: ApplicationSigner, F: Filtering> {
+pub struct P2P<S: ApplicationSigner> {
     /// The swarm that handles the networking.
-    swarm: Swarm<Behaviour<S, F>>,
+    swarm: Swarm<Behaviour<S>>,
 
     /// Event channel for the gossip.
     gossip_events: broadcast::Sender<GossipEvent>,
@@ -159,28 +157,25 @@ pub struct P2P<S: ApplicationSigner, F: Filtering> {
     cancellation_token: CancellationToken,
 
     /// Underlying configuration.
-    config: P2PConfig<S, F>,
+    config: P2PConfig<S>,
 
     /// Phantom data for the ApplicationSigner type.
     _phantom_signer: std::marker::PhantomData<S>,
-
-    /// Phantom data for the Filtering type.
-    _phantom_filtering: std::marker::PhantomData<F>,
 }
 
 /// Alias for [`P2P`] and [`ReqRespHandle`] tuple.
 #[cfg(feature = "request-response")]
-pub type P2PWithReqRespHandle<S, F> = (P2P<S, F>, ReqRespHandle);
+pub type P2PWithReqRespHandle<S> = (P2P<S>, ReqRespHandle);
 
-impl<S: ApplicationSigner, F: Filtering> P2P<S, F> {
+impl<S: ApplicationSigner> P2P<S> {
     /// Creates a new P2P instance from the given configuration.
     #[cfg(feature = "request-response")]
     pub fn from_config(
-        cfg: P2PConfig<S, F>,
+        cfg: P2PConfig<S>,
         cancel: CancellationToken,
-        mut swarm: Swarm<Behaviour<S, F>>,
+        mut swarm: Swarm<Behaviour<S>>,
         channel_size: Option<usize>,
-    ) -> P2PResult<P2PWithReqRespHandle<S, F>> {
+    ) -> P2PResult<P2PWithReqRespHandle<S>> {
         swarm
             .listen_on(cfg.listening_addr.clone())
             .map_err(ProtocolError::Listen)?;
@@ -205,7 +200,6 @@ impl<S: ApplicationSigner, F: Filtering> P2P<S, F> {
                 cancellation_token: cancel,
                 config: cfg,
                 _phantom_signer: std::marker::PhantomData,
-                _phantom_filtering: std::marker::PhantomData,
             },
             ReqRespHandle::new(req_resp_event_rx),
         ))
@@ -455,7 +449,7 @@ impl<S: ApplicationSigner, F: Filtering> P2P<S, F> {
     /// Handles a [`SwarmEvent`] from the swarm.
     async fn handle_swarm_event(
         &mut self,
-        event: SwarmEvent<<Behaviour<S, F> as NetworkBehaviour>::ToSwarm>,
+        event: SwarmEvent<<Behaviour<S> as NetworkBehaviour>::ToSwarm>,
     ) -> P2PResult<()> {
         match event {
             SwarmEvent::Behaviour(event) => self.handle_behaviour_event(event).await,
@@ -466,7 +460,7 @@ impl<S: ApplicationSigner, F: Filtering> P2P<S, F> {
     /// Handles a [`BehaviourEvent`] from the swarm.
     async fn handle_behaviour_event(
         &mut self,
-        event: <Behaviour<S, F> as NetworkBehaviour>::ToSwarm,
+        event: <Behaviour<S> as NetworkBehaviour>::ToSwarm,
     ) -> P2PResult<()> {
         match event {
             BehaviourEvent::Gossipsub(event) => self.handle_gossip_event(event).await,
@@ -680,7 +674,7 @@ impl<S: ApplicationSigner, F: Filtering> P2P<S, F> {
                     .behaviour_mut()
                     .setup
                     .get_mut_access_whole_filtering()
-                    .disrespect_app_pk_to_disallow_connection(app_pk);
+                    .remove(&app_pk);
                 Ok(())
             }
             Command::FilteringAction(FilteringActionCommand::RespectAppPkToAllowConnection {
@@ -690,7 +684,7 @@ impl<S: ApplicationSigner, F: Filtering> P2P<S, F> {
                     .behaviour_mut()
                     .setup
                     .get_mut_access_whole_filtering()
-                    .respect_app_pk_to_allow_connection(app_pk);
+                    .insert(app_pk);
 
                 Ok(())
             }
@@ -891,9 +885,9 @@ macro_rules! finish_swarm {
 
 /// Constructs swarm from P2P config with inmemory transport. Uses
 /// `/memory/{n}` addresses.
-pub fn with_inmemory_transport<S: ApplicationSigner, F: Filtering>(
-    config: &P2PConfig<S, F>,
-) -> P2PResult<Swarm<Behaviour<S, F>>> {
+pub fn with_inmemory_transport<S: ApplicationSigner>(
+    config: &P2PConfig<S>,
+) -> P2PResult<Swarm<Behaviour<S>>> {
     let builder = init_swarm!(config);
     let swarm = finish_swarm!(
         builder.with_other_transport(|our_keypair| {
@@ -911,9 +905,9 @@ pub fn with_inmemory_transport<S: ApplicationSigner, F: Filtering>(
 
 /// Constructs swarm from P2P config with TCP transport. Uses
 /// `/ip4/{addr}/tcp/{port}` addresses.
-pub fn with_tcp_transport<S: ApplicationSigner, F: Filtering>(
-    config: &P2PConfig<S, F>,
-) -> P2PResult<Swarm<Behaviour<S, F>>> {
+pub fn with_tcp_transport<S: ApplicationSigner>(
+    config: &P2PConfig<S>,
+) -> P2PResult<Swarm<Behaviour<S>>> {
     let builder = init_swarm!(config);
     let swarm = finish_swarm!(
         builder.with_tcp(

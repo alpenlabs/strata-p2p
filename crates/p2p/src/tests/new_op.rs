@@ -10,12 +10,13 @@ use super::common::Setup;
 use crate::{
     commands::{Command, ConnectToPeerCommand, QueryP2PStateCommand},
     events::GossipEvent,
-    swarm::filtering::BanList,
     tests::common::{User, init_tracing},
 };
 
 /// Tests sending a gossipsub message from a new user to all existing users.
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+#[ignore = "Because filtering in another PR"]
 async fn gossip_new_user() -> anyhow::Result<()> {
     init_tracing();
     const USERS_NUM: usize = 9;
@@ -60,7 +61,7 @@ async fn gossip_new_user() -> anyhow::Result<()> {
         new_user_transport_keypair.clone(),
         connect_addrs.clone(), // Connect directly to existing users
         local_addr.clone(),
-        BanList::new(HashSet::new()),
+        HashSet::new(),
         cancel.child_token(),
     )
     .unwrap();

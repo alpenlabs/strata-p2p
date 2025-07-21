@@ -18,7 +18,6 @@ use crate::{
     signer::ApplicationSigner,
     swarm::{
         self, P2P, P2PConfig,
-        filtering::{BanList, Filtering},
         handle::{CommandHandle, GossipHandle},
     },
 };
@@ -68,8 +67,8 @@ impl ApplicationSigner for MockApplicationSigner {
     }
 }
 
-pub(crate) struct User<F: Filtering> {
-    pub(crate) p2p: P2P<MockApplicationSigner, F>,
+pub(crate) struct User {
+    pub(crate) p2p: P2P<MockApplicationSigner>,
     pub(crate) gossip: GossipHandle,
     #[cfg(feature = "request-response")]
     pub(crate) reqresp: ReqRespHandle,
@@ -78,13 +77,13 @@ pub(crate) struct User<F: Filtering> {
     pub(crate) transport_keypair: Keypair,
 }
 
-impl<F: Filtering> User<F> {
+impl User {
     pub(crate) fn new(
         app_keypair: Keypair,
         transport_keypair: Keypair,
         connect_to: Vec<Multiaddr>,
         local_addr: Multiaddr,
-        filtering: F,
+        allow_list: HashSet<PublicKey>,
         cancel: CancellationToken,
     ) -> anyhow::Result<Self> {
         debug!(%local_addr, "Creating new user with local address");
@@ -99,12 +98,12 @@ impl<F: Filtering> User<F> {
             general_timeout: None,
             connection_check_interval: None,
             listening_addr: local_addr,
-            filtering,
+            filtering: allow_list,
             connect_to,
             channel_timeout: None,
         };
 
-        let swarm = swarm::with_inmemory_transport::<MockApplicationSigner, F>(&config)?;
+        let swarm = swarm::with_inmemory_transport::<MockApplicationSigner>(&config)?;
 
         #[cfg(feature = "request-response")]
         let (p2p, reqresp) = P2P::from_config(config, cancel, swarm, None)?;
@@ -164,13 +163,18 @@ impl Setup {
             other_addrs.remove(idx);
             let mut other_peerids = peer_ids.clone();
             other_peerids.remove(idx);
+            let mut other_app_pk = app_keypairs
+                .iter()
+                .map(|kp| kp.public())
+                .collect::<HashSet<_>>();
+            other_app_pk.remove(&app_keypair.public());
 
             let user = User::new(
                 app_keypair.clone(),
                 transport_keypair.clone(),
                 other_addrs,
                 addr.clone(),
-                BanList::new(HashSet::new()),
+                other_app_pk,
                 cancel.child_token(),
             )?;
 
@@ -236,7 +240,7 @@ impl Setup {
 
     /// Wait until all users established connections with other users,
     /// and then spawn [`P2P::listen`]s in separate tasks using [`TaskTracker`].
-    async fn start_users<F: Filtering>(mut users: Vec<User<F>>) -> (Vec<UserHandle>, TaskTracker) {
+    async fn start_users(mut users: Vec<User>) -> (Vec<UserHandle>, TaskTracker) {
         // wait until all of them established connections and subscriptions
         join_all(
             users
