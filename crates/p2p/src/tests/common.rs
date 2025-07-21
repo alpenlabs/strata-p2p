@@ -19,7 +19,7 @@ use crate::{
     swarm::{
         self, P2P, P2PConfig,
         filtering::{BanList, Filtering},
-        handle::{CommandHandle, GossipHandle, P2PHandle},
+        handle::{CommandHandle, GossipHandle},
     },
 };
 
