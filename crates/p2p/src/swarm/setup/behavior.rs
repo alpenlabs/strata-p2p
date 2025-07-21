@@ -112,14 +112,14 @@ impl<S: ApplicationSigner> NetworkBehaviour for SetupBehaviour<S> {
                 match self.app_pk_allow_list.contains(&app_public_key) {
                     true => {
                         self.events.push(SetupBehaviourEvent::AppKeyReceived {
-                            peer_id,
+                            transport_id: peer_id,
                             app_public_key,
                         });
                     }
                     false => {
                         self.events
                             .push(SetupBehaviourEvent::AttemptConnectToDisrespectedPeer {
-                                peer_id,
+                                transport_id: peer_id,
                                 app_public_key,
                             });
                         self.events_toswarm_unwrapped
@@ -131,12 +131,16 @@ impl<S: ApplicationSigner> NetworkBehaviour for SetupBehaviour<S> {
                 };
             }
             SetupHandlerEvent::HandshakeComplete => {
-                self.events
-                    .push(SetupBehaviourEvent::HandshakeComplete { peer_id });
+                self.events.push(SetupBehaviourEvent::HandshakeComplete {
+                    transport_id: peer_id,
+                });
             }
             SetupHandlerEvent::SignatureVerificationFailed { error, .. } => {
                 self.events
-                    .push(SetupBehaviourEvent::SignatureVerificationFailed { peer_id, error });
+                    .push(SetupBehaviourEvent::SignatureVerificationFailed {
+                        transport_id: peer_id,
+                        error,
+                    });
             }
         }
     }

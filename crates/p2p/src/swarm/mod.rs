@@ -787,16 +787,21 @@ impl<S: ApplicationSigner> P2P<S> {
     async fn handle_setup_event(&mut self, event: SetupBehaviourEvent) -> P2PResult<()> {
         match event {
             SetupBehaviourEvent::AppKeyReceived {
-                peer_id,
+                transport_id: peer_id,
                 app_public_key,
             } => {
                 info!(%peer_id, "Received app public key from peer");
                 trace!(%peer_id, ?app_public_key, "App public key details");
             }
-            SetupBehaviourEvent::HandshakeComplete { peer_id } => {
+            SetupBehaviourEvent::HandshakeComplete {
+                transport_id: peer_id,
+            } => {
                 info!(%peer_id, "Setup handshake completed with peer");
             }
-            SetupBehaviourEvent::SignatureVerificationFailed { peer_id, error } => {
+            SetupBehaviourEvent::SignatureVerificationFailed {
+                transport_id: peer_id,
+                error,
+            } => {
                 error!(%peer_id, %error, "Signature verification failed, disconnecting peer");
                 // Drop the connection
                 if let Err(e) = self.swarm.disconnect_peer_id(peer_id) {
@@ -804,7 +809,7 @@ impl<S: ApplicationSigner> P2P<S> {
                 }
             }
             SetupBehaviourEvent::AttemptConnectToDisrespectedPeer {
-                peer_id,
+                transport_id: peer_id,
                 app_public_key,
             } => {
                 info!(%peer_id, "Received app public key from a banned peer");

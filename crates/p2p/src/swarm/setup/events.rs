@@ -17,26 +17,26 @@ pub enum SetupBehaviourEvent {
     /// This event is fired when the local node successfully receives and
     /// processes a peer's application public key during the handshake.
     AppKeyReceived {
-        peer_id: PeerId,
+        transport_id: PeerId,
         app_public_key: PublicKey,
     },
     /// Indicates that the handshake process has completed successfully.
     ///
     /// This event is fired when the entire handshake protocol has finished,
     /// signifying that the connection is ready for application-level communication.
-    HandshakeComplete { peer_id: PeerId },
+    HandshakeComplete { transport_id: PeerId },
 
     /// Indicates that signature verification failed.
     ///
     /// This event is fired when the signature verification fails for a peer's
     /// handshake message, indicating the connection should be dropped.
-    SignatureVerificationFailed { peer_id: PeerId, error: String },
+    SignatureVerificationFailed { transport_id: PeerId, error: String },
 
     /// We received the app_public_key for the peerid, but the app_public_key is in
     /// app_pk_allowlist, therefore closed all connection to the peer with given PeerId (aka
     /// Transport ID)
     AttemptConnectToDisrespectedPeer {
-        peer_id: PeerId,
+        transport_id: PeerId,
         app_public_key: PublicKey,
     },
 }
