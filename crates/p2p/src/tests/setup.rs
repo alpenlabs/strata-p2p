@@ -7,9 +7,7 @@ use tokio::time::sleep;
 use tracing::info;
 
 use crate::{
-    commands::{Command, QueryP2PStateCommand},
-    swarm::setup::behavior::AllowList,
-    tests::common::{Setup, User, init_tracing},
+    commands::{Command, QueryP2PStateCommand}, swarm::filtering::AllowList, tests::common::{init_tracing, Setup, User}
 };
 
 /// Test that get_app_public_key returns the correct key after setup phase.

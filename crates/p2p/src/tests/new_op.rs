@@ -10,7 +10,7 @@ use super::common::Setup;
 use crate::{
     commands::{Command, ConnectToPeerCommand, QueryP2PStateCommand},
     events::GossipEvent,
-    swarm::setup::behavior::BanList,
+    swarm::filtering::BanList,
     tests::common::{User, init_tracing},
 };
 

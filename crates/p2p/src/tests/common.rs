@@ -18,8 +18,8 @@ use crate::{
     signer::ApplicationSigner,
     swarm::{
         self, P2P, P2PConfig,
-        handle::{CommandHandle, GossipHandle},
-        setup::behavior::{BanList, Filtering},
+        filtering::{BanList, Filtering},
+        handle::{CommandHandle, GossipHandle, P2PHandle},
     },
 };
 

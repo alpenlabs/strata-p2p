@@ -10,6 +10,7 @@ use behavior::{Behaviour, BehaviourEvent};
 #[cfg(feature = "request-response")]
 use errors::Error;
 use errors::{P2PResult, ProtocolError};
+use filtering::Filtering;
 use futures::StreamExt as _;
 #[cfg(feature = "request-response")]
 use handle::ReqRespHandle;
@@ -30,7 +31,6 @@ use libp2p::{
     },
     yamux,
 };
-use setup::behavior::Filtering;
 #[cfg(feature = "request-response")]
 use tokio::sync::oneshot;
 use tokio::{
@@ -52,6 +52,7 @@ use crate::{
 mod behavior;
 mod codec_raw;
 pub mod errors;
+pub mod filtering;
 pub mod handle;
 pub mod setup;
 
