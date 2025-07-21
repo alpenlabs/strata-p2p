@@ -5,11 +5,10 @@
 //! public key exchange.
 
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     task::{Context, Poll},
 };
 
-use bimap::BiHashMap;
 use libp2p::{
     PeerId,
     core::transport::PortUse,
@@ -31,7 +30,7 @@ pub struct SetupBehaviour<S: ApplicationSigner> {
     app_public_key: PublicKey,
     local_transport_id: PeerId,
     signer: S,
-    peer_app_keys: BiHashMap<PeerId, PublicKey>,
+    peer_app_keys: HashMap<PeerId, PublicKey>,
     events: Vec<SetupBehaviourEvent>,
     events_toswarm_unwrapped: Vec<ToSwarm<SetupBehaviourEvent, ()>>,
     app_pk_allow_list: HashSet<PublicKey>,
@@ -48,7 +47,7 @@ impl<S: ApplicationSigner> SetupBehaviour<S> {
             app_public_key,
             local_transport_id: transport_id,
             signer,
-            peer_app_keys: BiHashMap::new(),
+            peer_app_keys: HashMap::new(),
             events: Vec::new(),
             events_toswarm_unwrapped: Vec::new(),
             app_pk_allow_list,
@@ -58,14 +57,9 @@ impl<S: ApplicationSigner> SetupBehaviour<S> {
     /// Gets the peerid by a specific app public key.
     /// Returns None if we don't have the key (not connected or key exchange hasn't happened).
     pub fn get_app_key_by_peer_id(&self, peer_id: &PeerId) -> Option<PublicKey> {
-        self.peer_app_keys.get_by_left(peer_id).cloned()
+        self.peer_app_keys.get(peer_id).cloned()
     }
 
-    /// Gets the app public key by a specific peerid.
-    /// Returns None if we don't have the key (not connected or key exchange hasn't happened).
-    pub fn get_peer_id_by_app_pk(&self, app_public_key: &PublicKey) -> Option<PeerId> {
-        self.peer_app_keys.get_by_right(app_public_key).cloned()
-    }
 
     /// Sets the local peer ID (for compatibility with existing code).
     #[expect(clippy::missing_const_for_fn, reason = "false positive")]
