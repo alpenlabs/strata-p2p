@@ -230,8 +230,6 @@ impl<S: ApplicationSigner> P2P<S> {
             commands_sender: cmds_tx.clone(),
             cancellation_token: cancel,
             config: cfg,
-            _phantom_signer: std::marker::PhantomData,
-            _phantom_filtering: std::marker::PhantomData,
         })
     }
 
