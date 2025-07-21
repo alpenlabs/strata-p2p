@@ -83,9 +83,8 @@ async fn gossip_new_user() -> anyhow::Result<()> {
     sleep(Duration::from_millis(5000)).await;
 
     // Connect the old users to the new one
-    for index in 0..connect_addrs.len() {
-        user_handles[index]
-            .command
+    for user in user_handles.iter().take(connect_addrs.len()) {
+        user.command
             .send_command(Command::ConnectToPeer(ConnectToPeerCommand {
                 peer_id: new_user.transport_keypair.public().to_peer_id(),
                 peer_addr: local_addr.clone(),
