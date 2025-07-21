@@ -8,6 +8,41 @@ use thiserror::Error;
 /// P2P result type.
 pub type P2PResult<T> = Result<T, Error>;
 
+/// Errors for validatation inside of validate.
+#[derive(Debug, Clone)]
+pub enum SetupMessageValidationError {
+    /// Version mismatch: version of message is not supported or is incorrect.
+    VersionMismatch,
+    /// Protocol mismatch: protocol of message is not supported or is incorrect.
+    ProtocolMismatch,
+    /// Application public key in message is somehow empty.
+    AppPublicKeyEmpty,
+    /// Local (our) transport id ( [`PeerId`] ) is missing.
+    LocalTransportIdEmpty,
+    /// Remote (someone's) transport id ( [`PeerId`] ) is missing.
+    RemoteTransportIdEmpty,
+}
+
+impl std::fmt::Display for SetupMessageValidationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SetupMessageValidationError::VersionMismatch => write!(f, "Invalid protocol version"),
+            SetupMessageValidationError::ProtocolMismatch => write!(f, "Invalid protocol ID"),
+            SetupMessageValidationError::AppPublicKeyEmpty => {
+                write!(f, "Application public key is empty")
+            }
+            SetupMessageValidationError::LocalTransportIdEmpty => {
+                write!(f, "Local transport ID is empty")
+            }
+            SetupMessageValidationError::RemoteTransportIdEmpty => {
+                write!(f, "Remote transport ID is empty")
+            }
+        }
+    }
+}
+
+impl std::error::Error for SetupMessageValidationError {}
+
 /// Swarm errors.
 #[derive(Debug, Error)]
 pub enum Error {

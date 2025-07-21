@@ -48,10 +48,12 @@ use crate::{
     signer::ApplicationSigner,
     swarm::setup::events::SetupBehaviourEvent,
 };
+
 mod behavior;
 mod codec_raw;
 pub mod errors;
 pub mod handle;
+mod message;
 pub mod setup;
 
 /// Global topic name for gossipsub messages.

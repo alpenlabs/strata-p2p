@@ -8,27 +8,34 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use libp2p::{PeerId, identity::PublicKey};
+use libp2p::{
+    PeerId,
+    identity::{DecodingError, ParseError, PublicKey},
+};
+
+use crate::swarm::errors::SetupMessageValidationError;
 
 /// Protocol version for all messages
-pub const PROTOCOL_VERSION: u8 = 2;
+pub(crate) const PROTOCOL_VERSION: u8 = 2;
 
 /// Protocol identifier for setup messages
-pub const SETUP_PROTOCOL_ID: u8 = 1;
+pub(crate) const SETUP_PROTOCOL_ID: u8 = 1;
 
 /// Enum representing different message types in the P2P protocol
 #[derive(Debug, Clone)]
-pub enum Message {
+pub(crate) enum Message {
     /// Setup message for handshake protocol
     Setup(SetupMessage),
 }
 
 /// Trait for all P2P messages that can be signed and verified
-pub trait P2PMessage {
+pub(crate) trait P2PMessage {
     /// Gets the protocol identifier for this message type
+    #[expect(dead_code)]
     fn protocol(&self) -> u8;
 
     /// Gets the protocol version
+    #[expect(dead_code)]
     fn version(&self) -> u8;
 
     /// Serializes the message to bytes (manual serialization)
@@ -42,7 +49,8 @@ pub trait P2PMessage {
 
 impl Message {
     /// Creates a new setup message
-    pub fn setup(
+    #[expect(dead_code)]
+    pub(crate) fn setup(
         app_public_key: &PublicKey,
         local_peer_id: PeerId,
         remote_peer_id: PeerId,
@@ -55,7 +63,7 @@ impl Message {
     }
 
     /// Creates a new signed setup message with the given signer
-    pub fn setup_signed<S: crate::signer::ApplicationSigner>(
+    pub(crate) fn setup_signed<S: crate::signer::ApplicationSigner>(
         app_public_key: &PublicKey,
         local_peer_id: PeerId,
         remote_peer_id: PeerId,
@@ -74,7 +82,8 @@ impl Message {
     }
 
     /// Verifies a message signature
-    pub fn verify_signature(
+    #[expect(dead_code)]
+    pub(crate) fn verify_signature(
         &self,
         signature: &[u8],
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
@@ -89,14 +98,16 @@ impl Message {
     }
 
     /// Extracts the message content (without signature) as bytes
-    pub fn to_bytes(&self) -> Vec<u8> {
+    #[expect(dead_code)]
+    pub(crate) fn to_bytes(&self) -> Vec<u8> {
         match self {
             Message::Setup(setup_msg) => setup_msg.to_bytes(),
         }
     }
 
     /// Deserializes a message from bytes, returning both the message and signature
-    pub fn from_bytes(data: &[u8]) -> Result<(Self, Vec<u8>), io::Error> {
+    #[expect(dead_code)]
+    pub(crate) fn from_bytes(data: &[u8]) -> Result<(Self, Vec<u8>), io::Error> {
         // For now, we assume it's a setup message based on the protocol ID
         if data.len() < 2 {
             return Err(io::Error::new(io::ErrorKind::InvalidData, "Data too short"));
@@ -159,27 +170,22 @@ impl SetupMessage {
     }
 
     /// Gets the application public key as a libp2p PublicKey.
-    pub fn get_app_public_key(
-        &self,
-    ) -> Result<PublicKey, Box<dyn std::error::Error + Send + Sync>> {
+    pub fn get_app_public_key(&self) -> Result<PublicKey, DecodingError> {
         PublicKey::try_decode_protobuf(&self.app_public_key)
-            .map_err(|e| format!("Failed to decode application public key: {e}").into())
     }
 
     /// Gets the local peer ID.
-    pub fn get_local_peer_id(&self) -> Result<PeerId, Box<dyn std::error::Error + Send + Sync>> {
+    pub fn get_local_peer_id(&self) -> Result<PeerId, ParseError> {
         PeerId::from_bytes(&self.local_transport_id)
-            .map_err(|e| format!("Failed to decode local peer ID: {e}").into())
     }
 
     /// Gets the remote peer ID.
-    pub fn get_remote_peer_id(&self) -> Result<PeerId, Box<dyn std::error::Error + Send + Sync>> {
+    pub fn get_remote_peer_id(&self) -> Result<PeerId, ParseError> {
         PeerId::from_bytes(&self.remote_transport_id)
-            .map_err(|e| format!("Failed to decode remote peer ID: {e}").into())
     }
 
     /// Verifies the signature of this message using the embedded app public key.
-    pub fn verify_signature(&self) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+    pub fn verify_signature(&self) -> Result<bool, DecodingError> {
         // Get the app public key
         let app_public_key = self.get_app_public_key()?;
 
@@ -202,25 +208,25 @@ impl SetupMessage {
     }
 
     /// Validates the message format and content
-    pub fn validate(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    pub const fn validate(&self) -> Result<(), SetupMessageValidationError> {
         if self.version != PROTOCOL_VERSION {
-            return Err(format!("Invalid protocol version: {}", self.version).into());
+            return Err(SetupMessageValidationError::VersionMismatch);
         }
 
         if self.protocol != SETUP_PROTOCOL_ID {
-            return Err(format!("Invalid protocol ID: {}", self.protocol).into());
+            return Err(SetupMessageValidationError::ProtocolMismatch);
         }
 
         if self.app_public_key.is_empty() {
-            return Err("Application public key is empty".into());
+            return Err(SetupMessageValidationError::AppPublicKeyEmpty);
         }
 
         if self.local_transport_id.is_empty() {
-            return Err("Local transport ID is empty".into());
+            return Err(SetupMessageValidationError::LocalTransportIdEmpty);
         }
 
         if self.remote_transport_id.is_empty() {
-            return Err("Remote transport ID is empty".into());
+            return Err(SetupMessageValidationError::RemoteTransportIdEmpty);
         }
 
         Ok(())

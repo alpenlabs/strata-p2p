@@ -15,8 +15,8 @@ use libp2p::{
 use tokio::io;
 
 use crate::{
-    message::{P2PMessage, SetupMessage},
     signer::ApplicationSigner,
+    swarm::message::{Message, P2PMessage, SetupMessage},
 };
 
 /// Custom codec for SetupMessage with manual serialization
@@ -154,7 +154,7 @@ impl<S: ApplicationSigner> OutboundUpgrade<Stream> for OutboundSetupUpgrade<S> {
     fn upgrade_outbound(self, stream: Stream, _: Self::Info) -> Self::Future {
         Box::pin(async move {
             // Create a signed message using Message::setup_signed
-            let (message, signature) = crate::message::Message::setup_signed(
+            let (message, signature) = Message::setup_signed(
                 &self.app_public_key,
                 self.local_peer_id,
                 self.remote_peer_id,
@@ -162,7 +162,7 @@ impl<S: ApplicationSigner> OutboundUpgrade<Stream> for OutboundSetupUpgrade<S> {
             )
             .map_err(|e| io::Error::other(format!("Failed to create signed message: {e}")))?;
 
-            let crate::message::Message::Setup(setup_message) = message;
+            let Message::Setup(setup_message) = message;
 
             let mut framed = Framed::new(stream, SetupMessageCodec);
             framed.send((setup_message, signature)).await?;
