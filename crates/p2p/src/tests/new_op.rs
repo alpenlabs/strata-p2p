@@ -2,8 +2,7 @@
 
 use std::{collections::HashSet, time::Duration};
 
-use anyhow::bail;
-use libp2p::{Multiaddr, PeerId, build_multiaddr, identity::Keypair};
+use libp2p::{Multiaddr, build_multiaddr, identity::Keypair};
 use tokio::{sync::oneshot::channel, time::sleep};
 use tracing::{debug, info};
 
@@ -84,7 +83,7 @@ async fn gossip_new_user() -> anyhow::Result<()> {
     sleep(Duration::from_millis(5000)).await;
 
     // Connect the old users to the new one
-    for (index, addr) in connect_addrs.iter().enumerate() {
+    for index in 0..connect_addrs.len() {
         user_handles[index]
             .command
             .send_command(Command::ConnectToPeer(ConnectToPeerCommand {

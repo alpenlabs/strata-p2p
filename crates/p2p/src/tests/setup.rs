@@ -29,8 +29,8 @@ async fn test_get_app_public_key_command() {
     let user2 = &setup.user_handles[1];
 
     // Get connected peers
-    let user1_peers = user1.handle.get_connected_peers().await;
-    let user2_peers = user2.handle.get_connected_peers().await;
+    let user1_peers = user1.command.get_connected_peers().await;
+    let user2_peers = user2.command.get_connected_peers().await;
 
     assert!(
         !user1_peers.is_empty(),
@@ -43,7 +43,7 @@ async fn test_get_app_public_key_command() {
 
     // Test getting app public key for user2 from user1's perspective
     let user2_peer_id = user2.peer_id;
-    let app_key_from_user1 = user1.handle.get_app_public_key(user2_peer_id).await;
+    let app_key_from_user1 = user1.command.get_app_public_key(user2_peer_id).await;
 
     // Should have the app public key after setup
     assert!(
@@ -60,7 +60,7 @@ async fn test_get_app_public_key_command() {
 
     // Test getting app public key for user1 from user2's perspective
     let user1_peer_id = user1.peer_id;
-    let app_key_from_user2 = user2.handle.get_app_public_key(user1_peer_id).await;
+    let app_key_from_user2 = user2.command.get_app_public_key(user1_peer_id).await;
 
     // Should have the app public key after setup
     assert!(
@@ -78,7 +78,7 @@ async fn test_get_app_public_key_command() {
     // Test getting app public key for a non-existent peer
     let fake_keypair = libp2p::identity::Keypair::generate_ed25519();
     let fake_peer_id = fake_keypair.public().to_peer_id();
-    let non_existent_key = user1.handle.get_app_public_key(fake_peer_id).await;
+    let non_existent_key = user1.command.get_app_public_key(fake_peer_id).await;
 
     // Should return None for non-connected peer
     assert!(
@@ -120,7 +120,7 @@ async fn test_allowlist_and_banlist() -> anyhow::Result<()> {
     sleep(Duration::from_secs(2)).await;
 
     // Verify user1 and user2 are connected to each other
-    let user1_connected_peers = user1_handle.handle.get_connected_peers().await;
+    let user1_connected_peers = user1_handle.command.get_connected_peers().await;
     assert_eq!(
         user1_connected_peers.len(),
         1,
@@ -131,7 +131,7 @@ async fn test_allowlist_and_banlist() -> anyhow::Result<()> {
         "User1 should be connected to User2"
     );
 
-    let user2_connected_peers = user2_handle.handle.get_connected_peers().await;
+    let user2_connected_peers = user2_handle.command.get_connected_peers().await;
     assert_eq!(
         user2_connected_peers.len(),
         1,
@@ -146,7 +146,7 @@ async fn test_allowlist_and_banlist() -> anyhow::Result<()> {
     let mut original_user_addrs = Vec::new();
     let (tx1, rx1) = tokio::sync::oneshot::channel::<Vec<Multiaddr>>();
     user1_handle
-        .handle
+        .command
         .send_command(Command::QueryP2PState(
             QueryP2PStateCommand::GetMyListeningAddresses {
                 response_sender: tx1,
@@ -157,7 +157,7 @@ async fn test_allowlist_and_banlist() -> anyhow::Result<()> {
 
     let (tx2, rx2) = tokio::sync::oneshot::channel::<Vec<Multiaddr>>();
     user2_handle
-        .handle
+        .command
         .send_command(Command::QueryP2PState(
             QueryP2PStateCommand::GetMyListeningAddresses {
                 response_sender: tx2,
@@ -193,7 +193,7 @@ async fn test_allowlist_and_banlist() -> anyhow::Result<()> {
         cancel.child_token(),
     )?;
     let new_user1_peer_id = new_user1_transport_keypair.public().to_peer_id();
-    let new_user1_handle = new_user1.handle.clone(); // Capture handle for later queries
+    let new_user1_handle = new_user1.command.clone(); // Capture handle for later queries
 
     let new_user1_public_key = new_user1_app_keypair.public();
     info!(
@@ -217,7 +217,7 @@ async fn test_allowlist_and_banlist() -> anyhow::Result<()> {
         cancel.child_token(),
     )?;
     let new_user2_peer_id = new_user2_transport_keypair.public().to_peer_id();
-    let new_user2_handle = new_user2.handle.clone(); // Capture handle for later queries
+    let new_user2_handle = new_user2.command.clone(); // Capture handle for later queries
 
     let new_user2_public_key = new_user2_app_keypair.public();
     info!(
@@ -279,7 +279,7 @@ async fn test_allowlist_and_banlist() -> anyhow::Result<()> {
     // Also verify what original users see.
     // User1 should be connected to User2 (from initial setup) and NewUser2 (because NewUser2
     // connected to User1 and User1 accepted).
-    let user1_final_peers = user1_handle.handle.get_connected_peers().await;
+    let user1_final_peers = user1_handle.command.get_connected_peers().await;
     info!("User1 final connected peers: {:?}", user1_final_peers);
     assert_eq!(
         user1_final_peers.len(),
@@ -301,7 +301,7 @@ async fn test_allowlist_and_banlist() -> anyhow::Result<()> {
 
     // User2 should be connected to User1 (from initial setup) and NewUser1 (because NewUser1
     // connected to User2 and User2 accepted).
-    let user2_final_peers = user2_handle.handle.get_connected_peers().await;
+    let user2_final_peers = user2_handle.command.get_connected_peers().await;
     info!("User2 final connected peers: {:?}", user2_final_peers);
     assert_eq!(
         user2_final_peers.len(),

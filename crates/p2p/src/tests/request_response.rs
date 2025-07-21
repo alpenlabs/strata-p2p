@@ -8,7 +8,6 @@ use crate::{commands::Command, events::ReqRespEvent, tests::common::init_tracing
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn test_reqresp_basic() -> anyhow::Result<()> {
     init_tracing();
-    const USERS_NUM: usize = 2;
 
     let Setup {
         cancel,
