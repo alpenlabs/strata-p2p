@@ -158,9 +158,6 @@ pub struct P2P<S: ApplicationSigner> {
 
     /// Underlying configuration.
     config: P2PConfig<S>,
-
-    /// Phantom data for the ApplicationSigner type.
-    _phantom_signer: std::marker::PhantomData<S>,
 }
 
 /// Alias for [`P2P`] and [`ReqRespHandle`] tuple.
@@ -199,7 +196,6 @@ impl<S: ApplicationSigner> P2P<S> {
                 commands_sender: cmds_tx.clone(),
                 cancellation_token: cancel,
                 config: cfg,
-                _phantom_signer: std::marker::PhantomData,
             },
             ReqRespHandle::new(req_resp_event_rx),
         ))
