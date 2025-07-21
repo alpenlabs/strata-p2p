@@ -647,13 +647,13 @@ impl<S: ApplicationSigner> P2P<S> {
                     peer_id,
                     response_sender,
                 } => {
-                    info!(%peer_id, "Querying app public key for peer");
-                    let app_key = self
+                    let app_pk = self
                         .swarm
                         .behaviour()
                         .setup
                         .get_app_public_key_by_transport_id(&peer_id);
-                    let _ = response_sender.send(app_key);
+                    info!(%peer_id, ?app_pk, "Querying app public key for peer");
+                    let _ = response_sender.send(app_pk);
                     Ok(())
                 }
             },
