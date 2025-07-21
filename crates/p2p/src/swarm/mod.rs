@@ -657,7 +657,7 @@ impl<S: ApplicationSigner> P2P<S> {
                         .swarm
                         .behaviour()
                         .setup
-                        .get_app_key_by_peer_id(&peer_id);
+                        .get_app_public_key_by_transport_id(&peer_id);
                     let _ = response_sender.send(app_key);
                     Ok(())
                 }
