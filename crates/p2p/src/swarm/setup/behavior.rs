@@ -59,22 +59,6 @@ impl<S: ApplicationSigner> SetupBehaviour<S> {
     pub fn get_app_public_key_by_transport_id(&self, peer_id: &PeerId) -> Option<PublicKey> {
         self.peer_app_keys.get(peer_id).cloned()
     }
-
-    /// Copy filtering.
-    pub fn get_whole_filtering(self) -> HashSet<PublicKey> {
-        self.app_pk_allow_list
-    }
-
-    /// Const access to filtering.
-    pub const fn get_access_whole_filtering(&self) -> &HashSet<PublicKey> {
-        &self.app_pk_allow_list
-    }
-
-    /// Mutable access to filtering.
-    #[expect(clippy::missing_const_for_fn, reason = "false positive")]
-    pub fn get_mut_access_whole_filtering(&mut self) -> &mut HashSet<PublicKey> {
-        &mut self.app_pk_allow_list
-    }
 }
 
 impl<S: ApplicationSigner> NetworkBehaviour for SetupBehaviour<S> {
