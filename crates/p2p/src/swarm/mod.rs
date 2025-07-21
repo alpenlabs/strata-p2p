@@ -119,7 +119,7 @@ pub struct P2PConfig<S: ApplicationSigner> {
     pub listening_addr: Multiaddr,
 
     /// List of allowed application [`PublicKey`]s.
-    pub filtering: HashSet<PublicKey>,
+    pub allowlist: HashSet<PublicKey>,
 
     /// Initial list of nodes to connect to at startup.
     pub connect_to: Vec<Multiaddr>,
@@ -853,7 +853,7 @@ macro_rules! finish_swarm {
                     &$cfg.transport_keypair,
                     &$cfg.app_public_key,
                     $cfg.signer.clone(),
-                    $cfg.filtering.clone(),
+                    $cfg.allowlist.clone(),
                 )
             })
             .map_err(|e| ProtocolError::BehaviourInitialization(e.into()))?

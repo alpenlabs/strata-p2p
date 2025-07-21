@@ -98,7 +98,7 @@ impl User {
             general_timeout: None,
             connection_check_interval: None,
             listening_addr: local_addr,
-            filtering: allow_list,
+            allowlist: allow_list,
             connect_to,
             channel_timeout: None,
         };
