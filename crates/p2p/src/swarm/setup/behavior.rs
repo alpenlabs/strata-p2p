@@ -60,12 +60,6 @@ impl<S: ApplicationSigner> SetupBehaviour<S> {
         self.peer_app_keys.get(peer_id).cloned()
     }
 
-    /// Sets the local peer ID (for compatibility with existing code).
-    #[expect(clippy::missing_const_for_fn, reason = "false positive")]
-    pub fn set_local_peer_id(&mut self, peer_id: PeerId) {
-        self.local_transport_id = peer_id;
-    }
-
     /// Copy filtering.
     pub fn get_whole_filtering(self) -> HashSet<PublicKey> {
         self.app_pk_allow_list

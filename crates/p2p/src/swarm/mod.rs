@@ -182,11 +182,6 @@ impl<S: ApplicationSigner> P2P<S> {
         let (req_resp_event_tx, req_resp_event_rx) = mpsc::channel(64);
         let (cmds_tx, cmds_rx) = mpsc::channel(64);
 
-        let local_peer_id = *swarm.local_peer_id();
-
-        // Set the local peer ID on the setup behavior
-        swarm.behaviour_mut().setup.set_local_peer_id(local_peer_id);
-
         Ok((
             Self {
                 swarm,
