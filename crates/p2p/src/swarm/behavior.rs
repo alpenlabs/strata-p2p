@@ -16,7 +16,7 @@ use libp2p::{
     swarm::NetworkBehaviour,
 };
 
-use super::{codec_raw,  MAX_TRANSMIT_SIZE, TOPIC};
+use super::{MAX_TRANSMIT_SIZE, TOPIC, codec_raw};
 use crate::{signer::ApplicationSigner, swarm::setup::behavior::SetupBehaviour};
 
 /// Alias for request-response behaviour with messages serialized by using
