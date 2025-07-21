@@ -38,7 +38,7 @@ impl Encoder for SetupMessageCodec {
 }
 
 impl Decoder for SetupMessageCodec {
-    type Item = (SetupMessage, Vec<u8>); // (message, signature)
+    type Item = SetupMessage; // (message, signature)
     type Error = io::Error;
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
@@ -56,10 +56,7 @@ impl Decoder for SetupMessageCodec {
         let message_bytes = src.split_to(len);
 
         match SetupMessage::from_bytes(&message_bytes) {
-            Ok(message) => {
-                let signature = message.signature.clone();
-                Ok(Some((message, signature)))
-            }
+            Ok(message) => Ok(Some(message)),
             Err(e) => Err(e),
         }
     }
@@ -97,7 +94,7 @@ impl InboundUpgrade<Stream> for InboundSetupUpgrade {
         Box::pin(async move {
             let mut framed = Framed::new(stream, SetupMessageCodec);
             match StreamExt::next(&mut framed).await {
-                Some(Ok((message, _signature))) => {
+                Some(Ok(message)) => {
                     // Verify the signature
                     let signature_valid = message.verify_signature().unwrap_or(false);
                     Ok((message, signature_valid))
