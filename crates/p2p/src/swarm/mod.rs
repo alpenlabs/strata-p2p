@@ -43,7 +43,7 @@ use tracing::{debug, error, info, instrument, trace, warn};
 #[cfg(feature = "request-response")]
 use crate::events::ReqRespEvent;
 use crate::{
-    commands::{Command, FilteringActionCommand, QueryP2PStateCommand},
+    commands::{Command, QueryP2PStateCommand},
     events::GossipEvent,
     signer::ApplicationSigner,
     swarm::setup::events::SetupBehaviourEvent,
@@ -667,27 +667,6 @@ impl<S: ApplicationSigner> P2P<S> {
                     Ok(())
                 }
             },
-            Command::FilteringAction(
-                FilteringActionCommand::DisrespectAppPkToCloseConnection { app_pk },
-            ) => {
-                self.swarm
-                    .behaviour_mut()
-                    .setup
-                    .get_mut_access_whole_filtering()
-                    .remove(&app_pk);
-                Ok(())
-            }
-            Command::FilteringAction(FilteringActionCommand::RespectAppPkToAllowConnection {
-                app_pk,
-            }) => {
-                self.swarm
-                    .behaviour_mut()
-                    .setup
-                    .get_mut_access_whole_filtering()
-                    .insert(app_pk);
-
-                Ok(())
-            }
         }
     }
 

@@ -32,9 +32,6 @@ pub enum Command {
 
     /// Directly queries P2P state (doesn't produce events).
     QueryP2PState(QueryP2PStateCommand),
-
-    /// Actions related to filtering  a peer by its application [`PublicKey`].
-    FilteringAction(FilteringActionCommand),
 }
 
 /// Connects to a peer, whitelists peer, and adds peer to the gossip sub network.
@@ -51,26 +48,6 @@ impl From<ConnectToPeerCommand> for Command {
     fn from(v: ConnectToPeerCommand) -> Self {
         Self::ConnectToPeer(v)
     }
-}
-
-/// Command to do something with filtering peers by their application [`PublicKey`]
-#[derive(Debug, Clone)]
-pub enum FilteringActionCommand {
-    /// i.e. if filtering is banlist, then ban
-    /// if filtering is allowlist, then disallow
-    /// if filtering is Scoring, then set some scores to some low values.
-    DisrespectAppPkToCloseConnection {
-        /// Application [`PublicKey`] of the peer to disrespect
-        app_pk: PublicKey,
-    },
-
-    /// i.e. if filtering is banlist, then unban
-    /// if filtering is allowlist, then disallow
-    /// if filtering is Scoring, then set some scores to some high values.
-    RespectAppPkToAllowConnection {
-        /// Application [`PublicKey`] of the peer to disrespect
-        app_pk: PublicKey,
-    },
 }
 
 /// Commands to directly query P2P state information.
