@@ -27,7 +27,7 @@ pub struct InboundSetupUpgrade;
 
 impl InboundSetupUpgrade {
     /// Creates a new inbound setup upgrade.
-    pub(super) const fn new() -> Self {
+    pub(crate) const fn new() -> Self {
         Self
     }
 }
@@ -80,7 +80,7 @@ pub struct OutboundSetupUpgrade<S: ApplicationSigner> {
 }
 
 impl<S: ApplicationSigner> OutboundSetupUpgrade<S> {
-    pub(super) const fn new(
+    pub(crate) const fn new(
         app_public_key: PublicKey,
         local_peer_id: PeerId,
         remote_peer_id: PeerId,

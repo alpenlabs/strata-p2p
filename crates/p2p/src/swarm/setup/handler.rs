@@ -34,7 +34,7 @@ pub struct SetupHandler<S: ApplicationSigner> {
 }
 
 impl<S: ApplicationSigner> SetupHandler<S> {
-    pub(super) fn new(
+    pub(crate) fn new(
         app_public_key: PublicKey,
         local_transport_id: PeerId,
         remote_transport_id: PeerId,
