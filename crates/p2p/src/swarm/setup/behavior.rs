@@ -110,16 +110,12 @@ impl<S: ApplicationSigner> NetworkBehaviour for SetupBehaviour<S> {
                     app_public_key,
                 });
             }
-            SetupHandlerEvent::HandshakeComplete => {
-                self.events.push(SetupBehaviourEvent::HandshakeComplete {
-                    transport_id: peer_id,
-                });
-            }
-            SetupHandlerEvent::ErrorDuringHandshake(error) => {
-                self.events.push(SetupBehaviourEvent::ErrorDuringHandshake {
-                    transport_id: peer_id,
-                    error,
-                });
+            SetupHandlerEvent::ErrorDuringSetupHandshake(error) => {
+                self.events
+                    .push(SetupBehaviourEvent::ErrorDuringSetupHandshake {
+                        transport_id: peer_id,
+                        error,
+                    });
             }
         }
     }

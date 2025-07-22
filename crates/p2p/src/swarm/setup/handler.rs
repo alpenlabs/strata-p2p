@@ -17,7 +17,7 @@ use crate::{
     swarm::{
         message::SetupMessage,
         setup::{
-            events::{ErrorDuringHandshakeVariations, SetupHandlerEvent},
+            events::{ErrorDuringSetupHandshakeVariations, SetupHandlerEvent},
             upgrade::{InboundSetupUpgrade, OutboundSetupUpgrade},
         },
     },
@@ -106,7 +106,7 @@ impl<S: ApplicationSigner> ConnectionHandler for SetupHandler<S> {
                     Err(e) => {
                         self.pending_events
                             .push(ConnectionHandlerEvent::NotifyBehaviour(
-                                SetupHandlerEvent::ErrorDuringHandshake(super::events::ErrorDuringHandshakeVariations::DeserializationFailed(e)) ,
+                                SetupHandlerEvent::ErrorDuringSetupHandshake(super::events::ErrorDuringSetupHandshakeVariations::DeserializationFailed(e)) ,
                             ));
                         return;
                     }
@@ -117,10 +117,10 @@ impl<S: ApplicationSigner> ConnectionHandler for SetupHandler<S> {
                     Err(e) => {
                         self.pending_events
                             .push(ConnectionHandlerEvent::NotifyBehaviour(
-                                SetupHandlerEvent::ErrorDuringHandshake(
-                                    super::events::ErrorDuringHandshakeVariations::AppPkInvalid(e),
-                                ),
-                            ));
+                            SetupHandlerEvent::ErrorDuringSetupHandshake(
+                                super::events::ErrorDuringSetupHandshakeVariations::AppPkInvalid(e),
+                            ),
+                        ));
                         return;
                     }
                 };
@@ -130,7 +130,7 @@ impl<S: ApplicationSigner> ConnectionHandler for SetupHandler<S> {
                 if !signature_valid {
                     self.pending_events
                         .push(ConnectionHandlerEvent::NotifyBehaviour(
-                            SetupHandlerEvent::ErrorDuringHandshake(super::events::ErrorDuringHandshakeVariations::SignatureVerificationFailed),
+                            SetupHandlerEvent::ErrorDuringSetupHandshake(super::events::ErrorDuringSetupHandshakeVariations::SignatureVerificationFailed),
                         ));
                     return;
                 }
@@ -140,25 +140,20 @@ impl<S: ApplicationSigner> ConnectionHandler for SetupHandler<S> {
                         SetupHandlerEvent::AppKeyReceived { app_public_key },
                     ));
             }
-            libp2p::swarm::handler::ConnectionEvent::FullyNegotiatedOutbound(_outbound) => {
-                self.pending_events
-                    .push(ConnectionHandlerEvent::NotifyBehaviour(
-                        SetupHandlerEvent::HandshakeComplete {},
-                    ));
-            }
+            libp2p::swarm::handler::ConnectionEvent::FullyNegotiatedOutbound(_outbound) => {}
             libp2p::swarm::handler::ConnectionEvent::DialUpgradeError(ev) => {
                 self.pending_events
                     .push(ConnectionHandlerEvent::NotifyBehaviour(
-                        SetupHandlerEvent::ErrorDuringHandshake(
-                            ErrorDuringHandshakeVariations::OutboundError(ev.error),
+                        SetupHandlerEvent::ErrorDuringSetupHandshake(
+                            ErrorDuringSetupHandshakeVariations::OutboundError(ev.error),
                         ),
                     ));
             }
             libp2p::swarm::handler::ConnectionEvent::ListenUpgradeError(error) => {
                 self.pending_events
                     .push(ConnectionHandlerEvent::NotifyBehaviour(
-                        SetupHandlerEvent::ErrorDuringHandshake(
-                            ErrorDuringHandshakeVariations::InboundError(error.error),
+                        SetupHandlerEvent::ErrorDuringSetupHandshake(
+                            ErrorDuringSetupHandshakeVariations::InboundError(error.error),
                         ),
                     ));
             }

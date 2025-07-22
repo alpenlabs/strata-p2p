@@ -804,12 +804,7 @@ impl<S: ApplicationSigner> P2P<S> {
                     let _ = self.swarm.disconnect_peer_id(peer_id);
                 }
             }
-            SetupBehaviourEvent::HandshakeComplete {
-                transport_id: peer_id,
-            } => {
-                info!(%peer_id, "Setup handshake completed with peer");
-            }
-            SetupBehaviourEvent::ErrorDuringHandshake {
+            SetupBehaviourEvent::ErrorDuringSetupHandshake {
                 transport_id: peer_id,
                 error,
             } => {

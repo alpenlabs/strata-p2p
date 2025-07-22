@@ -10,9 +10,9 @@ use libp2p::{
     swarm::StreamUpgradeError,
 };
 
-/// Variations of error during a handshake.
+/// Variations of error during a setup handshake.
 #[derive(Debug)]
-pub enum ErrorDuringHandshakeVariations {
+pub enum ErrorDuringSetupHandshakeVariations {
     /// Indicates that signature verification failed.
     ///
     /// This event is fired when the signature verification fails for a peer's
@@ -46,19 +46,14 @@ pub enum SetupBehaviourEvent {
         transport_id: PeerId,
         app_public_key: PublicKey,
     },
-    /// Indicates that the handshake process has completed successfully.
-    ///
-    /// This event is fired when the entire handshake protocol has finished,
-    /// signifying that the connection is ready for application-level communication.
-    HandshakeComplete { transport_id: PeerId },
 
     /// Indicates that signature verification failed.
     ///
     /// This event is fired when the signature verification fails for a peer's
-    /// handshake message, indicating the connection should be dropped.
-    ErrorDuringHandshake {
+    /// setup message, indicating the connection should be dropped.
+    ErrorDuringSetupHandshake {
         transport_id: PeerId,
-        error: ErrorDuringHandshakeVariations,
+        error: ErrorDuringSetupHandshakeVariations,
     },
 }
 
@@ -73,12 +68,7 @@ pub enum SetupHandlerEvent {
     /// This event is fired when the local node successfully receives and
     /// processes a peer's application public key during the handshake.
     AppKeyReceived { app_public_key: PublicKey },
-    /// Indicates that the handshake process has completed successfully.
-    ///
-    /// This event is fired when the entire handshake protocol has finished,
-    /// signifying that the connection is ready for application-level communication.
-    HandshakeComplete,
 
-    /// Something has failed during handshake.
-    ErrorDuringHandshake(ErrorDuringHandshakeVariations),
+    /// Something has failed during setup handshake.
+    ErrorDuringSetupHandshake(ErrorDuringSetupHandshakeVariations),
 }
