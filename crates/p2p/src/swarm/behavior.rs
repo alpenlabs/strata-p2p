@@ -49,7 +49,6 @@ impl<S: ApplicationSigner> Behaviour<S> {
         transport_keypair: &Keypair,
         app_public_key: &libp2p::identity::PublicKey,
         signer: S,
-        filtering: HashSet<libp2p::identity::PublicKey>,
     ) -> Self {
         let mut filter = HashSet::new();
         filter.insert(TOPIC.hash());
@@ -81,7 +80,6 @@ impl<S: ApplicationSigner> Behaviour<S> {
                 app_public_key.clone(),
                 transport_keypair.public().to_peer_id(),
                 signer,
-                filtering,
             ),
         }
     }

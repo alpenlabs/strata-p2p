@@ -13,10 +13,7 @@ use libp2p::{
 };
 use tokio::io;
 
-use crate::{
-    signer::ApplicationSigner,
-    swarm::message::SignedMessage,
-};
+use crate::{signer::ApplicationSigner, swarm::message::SignedMessage};
 
 /// Inbound upgrade for handling incoming setup requests.
 ///
@@ -50,9 +47,7 @@ impl InboundUpgrade<Stream> for InboundSetupUpgrade {
             let mut framed = Framed::new(stream, JsonCodec::<SignedMessage, SignedMessage>::new());
 
             match StreamExt::next(&mut framed).await {
-                Some(Ok(signed_message)) => {
-                    Ok(signed_message)
-                }
+                Some(Ok(signed_message)) => Ok(signed_message),
                 Some(Err(e)) => Err(io::Error::new(
                     io::ErrorKind::InvalidData,
                     format!("JSON decode error: {e}"),
@@ -125,9 +120,10 @@ impl<S: ApplicationSigner> OutboundUpgrade<Stream> for OutboundSetupUpgrade<S> {
                     format!("JSON encode error: {e}"),
                 )
             })?;
-            framed.close().await.map_err(|e| {
-                io::Error::new(io::ErrorKind::Other, format!("Stream close error: {e}"))
-            })
+            framed
+                .close()
+                .await
+                .map_err(|e| io::Error::other(format!("Stream close error: {e}")))
         })
     }
 }

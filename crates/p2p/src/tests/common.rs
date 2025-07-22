@@ -1,6 +1,6 @@
 //! Helper functions for the P2P tests.
 
-use std::{collections::HashSet, sync::Once, time::Duration};
+use std::{sync::Once, time::Duration};
 
 use futures::future::join_all;
 use libp2p::{
@@ -83,7 +83,7 @@ impl User {
         transport_keypair: Keypair,
         connect_to: Vec<Multiaddr>,
         local_addr: Multiaddr,
-        allow_list: HashSet<PublicKey>,
+        allow_list: Vec<PublicKey>,
         cancel: CancellationToken,
     ) -> anyhow::Result<Self> {
         debug!(%local_addr, "Creating new user with local address");
@@ -165,8 +165,8 @@ impl Setup {
             let mut other_app_pk = app_keypairs
                 .iter()
                 .map(|kp| kp.public())
-                .collect::<HashSet<_>>();
-            other_app_pk.remove(&app_keypair.public());
+                .collect::<Vec<_>>();
+            other_app_pk.remove(idx);
 
             let user = User::new(
                 app_keypair.clone(),

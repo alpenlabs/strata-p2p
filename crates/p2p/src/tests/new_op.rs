@@ -1,6 +1,6 @@
 //! Connect to Peer Command tests.
 
-use std::{collections::HashSet, time::Duration};
+use std::time::Duration;
 
 use libp2p::{Multiaddr, build_multiaddr, identity::Keypair};
 use tokio::{sync::oneshot::channel, time::sleep};
@@ -61,7 +61,7 @@ async fn gossip_new_user() -> anyhow::Result<()> {
         new_user_transport_keypair.clone(),
         connect_addrs.clone(), // Connect directly to existing users
         local_addr.clone(),
-        HashSet::new(),
+        Vec::new(),
         cancel.child_token(),
     )
     .unwrap();

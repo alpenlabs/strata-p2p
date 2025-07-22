@@ -4,16 +4,11 @@
 //! public key exchange.
 
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     task::{Context, Poll},
 };
 
-use libp2p::{
-    PeerId,
-    core::transport::PortUse,
-    identity::PublicKey,
-    swarm::{NetworkBehaviour},
-};
+use libp2p::{PeerId, core::transport::PortUse, identity::PublicKey, swarm::NetworkBehaviour};
 
 use crate::{
     signer::ApplicationSigner,
@@ -31,23 +26,16 @@ pub struct SetupBehaviour<S: ApplicationSigner> {
     signer: S,
     peer_app_keys: HashMap<PeerId, PublicKey>,
     events: Vec<SetupBehaviourEvent>,
-    app_pk_allow_list: HashSet<PublicKey>,
 }
 
 impl<S: ApplicationSigner> SetupBehaviour<S> {
-    pub(crate) fn new(
-        app_public_key: PublicKey,
-        transport_id: PeerId,
-        signer: S,
-        app_pk_allow_list: HashSet<PublicKey>,
-    ) -> Self {
+    pub(crate) fn new(app_public_key: PublicKey, transport_id: PeerId, signer: S) -> Self {
         Self {
             app_public_key,
             local_transport_id: transport_id,
             signer,
             peer_app_keys: HashMap::new(),
             events: Vec::new(),
-            app_pk_allow_list,
         }
     }
 
@@ -104,22 +92,10 @@ impl<S: ApplicationSigner> NetworkBehaviour for SetupBehaviour<S> {
         match event {
             SetupHandlerEvent::AppKeyReceived { app_public_key } => {
                 self.peer_app_keys.insert(peer_id, app_public_key.clone());
-
-                match self.app_pk_allow_list.contains(&app_public_key) {
-                    true => {
-                        self.events.push(SetupBehaviourEvent::AppKeyReceived {
-                            transport_id: peer_id,
-                            app_public_key,
-                        });
-                    }
-                    false => {
-                        self.events
-                            .push(SetupBehaviourEvent::AttemptConnectToDisrespectedPeer {
-                                transport_id: peer_id,
-                                app_public_key,
-                            });
-                    }
-                };
+                self.events.push(SetupBehaviourEvent::AppKeyReceived {
+                    transport_id: peer_id,
+                    app_public_key,
+                });
             }
             SetupHandlerEvent::HandshakeComplete => {
                 self.events.push(SetupBehaviourEvent::HandshakeComplete {

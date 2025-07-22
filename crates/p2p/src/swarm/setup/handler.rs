@@ -127,9 +127,7 @@ impl<S: ApplicationSigner> ConnectionHandler for SetupHandler<S> {
                     }
                 };
 
-                let signature_valid = setup_msg
-                    .verify_signature(&app_public_key)
-                    .unwrap_or(false);
+                let signature_valid = setup_msg.verify_signature(&app_public_key).unwrap_or(false);
 
                 if !signature_valid {
                     self.pending_events

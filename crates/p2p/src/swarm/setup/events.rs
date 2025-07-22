@@ -31,14 +31,6 @@ pub enum SetupBehaviourEvent {
     /// This event is fired when the signature verification fails for a peer's
     /// handshake message, indicating the connection should be dropped.
     SignatureVerificationFailed { transport_id: PeerId, error: String },
-
-    /// We received the app_public_key for the peerid, but the app_public_key is in
-    /// app_pk_allowlist, therefore closed all connection to the peer with given PeerId (aka
-    /// Transport ID)
-    AttemptConnectToDisrespectedPeer {
-        transport_id: PeerId,
-        app_public_key: PublicKey,
-    },
 }
 
 /// Events emitted during the setup phase of peer connections.

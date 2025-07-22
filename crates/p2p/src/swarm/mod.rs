@@ -121,7 +121,7 @@ pub struct P2PConfig<S: ApplicationSigner> {
     pub listening_addr: Multiaddr,
 
     /// List of allowed application [`PublicKey`]s.
-    pub allowlist: HashSet<PublicKey>,
+    pub allowlist: Vec<PublicKey>,
 
     /// Initial list of nodes to connect to at startup.
     pub connect_to: Vec<Multiaddr>,
@@ -160,6 +160,9 @@ pub struct P2P<S: ApplicationSigner> {
 
     /// Underlying configuration.
     config: P2PConfig<S>,
+
+    /// Allow list.
+    app_pk_allow_list: HashSet<PublicKey>,
 }
 
 /// Alias for [`P2P`] and [`ReqRespHandle`] tuple.
@@ -192,6 +195,7 @@ impl<S: ApplicationSigner> P2P<S> {
                 commands: cmds_rx,
                 commands_sender: cmds_tx.clone(),
                 cancellation_token: cancel,
+                app_pk_allow_list: HashSet::from_iter(cfg.allowlist.iter().cloned()),
                 config: cfg,
             },
             ReqRespHandle::new(req_resp_event_rx),
@@ -792,8 +796,13 @@ impl<S: ApplicationSigner> P2P<S> {
                 transport_id: peer_id,
                 app_public_key,
             } => {
-                info!(%peer_id, "Received app public key from peer");
-                trace!(%peer_id, ?app_public_key, "App public key details");
+                if self.app_pk_allow_list.contains(&app_public_key) {
+                    info!(%peer_id, "Received app public key from peer");
+                    trace!(%peer_id, ?app_public_key, "App public key details");
+                } else {
+                    info!(%peer_id, "Received app public key from a peer with not application public key not in allowlist. Disconnecting.");
+                    let _ = self.swarm.disconnect_peer_id(peer_id);
+                }
             }
             SetupBehaviourEvent::HandshakeComplete {
                 transport_id: peer_id,
@@ -808,17 +817,6 @@ impl<S: ApplicationSigner> P2P<S> {
                 // Drop the connection
                 if let Err(e) = self.swarm.disconnect_peer_id(peer_id) {
                     warn!(%peer_id, ?e, "Failed to disconnect peer after signature verification failure");
-                }
-            }
-            SetupBehaviourEvent::AttemptConnectToDisrespectedPeer {
-                transport_id: peer_id,
-                app_public_key,
-            } => {
-                info!(%peer_id, "Received app public key from a banned peer, disconnecting");
-                trace!(%peer_id, ?app_public_key, "App public key details");
-                // Drop the connection
-                if let Err(e) = self.swarm.disconnect_peer_id(peer_id) {
-                    warn!(%peer_id, ?e, "Failed to disconnect banned peer");
                 }
             }
         }
@@ -854,7 +852,6 @@ macro_rules! finish_swarm {
                     &$cfg.transport_keypair,
                     &$cfg.app_public_key,
                     $cfg.signer.clone(),
-                    $cfg.allowlist.clone(),
                 )
             })
             .map_err(|e| ProtocolError::BehaviourInitialization(e.into()))?

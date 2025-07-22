@@ -75,7 +75,8 @@ impl SignedMessage {
         remote_peer_id: PeerId,
         signer: &S,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let setup_message = SetupMessage::new(app_public_key.clone(), local_peer_id, remote_peer_id);
+        let setup_message =
+            SetupMessage::new(app_public_key.clone(), local_peer_id, remote_peer_id);
 
         SignedMessage::new(setup_message, signer, app_public_key)
     }
