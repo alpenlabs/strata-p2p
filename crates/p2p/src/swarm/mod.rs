@@ -84,15 +84,12 @@ pub const DEFAULT_CHANNEL_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Configuration options for [`P2P`].
 #[derive(Debug, Clone)]
-pub struct P2PConfig<S: ApplicationSigner> {
+pub struct P2PConfig {
     /// Long-term application public key.
     pub app_public_key: PublicKey,
 
     /// Ephemeral transport keypair.
     pub transport_keypair: Keypair,
-
-    /// Application signer for signing setup messages.
-    pub signer: S,
 
     /// Idle connection timeout.
     pub idle_connection_timeout: Duration,
@@ -129,7 +126,7 @@ pub struct P2PConfig<S: ApplicationSigner> {
 }
 
 /// Implementation of P2P protocol data exchange.
-#[expect(missing_debug_implementations)]
+#[expect(missing_debug_implementations, dead_code)]
 pub struct P2P<S: ApplicationSigner> {
     /// The swarm that handles the networking.
     swarm: Swarm<Behaviour<S>>,
@@ -156,10 +153,13 @@ pub struct P2P<S: ApplicationSigner> {
     cancellation_token: CancellationToken,
 
     /// Underlying configuration.
-    config: P2PConfig<S>,
+    config: P2PConfig,
 
     /// Allow list.
     allowlist: HashSet<PublicKey>,
+
+    /// Application signer for signing setup messages.
+    signer: S,
 }
 
 /// Alias for [`P2P`] and [`ReqRespHandle`] tuple.
@@ -170,11 +170,12 @@ impl<S: ApplicationSigner> P2P<S> {
     /// Creates a new P2P instance from the given configuration.
     #[cfg(feature = "request-response")]
     pub fn from_config(
-        cfg: P2PConfig<S>,
+        cfg: P2PConfig,
         cancel: CancellationToken,
         mut swarm: Swarm<Behaviour<S>>,
         allowlist: Vec<PublicKey>,
         channel_size: Option<usize>,
+        signer: S,
     ) -> P2PResult<P2PWithReqRespHandle<S>> {
         swarm
             .listen_on(cfg.listening_addr.clone())
@@ -195,6 +196,7 @@ impl<S: ApplicationSigner> P2P<S> {
                 cancellation_token: cancel,
                 allowlist: HashSet::from_iter(allowlist.iter().cloned()),
                 config: cfg,
+                signer,
             },
             ReqRespHandle::new(req_resp_event_rx),
         ))
@@ -564,7 +566,10 @@ impl<S: ApplicationSigner> P2P<S> {
 
                 Ok(())
             }
-            Command::RequestMessage { app_public_key: app_pk, data } => {
+            Command::RequestMessage {
+                app_public_key: app_pk,
+                data,
+            } => {
                 debug!(?app_pk, "Got request message");
                 trace!(?data, "Got request message");
 
@@ -836,7 +841,7 @@ macro_rules! init_swarm {
 /// Macro is used as there is no way to specify this behaviour in function, because `with_tcp` and
 /// `with_other_transport` return completely different types that can't be generalized.
 macro_rules! finish_swarm {
-    ($builder:expr, $cfg:expr) => {
+    ($builder:expr, $cfg:expr, $signer:expr) => {
         $builder
             .map_err(|e| ProtocolError::TransportInitialization(e.into()))?
             .with_behaviour(|_| {
@@ -844,7 +849,7 @@ macro_rules! finish_swarm {
                     PROTOCOL_NAME,
                     &$cfg.transport_keypair,
                     &$cfg.app_public_key,
-                    $cfg.signer.clone(),
+                    $signer.clone(),
                 )
             })
             .map_err(|e| ProtocolError::BehaviourInitialization(e.into()))?
@@ -856,7 +861,8 @@ macro_rules! finish_swarm {
 /// Constructs swarm from P2P config with inmemory transport. Uses
 /// `/memory/{n}` addresses.
 pub fn with_inmemory_transport<S: ApplicationSigner>(
-    config: &P2PConfig<S>,
+    config: &P2PConfig,
+    signer: S,
 ) -> P2PResult<Swarm<Behaviour<S>>> {
     let builder = init_swarm!(config);
     let swarm = finish_swarm!(
@@ -867,7 +873,8 @@ pub fn with_inmemory_transport<S: ApplicationSigner>(
                 .multiplex(yamux::Config::default())
                 .map(|(p, c), _| (p, StreamMuxerBox::new(c)))
         }),
-        config
+        config,
+        signer
     );
 
     Ok(swarm)
@@ -876,7 +883,8 @@ pub fn with_inmemory_transport<S: ApplicationSigner>(
 /// Constructs swarm from P2P config with TCP transport. Uses
 /// `/ip4/{addr}/tcp/{port}` addresses.
 pub fn with_tcp_transport<S: ApplicationSigner>(
-    config: &P2PConfig<S>,
+    config: &P2PConfig,
+    signer: S,
 ) -> P2PResult<Swarm<Behaviour<S>>> {
     let builder = init_swarm!(config);
     let swarm = finish_swarm!(
@@ -885,7 +893,8 @@ pub fn with_tcp_transport<S: ApplicationSigner>(
             noise::Config::new,
             yamux::Config::default,
         ),
-        config
+        config,
+        signer
     );
 
     Ok(swarm)
