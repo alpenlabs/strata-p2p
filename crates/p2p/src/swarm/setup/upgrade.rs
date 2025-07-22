@@ -6,8 +6,7 @@
 
 use std::{future::Future, pin::Pin};
 
-use asynchronous_codec::{Decoder, Encoder, Framed};
-use bytes::{Buf, BytesMut};
+use asynchronous_codec::{Framed, JsonCodec};
 use futures::{SinkExt, StreamExt};
 use libp2p::{
     InboundUpgrade, OutboundUpgrade, PeerId, Stream, core::UpgradeInfo, identity::PublicKey,
@@ -16,50 +15,8 @@ use tokio::io;
 
 use crate::{
     signer::ApplicationSigner,
-    swarm::message::{Message, P2PMessage, SetupMessage},
+    swarm::message::{SetupMessage, SignedMessage},
 };
-
-/// Custom codec for SetupMessage with manual serialization
-#[derive(Debug, Clone, Default)]
-pub(crate) struct SetupMessageCodec;
-
-impl Encoder for SetupMessageCodec {
-    type Item = SetupMessage; // (message, signature)
-    type Error = io::Error;
-
-    fn encode(&mut self, item: Self::Item, dst: &mut BytesMut) -> Result<(), Self::Error> {
-        let message = item;
-        let bytes = message.to_bytes_with_signature();
-        dst.extend_from_slice(&(bytes.len() as u32).to_be_bytes());
-        dst.extend_from_slice(&bytes);
-        Ok(())
-    }
-}
-
-impl Decoder for SetupMessageCodec {
-    type Item = SetupMessage; // (message, signature)
-    type Error = io::Error;
-
-    fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
-        if src.len() < 4 {
-            return Ok(None);
-        }
-
-        let len = u32::from_be_bytes([src[0], src[1], src[2], src[3]]) as usize;
-
-        if src.len() < 4 + len {
-            return Ok(None);
-        }
-
-        src.advance(4);
-        let message_bytes = src.split_to(len);
-
-        match SetupMessage::from_bytes(&message_bytes) {
-            Ok(message) => Ok(Some(message)),
-            Err(e) => Err(e),
-        }
-    }
-}
 
 /// Inbound upgrade for handling incoming handshake requests.
 ///
@@ -85,20 +42,39 @@ impl UpgradeInfo for InboundSetupUpgrade {
 }
 
 impl InboundUpgrade<Stream> for InboundSetupUpgrade {
-    type Output = (SetupMessage, bool); // (message, signature_valid)
+    type Output = (SignedMessage, bool); // (signed_message, signature_valid)
     type Error = io::Error;
     type Future = Pin<Box<dyn Future<Output = Result<Self::Output, Self::Error>> + Send>>;
 
     fn upgrade_inbound(self, stream: Stream, _: Self::Info) -> Self::Future {
         Box::pin(async move {
-            let mut framed = Framed::new(stream, SetupMessageCodec);
+            let mut framed = Framed::new(stream, JsonCodec::<SignedMessage, SignedMessage>::new());
+
             match StreamExt::next(&mut framed).await {
-                Some(Ok(message)) => {
-                    // Verify the signature
-                    let signature_valid = message.verify_signature().unwrap_or(false);
-                    Ok((message, signature_valid))
+                Some(Ok(signed_message)) => {
+                    let setup_message: SetupMessage =
+                        signed_message.deserialize_message().map_err(|e| {
+                            io::Error::new(
+                                io::ErrorKind::InvalidData,
+                                format!("Failed to deserialize message: {e}"),
+                            )
+                        })?;
+                    let app_public_key = setup_message.get_app_public_key().map_err(|e| {
+                        io::Error::new(
+                            io::ErrorKind::InvalidData,
+                            format!("Invalid app public key: {e}"),
+                        )
+                    })?;
+                    let signature_valid = signed_message
+                        .verify_signature(&app_public_key)
+                        .unwrap_or(false);
+
+                    Ok((signed_message, signature_valid))
                 }
-                Some(Err(e)) => Err(e),
+                Some(Err(e)) => Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("JSON decode error: {e}"),
+                )),
                 None => Err(io::Error::new(
                     io::ErrorKind::UnexpectedEof,
                     "stream closed",
@@ -152,20 +128,25 @@ impl<S: ApplicationSigner> OutboundUpgrade<Stream> for OutboundSetupUpgrade<S> {
 
     fn upgrade_outbound(self, stream: Stream, _: Self::Info) -> Self::Future {
         Box::pin(async move {
-            // Create a signed message using Message::setup_signed
-            let message = Message::setup_signed(
-                &self.app_public_key,
+            // Create a signed message directly
+            let setup_message = SignedMessage::new_signed_setup(
+                self.app_public_key.clone(),
                 self.local_peer_id,
                 self.remote_peer_id,
                 &self.signer,
             )
             .map_err(|e| io::Error::other(format!("Failed to create signed message: {e}")))?;
 
-            let Message::Setup(setup_message) = message;
-
-            let mut framed = Framed::new(stream, SetupMessageCodec);
-            framed.send(setup_message).await?;
-            framed.close().await
+            let mut framed = Framed::new(stream, JsonCodec::<SignedMessage, SignedMessage>::new());
+            framed.send(setup_message).await.map_err(|e| {
+                io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("JSON encode error: {e}"),
+                )
+            })?;
+            framed.close().await.map_err(|e| {
+                io::Error::new(io::ErrorKind::Other, format!("Stream close error: {e}"))
+            })
         })
     }
 }

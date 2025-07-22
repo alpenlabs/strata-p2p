@@ -32,6 +32,7 @@ libp2p = { version = "0.55.0", features = [
   "ping",
   "yamux",
   "identify",
+  "serde"
 ] }
 thiserror = "2.0.11"
 tokio = { version = "1.42.0", default-features = false, features = [
@@ -43,7 +44,7 @@ tracing = { version = "0.1.41", default-features = false }
 tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
 asynchronous-codec = { version = "0.6", features = ["json"] }
 serde = { version = "1.0.219", features = ["derive"] }
-bytes = "1.5"
+serde_json = "1.0"
 
 [profile.test.package.proptest]
 opt-level = 3

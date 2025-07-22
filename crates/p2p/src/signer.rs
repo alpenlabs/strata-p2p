@@ -1,18 +1,14 @@
-//! Application signer trait for P2P setup message signing.
+//! Application signer trait for P2P message signing.
 //!
 //! This module provides the ApplicationSigner trait that allows service
-//! libraries to provide signing functionality for setup messages without
-//! requiring strata-p2p to store private keys.
+//! libraries to provide signing functionality for messages without requiring
+//! strata-p2p to store private keys.
 
 use std::fmt::Debug;
 
 use libp2p::identity::PublicKey;
 
 /// Trait for signing setup messages with application private keys.
-///
-/// This trait allows external libraries to provide signing functionality
-/// for setup messages without requiring strata-p2p to store private keys.
-/// The trait uses static methods and is passed as a template parameter to the P2P struct.
 ///
 /// The implementation should use the keypair that corresponds to the provided app_public_key.
 pub trait ApplicationSigner: Debug + Send + Sync + Clone + 'static {
@@ -21,6 +17,6 @@ pub trait ApplicationSigner: Debug + Send + Sync + Clone + 'static {
     fn sign(
         &self,
         message: &[u8],
-        app_public_key: &PublicKey,
+        app_public_key: PublicKey,
     ) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>>;
 }

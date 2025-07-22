@@ -1,19 +1,12 @@
 //! Message types for P2P protocol communication.
-//!
-//! This module provides an extensible message system that supports different
-//! message types for the P2P protocol, including setup and gossip messages.
 
-use std::{
-    io,
-    time::{SystemTime, UNIX_EPOCH},
-};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use libp2p::{
     PeerId,
     identity::{DecodingError, ParseError, PublicKey},
 };
-
-use crate::swarm::errors::SetupMessageValidationError;
+use serde::{Deserialize, Serialize};
 
 /// Protocol version for all messages
 pub(crate) const PROTOCOL_VERSION: u8 = 2;
@@ -21,140 +14,98 @@ pub(crate) const PROTOCOL_VERSION: u8 = 2;
 /// Protocol identifier for setup messages
 pub(crate) const SETUP_PROTOCOL_ID: u8 = 1;
 
-/// Enum representing different message types in the P2P protocol
-#[derive(Debug, Clone)]
-pub(crate) enum Message {
-    /// Setup message for handshake protocol
-    Setup(SetupMessage),
+/// Wrapper for signed messages
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SignedMessage {
+    /// The serialized message content
+    pub message: Vec<u8>,
+    /// The signature of the message
+    pub signature: Vec<u8>,
 }
 
-/// Trait for all P2P messages that can be signed and verified
-pub(crate) trait P2PMessage {
-    /// Gets the protocol identifier for this message type
-    #[expect(dead_code)]
-    fn protocol(&self) -> u8;
-
-    /// Gets the protocol version
-    #[expect(dead_code)]
-    fn version(&self) -> u8;
-
-    /// Serializes the message to bytes (manual serialization)
-    fn to_bytes(&self) -> Vec<u8>;
-
-    /// Deserializes the message from bytes (manual deserialization)
-    fn from_bytes(data: &[u8]) -> Result<Self, io::Error>
+impl SignedMessage {
+    /// Creates a new signed message with the given signer
+    pub(crate) fn new<T, S>(
+        message: T,
+        signer: &S,
+        app_public_key: PublicKey,
+    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>>
     where
-        Self: Sized;
-}
+        T: Serialize,
+        S: crate::signer::ApplicationSigner,
+    {
+        let message_bytes = serde_json::to_vec(&message)
+            .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
+        let signature = signer.sign(&message_bytes, app_public_key)?;
 
-impl Message {
-    /// Creates a new setup message
-    #[expect(dead_code)]
-    pub(crate) fn setup(
-        app_public_key: &PublicKey,
-        local_peer_id: PeerId,
-        remote_peer_id: PeerId,
-    ) -> Self {
-        Message::Setup(SetupMessage::new(
-            app_public_key,
-            local_peer_id,
-            remote_peer_id,
-        ))
+        Ok(Self {
+            message: message_bytes,
+            signature,
+        })
     }
 
-    /// Creates a new signed setup message with the given signer
-    pub(crate) fn setup_signed<S: crate::signer::ApplicationSigner>(
+    /// Verifies the signature of this message
+    pub(crate) fn verify_signature(
+        &self,
         app_public_key: &PublicKey,
+    ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+        Ok(app_public_key.verify(&self.message, &self.signature))
+    }
+
+    /// Deserializes the inner message
+    pub(crate) fn deserialize_message<T>(&self) -> Result<T, serde_json::Error>
+    where
+        T: for<'de> serde::Deserialize<'de>,
+    {
+        serde_json::from_slice(&self.message)
+    }
+
+    /// Deserializes a signed message from JSON bytes
+    #[expect(dead_code)]
+    pub(crate) fn from_json_bytes(data: &[u8]) -> Result<Self, serde_json::Error> {
+        serde_json::from_slice(data)
+    }
+}
+
+impl SignedMessage {
+    /// Creates a new signed setup message with the given signer
+    pub(crate) fn new_signed_setup<S: crate::signer::ApplicationSigner>(
+        app_public_key: PublicKey,
         local_peer_id: PeerId,
         remote_peer_id: PeerId,
         signer: &S,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        // Create the unsigned message first
-        let mut setup_message = SetupMessage::new(app_public_key, local_peer_id, remote_peer_id);
+        let setup_message = SetupMessage::new(app_public_key.clone(), local_peer_id, remote_peer_id);
 
-        // Get the message bytes for signing
-        let message_bytes = setup_message.to_bytes();
-
-        // Sign the message
-        let signature = signer.sign(&message_bytes, app_public_key)?;
-
-        setup_message.signature = signature;
-
-        Ok(Message::Setup(setup_message))
-    }
-
-    /// Verifies a message signature
-    #[expect(dead_code)]
-    pub(crate) fn verify_signature(
-        &self,
-        signature: &[u8],
-    ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
-        match self {
-            Message::Setup(setup_msg) => {
-                let app_public_key = setup_msg.get_app_public_key()?;
-                let message_bytes = setup_msg.to_bytes();
-
-                Ok(app_public_key.verify(&message_bytes, signature))
-            }
-        }
-    }
-
-    /// Extracts the message content (without signature) as bytes
-    #[expect(dead_code)]
-    pub(crate) fn to_bytes(&self) -> Vec<u8> {
-        match self {
-            Message::Setup(setup_msg) => setup_msg.to_bytes(),
-        }
-    }
-
-    /// Deserializes a message from bytes, returning both the message and signature
-    #[expect(dead_code)]
-    pub(crate) fn from_bytes(data: &[u8]) -> Result<(Self, Vec<u8>), io::Error> {
-        // For now, we assume it's a setup message based on the protocol ID
-        if data.len() < 2 {
-            return Err(io::Error::new(io::ErrorKind::InvalidData, "Data too short"));
-        }
-
-        let protocol_id = data[1]; // Second byte is protocol ID
-
-        match protocol_id {
-            SETUP_PROTOCOL_ID => {
-                let setup_msg = SetupMessage::from_bytes(data)?;
-                let signature = setup_msg.signature.clone();
-                Ok((Message::Setup(setup_msg), signature))
-            }
-            _ => Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "Unknown protocol ID",
-            )),
-        }
+        SignedMessage::new(setup_message, signer, app_public_key)
     }
 }
 
 /// Setup message structure for the handshake protocol.
-/// Format: \[version\]\[protocol(setup)\]\[application_pk\]\[local_transport_id\]\
-/// [remote_transport_id\]\[unix_timestamp\]
-#[derive(Debug, Clone, PartialEq)]
-pub struct SetupMessage {
+/// Now serialized/deserialized using JSON instead of custom binary format.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct SetupMessage {
     /// Protocol version
     pub version: u8,
     /// Protocol identifier (setup)
     pub protocol: u8,
-    /// The application public key encoded as bytes
+    /// The application public key (Ed25519) - stored as bytes for serialization
     pub app_public_key: Vec<u8>,
-    /// My transport ID (PeerId)
+    /// Local transport ID (PeerId) - stored as bytes for serialization
     pub local_transport_id: Vec<u8>,
-    /// Their transport ID (PeerId)
+    /// Remote transport ID (PeerId) - stored as bytes for serialization
     pub remote_transport_id: Vec<u8>,
     /// Timestamp of message creation
     pub date: u64,
-    /// Signature of the message content
-    pub signature: Vec<u8>,
 }
 
 impl SetupMessage {
     /// Creates a new setup message with the given parameters.
-    pub fn new(app_public_key: &PublicKey, local_peer_id: PeerId, remote_peer_id: PeerId) -> Self {
+    pub(crate) fn new(
+        app_public_key: PublicKey,
+        local_peer_id: PeerId,
+        remote_peer_id: PeerId,
+    ) -> Self {
         let timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
@@ -167,259 +118,23 @@ impl SetupMessage {
             local_transport_id: local_peer_id.to_bytes(),
             remote_transport_id: remote_peer_id.to_bytes(),
             date: timestamp,
-            signature: Vec::new(),
         }
     }
 
-    /// Gets the application public key as a libp2p PublicKey.
-    pub fn get_app_public_key(&self) -> Result<PublicKey, DecodingError> {
+    /// Gets the application public key.
+    pub(crate) fn get_app_public_key(&self) -> Result<PublicKey, DecodingError> {
         PublicKey::try_decode_protobuf(&self.app_public_key)
     }
 
     /// Gets the local peer ID.
-    pub fn get_local_peer_id(&self) -> Result<PeerId, ParseError> {
+    #[expect(dead_code)]
+    pub(crate) fn get_local_peer_id(&self) -> Result<PeerId, ParseError> {
         PeerId::from_bytes(&self.local_transport_id)
     }
 
     /// Gets the remote peer ID.
-    pub fn get_remote_peer_id(&self) -> Result<PeerId, ParseError> {
+    #[expect(dead_code)]
+    pub(crate) fn get_remote_peer_id(&self) -> Result<PeerId, ParseError> {
         PeerId::from_bytes(&self.remote_transport_id)
-    }
-
-    /// Verifies the signature of this message using the embedded app public key.
-    pub fn verify_signature(&self) -> Result<bool, DecodingError> {
-        // Get the app public key
-        let app_public_key = self.get_app_public_key()?;
-
-        // Use the same method as signing - to_bytes() which excludes signature
-        let content = self.to_bytes();
-
-        // Verify the signature using libp2p's verification
-        Ok(app_public_key.verify(&content, &self.signature))
-    }
-
-    /// Gets bytes with signature for transmission over the wire
-    pub fn to_bytes_with_signature(&self) -> Vec<u8> {
-        let mut bytes = self.to_bytes();
-
-        // Write signature length and data
-        bytes.extend_from_slice(&(self.signature.len() as u32).to_be_bytes());
-        bytes.extend_from_slice(&self.signature);
-
-        bytes
-    }
-
-    /// Validates the message format and content
-    pub const fn validate(&self) -> Result<(), SetupMessageValidationError> {
-        if self.version != PROTOCOL_VERSION {
-            return Err(SetupMessageValidationError::VersionMismatch);
-        }
-
-        if self.protocol != SETUP_PROTOCOL_ID {
-            return Err(SetupMessageValidationError::ProtocolMismatch);
-        }
-
-        if self.app_public_key.is_empty() {
-            return Err(SetupMessageValidationError::AppPublicKeyEmpty);
-        }
-
-        if self.local_transport_id.is_empty() {
-            return Err(SetupMessageValidationError::LocalTransportIdEmpty);
-        }
-
-        if self.remote_transport_id.is_empty() {
-            return Err(SetupMessageValidationError::RemoteTransportIdEmpty);
-        }
-
-        Ok(())
-    }
-}
-
-impl P2PMessage for SetupMessage {
-    fn protocol(&self) -> u8 {
-        self.protocol
-    }
-
-    fn version(&self) -> u8 {
-        self.version
-    }
-
-    fn to_bytes(&self) -> Vec<u8> {
-        // Manual serialization for SetupMessage (without signature for signing purposes)
-        let mut bytes = Vec::new();
-
-        // Write version (1 byte)
-        bytes.push(self.version);
-
-        // Write protocol (1 byte)
-        bytes.push(self.protocol);
-
-        // Write app_public_key length and data
-        bytes.extend_from_slice(&(self.app_public_key.len() as u32).to_be_bytes());
-        bytes.extend_from_slice(&self.app_public_key);
-
-        // Write local_transport_id length and data
-        bytes.extend_from_slice(&(self.local_transport_id.len() as u32).to_be_bytes());
-        bytes.extend_from_slice(&self.local_transport_id);
-
-        // Write remote_transport_id length and data
-        bytes.extend_from_slice(&(self.remote_transport_id.len() as u32).to_be_bytes());
-        bytes.extend_from_slice(&self.remote_transport_id);
-
-        // Write date (8 bytes)
-        bytes.extend_from_slice(&self.date.to_be_bytes());
-
-        bytes
-    }
-
-    fn from_bytes(data: &[u8]) -> Result<Self, io::Error> {
-        let mut cursor = 0;
-
-        if data.is_empty() {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "Data too short for version",
-            ));
-        }
-
-        // Read version
-        let version = data[cursor];
-        cursor += 1;
-
-        // Read protocol
-        if data.len() < cursor + 1 {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "Data too short for protocol",
-            ));
-        }
-        let protocol = data[cursor];
-        cursor += 1;
-
-        // Read app_public_key
-        if data.len() < cursor + 4 {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "Data too short for app_public_key length",
-            ));
-        }
-        let app_key_len = u32::from_be_bytes([
-            data[cursor],
-            data[cursor + 1],
-            data[cursor + 2],
-            data[cursor + 3],
-        ]) as usize;
-        cursor += 4;
-
-        if data.len() < cursor + app_key_len {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "Data too short for app_public_key",
-            ));
-        }
-        let app_public_key = data[cursor..cursor + app_key_len].to_vec();
-        cursor += app_key_len;
-
-        // Read local_transport_id
-        if data.len() < cursor + 4 {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "Data too short for local_transport_id length",
-            ));
-        }
-        let my_id_len = u32::from_be_bytes([
-            data[cursor],
-            data[cursor + 1],
-            data[cursor + 2],
-            data[cursor + 3],
-        ]) as usize;
-        cursor += 4;
-
-        if data.len() < cursor + my_id_len {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "Data too short for local_transport_id",
-            ));
-        }
-        let local_transport_id = data[cursor..cursor + my_id_len].to_vec();
-        cursor += my_id_len;
-
-        // Read remote_transport_id
-        if data.len() < cursor + 4 {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "Data too short for remote_transport_id length",
-            ));
-        }
-        let their_id_len = u32::from_be_bytes([
-            data[cursor],
-            data[cursor + 1],
-            data[cursor + 2],
-            data[cursor + 3],
-        ]) as usize;
-        cursor += 4;
-
-        if data.len() < cursor + their_id_len {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "Data too short for remote_transport_id",
-            ));
-        }
-        let remote_transport_id = data[cursor..cursor + their_id_len].to_vec();
-        cursor += their_id_len;
-
-        // Read date
-        if data.len() < cursor + 8 {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "Data too short for date",
-            ));
-        }
-        let date = u64::from_be_bytes([
-            data[cursor],
-            data[cursor + 1],
-            data[cursor + 2],
-            data[cursor + 3],
-            data[cursor + 4],
-            data[cursor + 5],
-            data[cursor + 6],
-            data[cursor + 7],
-        ]);
-        cursor += 8;
-
-        // Read signature
-        if data.len() < cursor + 4 {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "Data too short for signature length",
-            ));
-        }
-        let sig_len = u32::from_be_bytes([
-            data[cursor],
-            data[cursor + 1],
-            data[cursor + 2],
-            data[cursor + 3],
-        ]) as usize;
-        cursor += 4;
-
-        if data.len() < cursor + sig_len {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "Data too short for signature",
-            ));
-        }
-        let signature = data[cursor..cursor + sig_len].to_vec();
-
-        let message = SetupMessage {
-            version,
-            protocol,
-            app_public_key,
-            local_transport_id,
-            remote_transport_id,
-            date,
-            signature,
-        };
-
-        Ok(message)
     }
 }
