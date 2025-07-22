@@ -24,7 +24,7 @@ pub struct SetupBehaviour<S: ApplicationSigner> {
     app_public_key: PublicKey,
     local_transport_id: PeerId,
     signer: S,
-    peer_app_keys: HashMap<PeerId, PublicKey>,
+    app_public_keys: HashMap<PeerId, PublicKey>,
     events: Vec<SetupBehaviourEvent>,
 }
 
@@ -34,7 +34,7 @@ impl<S: ApplicationSigner> SetupBehaviour<S> {
             app_public_key,
             local_transport_id: transport_id,
             signer,
-            peer_app_keys: HashMap::new(),
+            app_public_keys: HashMap::new(),
             events: Vec::new(),
         }
     }
@@ -42,7 +42,7 @@ impl<S: ApplicationSigner> SetupBehaviour<S> {
     /// Gets the peerid by a specific app public key.
     /// Returns None if we don't have the key (not connected or key exchange hasn't happened).
     pub fn get_app_public_key_by_transport_id(&self, peer_id: &PeerId) -> Option<PublicKey> {
-        self.peer_app_keys.get(peer_id).cloned()
+        self.app_public_keys.get(peer_id).cloned()
     }
 }
 
@@ -91,7 +91,7 @@ impl<S: ApplicationSigner> NetworkBehaviour for SetupBehaviour<S> {
     ) {
         match event {
             SetupHandlerEvent::AppKeyReceived { app_public_key } => {
-                self.peer_app_keys.insert(peer_id, app_public_key.clone());
+                self.app_public_keys.insert(peer_id, app_public_key.clone());
                 self.events.push(SetupBehaviourEvent::AppKeyReceived {
                     transport_id: peer_id,
                     app_public_key,
