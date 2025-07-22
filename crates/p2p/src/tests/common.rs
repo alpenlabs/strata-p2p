@@ -57,7 +57,7 @@ impl ApplicationSigner for MockApplicationSigner {
     ) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
         // Verify that the provided public key matches our stored keypair
         let our_public_key = self.app_keypair.public();
-        if our_public_key.encode_protobuf() != app_public_key.encode_protobuf() {
+        if our_public_key != app_public_key {
             return Err("Public key mismatch: provided key doesn't match stored keypair".into());
         }
 
