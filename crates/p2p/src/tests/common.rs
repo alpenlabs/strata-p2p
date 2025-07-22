@@ -111,7 +111,6 @@ impl User {
         let p2p = P2P::from_config(config, cancel, swarm, None)?;
         let gossip = p2p.new_gossip_handle();
         let command = p2p.new_command_handle();
-        // Signer instance is now included in P2PConfig
 
         Ok(Self {
             p2p,
