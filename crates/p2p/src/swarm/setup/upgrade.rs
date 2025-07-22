@@ -11,9 +11,11 @@ use futures::{SinkExt, StreamExt};
 use libp2p::{
     InboundUpgrade, OutboundUpgrade, PeerId, Stream, core::UpgradeInfo, identity::PublicKey,
 };
-use tokio::io;
 
-use crate::{signer::ApplicationSigner, swarm::message::SignedMessage};
+use crate::{
+    signer::ApplicationSigner,
+    swarm::{errors::SetupUpgradeError, message::SignedMessage},
+};
 
 /// Inbound upgrade for handling incoming setup requests.
 ///
@@ -39,7 +41,7 @@ impl UpgradeInfo for InboundSetupUpgrade {
 
 impl InboundUpgrade<Stream> for InboundSetupUpgrade {
     type Output = SignedMessage;
-    type Error = io::Error;
+    type Error = SetupUpgradeError;
     type Future = Pin<Box<dyn Future<Output = Result<Self::Output, Self::Error>> + Send>>;
 
     fn upgrade_inbound(self, stream: Stream, _: Self::Info) -> Self::Future {
@@ -48,14 +50,8 @@ impl InboundUpgrade<Stream> for InboundSetupUpgrade {
 
             match StreamExt::next(&mut framed).await {
                 Some(Ok(signed_message)) => Ok(signed_message),
-                Some(Err(e)) => Err(io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    format!("JSON decode error: {e}"),
-                )),
-                None => Err(io::Error::new(
-                    io::ErrorKind::UnexpectedEof,
-                    "stream closed",
-                )),
+                Some(Err(e)) => Err(SetupUpgradeError::JsonCodec(e.into())),
+                None => Err(SetupUpgradeError::UnexpectedStreamClose),
             }
         })
     }
@@ -99,7 +95,7 @@ impl<S: ApplicationSigner> UpgradeInfo for OutboundSetupUpgrade<S> {
 
 impl<S: ApplicationSigner> OutboundUpgrade<Stream> for OutboundSetupUpgrade<S> {
     type Output = ();
-    type Error = io::Error;
+    type Error = SetupUpgradeError;
     type Future = Pin<Box<dyn Future<Output = Result<Self::Output, Self::Error>> + Send>>;
 
     fn upgrade_outbound(self, stream: Stream, _: Self::Info) -> Self::Future {
@@ -111,19 +107,17 @@ impl<S: ApplicationSigner> OutboundUpgrade<Stream> for OutboundSetupUpgrade<S> {
                 self.remote_peer_id,
                 &self.signer,
             )
-            .map_err(|e| io::Error::other(format!("Failed to create signed message: {e}")))?;
+            .map_err(|e| SetupUpgradeError::SignedMessageCreation(e))?;
 
             let mut framed = Framed::new(stream, JsonCodec::<SignedMessage, SignedMessage>::new());
             framed.send(setup_message).await.map_err(|e| {
-                io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    format!("JSON encode error: {e}"),
-                )
+                SetupUpgradeError::JsonCodec(e.into())
             })?;
             framed
                 .close()
                 .await
-                .map_err(|e| io::Error::other(format!("Stream close error: {e}")))
+                .map_err(|e| SetupUpgradeError::JsonCodec(e.into()))?;
+            Ok(())
         })
     }
 }

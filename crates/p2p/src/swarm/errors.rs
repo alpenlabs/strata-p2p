@@ -39,6 +39,10 @@ pub enum Error {
     #[error("Protocol error {0}")]
     Protocol(#[from] ProtocolError),
 
+    /// Setup upgrade errors.
+    #[error("Setup upgrade error {0}")]
+    SetupUpgrade(#[from] SetupUpgradeError),
+
     /// Logic error.
     #[error("Logic error {0}")]
     Logic(#[from] LogicError),
@@ -62,6 +66,22 @@ pub enum ValidationError {
     /// The message signer is not in the signer's allowlist.
     #[error("Not in signers allowlist")]
     NotInSignersAllowlist,
+}
+
+/// Errors that can occur during the setup upgrade process.
+#[derive(Debug, Error)]
+pub enum SetupUpgradeError {
+    /// Failed to create a signed message.
+    #[error("Failed to create signed message: {0}")]
+    SignedMessageCreation(Box<dyn error::Error + Send + Sync>),
+
+    /// JSON encoding/decoding error during message serialization.
+    #[error("JSON codec error: {0}")]
+    JsonCodec(Box<dyn error::Error + Send + Sync>),
+
+    /// Stream was closed unexpectedly.
+    #[error("Stream closed unexpectedly")]
+    UnexpectedStreamClose,
 }
 
 /// Errors from libp2p

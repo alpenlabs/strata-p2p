@@ -10,6 +10,8 @@ use libp2p::{
     swarm::StreamUpgradeError,
 };
 
+use crate::swarm::errors::SetupUpgradeError;
+
 /// Variations of error during a setup handshake.
 #[derive(Debug)]
 pub enum ErrorDuringSetupHandshakeVariations {
@@ -26,10 +28,10 @@ pub enum ErrorDuringSetupHandshakeVariations {
     AppPkInvalid(DecodingError),
 
     /// Error during sending to remote peer.
-    OutboundError(StreamUpgradeError<tokio::io::Error>),
+    OutboundError(StreamUpgradeError<SetupUpgradeError>),
 
     /// Error during receiving from remote peer.
-    InboundError(tokio::io::Error),
+    InboundError(SetupUpgradeError),
 }
 
 /// Events emitted during the setup phase of peer connections.

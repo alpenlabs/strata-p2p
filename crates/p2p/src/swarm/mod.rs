@@ -564,7 +564,10 @@ impl<S: ApplicationSigner> P2P<S> {
 
                 Ok(())
             }
-            Command::RequestMessage { app_public_key: app_pk, data } => {
+            Command::RequestMessage {
+                app_public_key: app_pk,
+                data,
+            } => {
                 debug!(?app_pk, "Got request message");
                 trace!(?data, "Got request message");
 
