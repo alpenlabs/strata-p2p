@@ -31,7 +31,6 @@ pub struct SetupBehaviour<S: ApplicationSigner> {
     signer: S,
     peer_app_keys: HashMap<PeerId, PublicKey>,
     events: Vec<SetupBehaviourEvent>,
-    events_toswarm_unwrapped: Vec<libp2p::swarm::ToSwarm<SetupBehaviourEvent, ()>>,
     app_pk_allow_list: HashSet<PublicKey>,
 }
 
@@ -48,7 +47,6 @@ impl<S: ApplicationSigner> SetupBehaviour<S> {
             signer,
             peer_app_keys: HashMap::new(),
             events: Vec::new(),
-            events_toswarm_unwrapped: Vec::new(),
             app_pk_allow_list,
         }
     }
@@ -106,6 +104,7 @@ impl<S: ApplicationSigner> NetworkBehaviour for SetupBehaviour<S> {
         match event {
             SetupHandlerEvent::AppKeyReceived { app_public_key } => {
                 self.peer_app_keys.insert(peer_id, app_public_key.clone());
+
                 match self.app_pk_allow_list.contains(&app_public_key) {
                     true => {
                         self.events.push(SetupBehaviourEvent::AppKeyReceived {
@@ -118,11 +117,6 @@ impl<S: ApplicationSigner> NetworkBehaviour for SetupBehaviour<S> {
                             .push(SetupBehaviourEvent::AttemptConnectToDisrespectedPeer {
                                 transport_id: peer_id,
                                 app_public_key,
-                            });
-                        self.events_toswarm_unwrapped
-                            .push(libp2p::swarm::ToSwarm::CloseConnection {
-                                peer_id,
-                                connection: libp2p::swarm::CloseConnection::All,
                             });
                     }
                 };
@@ -146,10 +140,6 @@ impl<S: ApplicationSigner> NetworkBehaviour for SetupBehaviour<S> {
         &mut self,
         _: &mut Context<'_>,
     ) -> Poll<libp2p::swarm::ToSwarm<Self::ToSwarm, libp2p::swarm::THandlerInEvent<Self>>> {
-        if let Some(event) = self.events_toswarm_unwrapped.pop() {
-            return Poll::Ready(event);
-        }
-
         if let Some(event) = self.events.pop() {
             return Poll::Ready(libp2p::swarm::ToSwarm::GenerateEvent(event));
         }

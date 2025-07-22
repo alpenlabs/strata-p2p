@@ -814,8 +814,12 @@ impl<S: ApplicationSigner> P2P<S> {
                 transport_id: peer_id,
                 app_public_key,
             } => {
-                info!(%peer_id, "Received app public key from a banned peer");
+                info!(%peer_id, "Received app public key from a banned peer, disconnecting");
                 trace!(%peer_id, ?app_public_key, "App public key details");
+                // Drop the connection
+                if let Err(e) = self.swarm.disconnect_peer_id(peer_id) {
+                    warn!(%peer_id, ?e, "Failed to disconnect banned peer");
+                }
             }
         }
         Ok(())
