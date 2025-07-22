@@ -77,7 +77,7 @@ impl<S: ApplicationSigner> User<S> {
         transport_keypair: Keypair,
         connect_to: Vec<Multiaddr>,
         local_addr: Multiaddr,
-        allow_list: Vec<PublicKey>,
+        allowlist: Vec<PublicKey>,
         cancel: CancellationToken,
         signer: S,
     ) -> anyhow::Result<Self> {
@@ -93,7 +93,6 @@ impl<S: ApplicationSigner> User<S> {
             general_timeout: None,
             connection_check_interval: None,
             listening_addr: local_addr,
-            allowlist: allow_list,
             connect_to,
             channel_timeout: None,
         };
@@ -101,7 +100,7 @@ impl<S: ApplicationSigner> User<S> {
         let swarm = swarm::with_inmemory_transport::<S>(&config)?;
 
         #[cfg(feature = "request-response")]
-        let (p2p, reqresp) = P2P::from_config(config, cancel, swarm, None)?;
+        let (p2p, reqresp) = P2P::from_config(config, cancel, swarm, allowlist, None)?;
         #[cfg(not(feature = "request-response"))]
         let p2p = P2P::from_config(config, cancel, swarm, None)?;
         let gossip = p2p.new_gossip_handle();

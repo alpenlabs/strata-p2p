@@ -17,7 +17,7 @@ pub enum Command {
     /// Requests some message directly from other operator by public Key.
     RequestMessage {
         /// Libp2p application [`PublicKey`] of target peer.
-        app_pk: PublicKey,
+        app_public_key: PublicKey,
         /// Message payload in raw bytes.
         ///
         /// The user is responsible for properly serializing/deserializing the data.

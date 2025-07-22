@@ -120,9 +120,6 @@ pub struct P2PConfig<S: ApplicationSigner> {
     /// The node's address.
     pub listening_addr: Multiaddr,
 
-    /// List of allowed application [`PublicKey`]s.
-    pub allowlist: Vec<PublicKey>,
-
     /// Initial list of nodes to connect to at startup.
     pub connect_to: Vec<Multiaddr>,
 
@@ -162,7 +159,7 @@ pub struct P2P<S: ApplicationSigner> {
     config: P2PConfig<S>,
 
     /// Allow list.
-    app_pk_allow_list: HashSet<PublicKey>,
+    allowlist: HashSet<PublicKey>,
 }
 
 /// Alias for [`P2P`] and [`ReqRespHandle`] tuple.
@@ -176,6 +173,7 @@ impl<S: ApplicationSigner> P2P<S> {
         cfg: P2PConfig<S>,
         cancel: CancellationToken,
         mut swarm: Swarm<Behaviour<S>>,
+        allowlist: Vec<PublicKey>,
         channel_size: Option<usize>,
     ) -> P2PResult<P2PWithReqRespHandle<S>> {
         swarm
@@ -195,7 +193,7 @@ impl<S: ApplicationSigner> P2P<S> {
                 commands: cmds_rx,
                 commands_sender: cmds_tx.clone(),
                 cancellation_token: cancel,
-                app_pk_allow_list: HashSet::from_iter(cfg.allowlist.iter().cloned()),
+                allowlist: HashSet::from_iter(allowlist.iter().cloned()),
                 config: cfg,
             },
             ReqRespHandle::new(req_resp_event_rx),
@@ -338,11 +336,11 @@ impl<S: ApplicationSigner> P2P<S> {
                 trace!(?event, "received event from swarm");
 
                 match event {
-                    SwarmEvent::Behaviour(behavior::BehaviourEvent::Gossipsub(
+                    SwarmEvent::Behaviour(BehaviourEvent::Gossipsub(
                         GossipsubEvent::Subscribed { peer_id, .. },
                     )) => {
                         subscriptions += 1;
-                        info!(%peer_id, %subscriptions, total=self.config.allowlist.len(), "got subscription");
+                        info!(%peer_id, %subscriptions, total=self.allowlist.len(), "got subscription");
                     }
                     SwarmEvent::ConnectionEstablished {
                         peer_id, endpoint, ..
@@ -566,7 +564,7 @@ impl<S: ApplicationSigner> P2P<S> {
 
                 Ok(())
             }
-            Command::RequestMessage { app_pk, data } => {
+            Command::RequestMessage { app_public_key: app_pk, data } => {
                 debug!(?app_pk, "Got request message");
                 trace!(?data, "Got request message");
 
@@ -796,7 +794,7 @@ impl<S: ApplicationSigner> P2P<S> {
                 transport_id: peer_id,
                 app_public_key,
             } => {
-                if self.app_pk_allow_list.contains(&app_public_key) {
+                if self.allowlist.contains(&app_public_key) {
                     info!(%peer_id, "Received app public key from peer");
                     trace!(%peer_id, ?app_public_key, "App public key details");
                 } else {

@@ -25,7 +25,7 @@ async fn test_reqresp_basic() -> anyhow::Result<()> {
     user_handles[0]
         .command
         .send_command(Command::RequestMessage {
-            app_pk: user_handles[1].app_keypair.public(),
+            app_public_key: user_handles[1].app_keypair.public(),
             data: req_msg.clone(),
         })
         .await;
