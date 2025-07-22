@@ -218,7 +218,7 @@ impl<S: ApplicationSigner> P2P<S> {
         let (gossip_events_tx, _gossip_events_rx) = broadcast::channel(channel_size);
         let (cmds_tx, cmds_rx) = mpsc::channel(64);
 
-        // Set the local peer ID on the setup behavior
+        // Set the local transport ID on the setup behavior
         p2p.swarm
             .behaviour_mut()
             .setup

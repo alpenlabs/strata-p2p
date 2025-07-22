@@ -39,7 +39,7 @@ impl<S: ApplicationSigner> SetupBehaviour<S> {
         }
     }
 
-    /// Gets the peerid by a specific app public key.
+    /// Gets corresponding app public key by specific transport id.
     /// Returns None if we don't have the key (not connected or key exchange hasn't happened).
     pub fn get_app_public_key_by_transport_id(&self, peer_id: &PeerId) -> Option<PublicKey> {
         self.app_public_keys.get(peer_id).cloned()

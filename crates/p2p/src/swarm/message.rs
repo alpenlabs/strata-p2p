@@ -127,13 +127,13 @@ impl SetupMessage {
         PublicKey::try_decode_protobuf(&self.app_public_key)
     }
 
-    /// Gets the local peer ID.
+    /// Gets the local transport ID.
     #[expect(dead_code)]
     pub(crate) fn get_local_peer_id(&self) -> Result<PeerId, ParseError> {
         PeerId::from_bytes(&self.local_transport_id)
     }
 
-    /// Gets the remote peer ID.
+    /// Gets the remote transport ID.
     #[expect(dead_code)]
     pub(crate) fn get_remote_peer_id(&self) -> Result<PeerId, ParseError> {
         PeerId::from_bytes(&self.remote_transport_id)

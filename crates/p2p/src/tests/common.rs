@@ -187,7 +187,7 @@ impl Setup {
         })
     }
 
-    /// Create `n` random keypairs, peer ids from them and sequential in-memory
+    /// Create `n` random keypairs, transport ids from them and sequential in-memory
     /// addresses.
     fn setup_keys_ids_addrs_of_n_users(
         n: usize,

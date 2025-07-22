@@ -37,7 +37,7 @@ pub enum Command {
 /// Connects to a peer, whitelists peer, and adds peer to the gossip sub network.
 #[derive(Debug, Clone)]
 pub struct ConnectToPeerCommand {
-    /// Peer ID.
+    /// Transport ID.
     pub peer_id: PeerId,
 
     /// Peer address.
@@ -55,7 +55,7 @@ impl From<ConnectToPeerCommand> for Command {
 pub enum QueryP2PStateCommand {
     /// Queries if we're connected to a specific peer
     IsConnected {
-        /// Peer ID to check.
+        /// Transport ID to check.
         peer_id: PeerId,
         /// Channel to send the response back.
         response_sender: oneshot::Sender<bool>,
@@ -78,7 +78,7 @@ pub enum QueryP2PStateCommand {
     /// Gets the app public key for a specific peer.
     /// Returns None if we are not connected to the peer or key exchange hasn't happened yet.
     GetAppPublicKey {
-        /// Peer ID to get the app public key for.
+        /// Transport ID to get the app public key for.
         peer_id: PeerId,
         /// Channel to send the response back.
         response_sender: oneshot::Sender<Option<PublicKey>>,
