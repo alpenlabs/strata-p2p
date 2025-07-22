@@ -1,7 +1,7 @@
-//! Protocol upgrade implementations for the setup handshake.
+//! Protocol upgrade implementations for the setup phase.
 //!
 //! This module provides the upgrade implementations for both inbound and outbound
-//! handshake protocols, handling the serialization and exchange of handshake messages
+//! setup protocols, handling the serialization and exchange of setup messages
 //! over libp2p streams.
 
 use std::{future::Future, pin::Pin};
@@ -18,10 +18,9 @@ use crate::{
     swarm::message::SignedMessage,
 };
 
-/// Inbound upgrade for handling incoming handshake requests.
+/// Inbound upgrade for handling incoming setup requests.
 ///
-/// This upgrade processes incoming handshake messages from remote peers,
-/// deserializing their application public keys.
+/// This upgrade processes incoming setup messages from remote peers.
 #[derive(Debug, Clone)]
 pub struct InboundSetupUpgrade;
 
@@ -69,8 +68,7 @@ impl InboundUpgrade<Stream> for InboundSetupUpgrade {
 
 /// Outbound upgrade for initiating handshake requests.
 ///
-/// This upgrade sends the local application public key to remote peers
-/// as part of the handshake protocol.
+/// This upgrade sends the setup messages to remote peers.
 #[derive(Clone, Debug)]
 pub struct OutboundSetupUpgrade<S: ApplicationSigner> {
     pub(crate) app_public_key: PublicKey,
