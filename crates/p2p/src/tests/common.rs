@@ -86,7 +86,6 @@ impl<S: ApplicationSigner> User<S> {
         let config = P2PConfig {
             app_public_key: app_keypair.public(),
             transport_keypair: transport_keypair.clone(),
-            signer,
             idle_connection_timeout: Duration::from_secs(30),
             max_retries: None,
             dial_timeout: None,
@@ -97,12 +96,12 @@ impl<S: ApplicationSigner> User<S> {
             channel_timeout: None,
         };
 
-        let swarm = swarm::with_inmemory_transport::<S>(&config)?;
+        let swarm = swarm::with_inmemory_transport::<S>(&config, signer.clone())?;
 
         #[cfg(feature = "request-response")]
-        let (p2p, reqresp) = P2P::from_config(config, cancel, swarm, allowlist, None)?;
+        let (p2p, reqresp) = P2P::from_config(config, cancel, swarm, allowlist, None, signer)?;
         #[cfg(not(feature = "request-response"))]
-        let p2p = P2P::from_config(config, cancel, swarm, None)?;
+        let p2p = P2P::from_config(config, cancel, swarm, None, signer)?;
         let gossip = p2p.new_gossip_handle();
         let command = p2p.new_command_handle();
 
