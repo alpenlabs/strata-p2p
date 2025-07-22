@@ -809,14 +809,14 @@ impl<S: ApplicationSigner> P2P<S> {
             } => {
                 info!(%peer_id, "Setup handshake completed with peer");
             }
-            SetupBehaviourEvent::SignatureVerificationFailed {
+            SetupBehaviourEvent::ErrorDuringHandshake {
                 transport_id: peer_id,
                 error,
             } => {
-                error!(%peer_id, %error, "Signature verification failed, disconnecting peer");
+                error!(%peer_id, ?error, "Error during SetupBehaviour's handshake, disconnecting peer");
                 // Drop the connection
                 if let Err(e) = self.swarm.disconnect_peer_id(peer_id) {
-                    warn!(%peer_id, ?e, "Failed to disconnect peer after signature verification failure");
+                    warn!(%peer_id, ?e, "Failed to disconnect peer after SetupBehaviour's handshake failure");
                 }
             }
         }

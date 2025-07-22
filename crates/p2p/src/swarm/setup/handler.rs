@@ -17,7 +17,7 @@ use crate::{
     swarm::{
         message::SetupMessage,
         setup::{
-            events::SetupHandlerEvent,
+            events::{ErrorDuringHandshakeVariations, SetupHandlerEvent},
             upgrade::{InboundSetupUpgrade, OutboundSetupUpgrade},
         },
     },
@@ -106,9 +106,7 @@ impl<S: ApplicationSigner> ConnectionHandler for SetupHandler<S> {
                     Err(e) => {
                         self.pending_events
                             .push(ConnectionHandlerEvent::NotifyBehaviour(
-                                SetupHandlerEvent::SignatureVerificationFailed {
-                                    error: format!("Failed to deserialize message: {e}"),
-                                },
+                                SetupHandlerEvent::ErrorDuringHandshake(super::events::ErrorDuringHandshakeVariations::DeserializationFailed(e)) ,
                             ));
                         return;
                     }
@@ -119,9 +117,9 @@ impl<S: ApplicationSigner> ConnectionHandler for SetupHandler<S> {
                     Err(e) => {
                         self.pending_events
                             .push(ConnectionHandlerEvent::NotifyBehaviour(
-                                SetupHandlerEvent::SignatureVerificationFailed {
-                                    error: format!("Invalid app public key: {e}"),
-                                },
+                                SetupHandlerEvent::ErrorDuringHandshake(
+                                    super::events::ErrorDuringHandshakeVariations::AppPkInvalid(e),
+                                ),
                             ));
                         return;
                     }
@@ -132,9 +130,7 @@ impl<S: ApplicationSigner> ConnectionHandler for SetupHandler<S> {
                 if !signature_valid {
                     self.pending_events
                         .push(ConnectionHandlerEvent::NotifyBehaviour(
-                            SetupHandlerEvent::SignatureVerificationFailed {
-                                error: "Signature verification failed".to_string(),
-                            },
+                            SetupHandlerEvent::ErrorDuringHandshake(super::events::ErrorDuringHandshakeVariations::SignatureVerificationFailed),
                         ));
                     return;
                 }
@@ -150,20 +146,20 @@ impl<S: ApplicationSigner> ConnectionHandler for SetupHandler<S> {
                         SetupHandlerEvent::HandshakeComplete {},
                     ));
             }
-            libp2p::swarm::handler::ConnectionEvent::DialUpgradeError(error) => {
+            libp2p::swarm::handler::ConnectionEvent::DialUpgradeError(ev) => {
                 self.pending_events
                     .push(ConnectionHandlerEvent::NotifyBehaviour(
-                        SetupHandlerEvent::SignatureVerificationFailed {
-                            error: format!("Outbound signing failed: {}", error.error),
-                        },
+                        SetupHandlerEvent::ErrorDuringHandshake(
+                            ErrorDuringHandshakeVariations::OutboundError(ev.error),
+                        ),
                     ));
             }
             libp2p::swarm::handler::ConnectionEvent::ListenUpgradeError(error) => {
                 self.pending_events
                     .push(ConnectionHandlerEvent::NotifyBehaviour(
-                        SetupHandlerEvent::SignatureVerificationFailed {
-                            error: format!("Inbound verification failed: {}", error.error),
-                        },
+                        SetupHandlerEvent::ErrorDuringHandshake(
+                            ErrorDuringHandshakeVariations::InboundError(error.error),
+                        ),
                     ));
             }
             _ => {}

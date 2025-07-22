@@ -102,12 +102,11 @@ impl<S: ApplicationSigner> NetworkBehaviour for SetupBehaviour<S> {
                     transport_id: peer_id,
                 });
             }
-            SetupHandlerEvent::SignatureVerificationFailed { error, .. } => {
-                self.events
-                    .push(SetupBehaviourEvent::SignatureVerificationFailed {
-                        transport_id: peer_id,
-                        error,
-                    });
+            SetupHandlerEvent::ErrorDuringHandshake(error) => {
+                self.events.push(SetupBehaviourEvent::ErrorDuringHandshake {
+                    transport_id: peer_id,
+                    error,
+                });
             }
         }
     }
