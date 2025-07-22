@@ -16,11 +16,8 @@ pub enum Command {
 
     /// Requests some message directly from other operator by public Key.
     RequestMessage {
-        /// Libp2p [`PeerId`] of target peer.
-        ///
-        /// Note: [`PeerId`] can be created from public key of corresponding peer via
-        /// `the_pubkey.to_peer_id()`.
-        peer_id: PeerId,
+        /// Libp2p application [`PublicKey`] of target peer.
+        app_pk: PublicKey,
         /// Message payload in raw bytes.
         ///
         /// The user is responsible for properly serializing/deserializing the data.

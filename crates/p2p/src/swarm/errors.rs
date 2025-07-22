@@ -38,6 +38,19 @@ pub enum Error {
     /// Protocol errors.
     #[error("Protocol error {0}")]
     Protocol(#[from] ProtocolError),
+
+    /// Logic error.
+    #[error("Logic error {0}")]
+    Logic(#[from] LogicError),
+}
+
+/// Logic error.
+#[derive(Debug, Error)]
+pub enum LogicError {
+    /// If we haven't done Setup, we maybe don't know the guy. Until DHT, this is the only option
+    /// for now.
+    #[error("Attempt to send request response before Setup ever done")]
+    RequestResponseBeforeSetup,
 }
 
 /// Validation errors.

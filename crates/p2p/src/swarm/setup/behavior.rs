@@ -24,7 +24,11 @@ pub struct SetupBehaviour<S: ApplicationSigner> {
     app_public_key: PublicKey,
     local_transport_id: PeerId,
     signer: S,
-    app_public_keys: HashMap<PeerId, PublicKey>,
+
+    // Note(Arniiiii): Ill'a that he doesn't like bimap crate, and I had to do this...
+    tid_to_app_pk: HashMap<PeerId, PublicKey>,
+    app_pk_to_tid: HashMap<PublicKey, PeerId>,
+
     events: Vec<SetupBehaviourEvent>,
 }
 
@@ -34,15 +38,23 @@ impl<S: ApplicationSigner> SetupBehaviour<S> {
             app_public_key,
             local_transport_id: transport_id,
             signer,
-            app_public_keys: HashMap::new(),
+            tid_to_app_pk: HashMap::new(),
+            app_pk_to_tid: HashMap::new(),
             events: Vec::new(),
         }
     }
 
-    /// Gets corresponding app public key by specific transport id.
+    /// Gets a corresponding app public key by specific transport id.
     /// Returns None if we don't have the key (not connected or key exchange hasn't happened).
     pub fn get_app_public_key_by_transport_id(&self, peer_id: &PeerId) -> Option<PublicKey> {
-        self.app_public_keys.get(peer_id).cloned()
+        self.tid_to_app_pk.get(peer_id).cloned()
+    }
+
+    /// Gets a corresponding transport id by specific application public key.
+    /// Returns None if we don't have the transport id (not connected or key exchange hasn't
+    /// happened).
+    pub fn get_transport_id_by_app_pk(&self, app_pk: &PublicKey) -> Option<PeerId> {
+        self.app_pk_to_tid.get(app_pk).cloned()
     }
 }
 
@@ -91,7 +103,8 @@ impl<S: ApplicationSigner> NetworkBehaviour for SetupBehaviour<S> {
     ) {
         match event {
             SetupHandlerEvent::AppKeyReceived { app_public_key } => {
-                self.app_public_keys.insert(peer_id, app_public_key.clone());
+                self.tid_to_app_pk.insert(peer_id, app_public_key.clone());
+                self.app_pk_to_tid.insert(app_public_key.clone(), peer_id);
                 self.events.push(SetupBehaviourEvent::AppKeyReceived {
                     transport_id: peer_id,
                     app_public_key,

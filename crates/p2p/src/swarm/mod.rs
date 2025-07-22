@@ -566,30 +566,30 @@ impl<S: ApplicationSigner> P2P<S> {
 
                 Ok(())
             }
-            Command::RequestMessage { peer_id, data } => {
-                let request_target_peer_id = &peer_id;
-                debug!(%request_target_peer_id, "Got request message");
+            Command::RequestMessage { app_pk, data } => {
+                debug!(?app_pk, "Got request message");
                 trace!(?data, "Got request message");
 
-                if self.swarm.is_connected(request_target_peer_id) {
-                    self.swarm
-                        .behaviour_mut()
-                        .request_response
-                        .send_request(request_target_peer_id, data);
-                    return Ok(());
-                }
+                let option_request_target_peer_id = self
+                    .swarm
+                    .behaviour()
+                    .setup
+                    .get_transport_id_by_app_pk(&app_pk);
 
-                // TODO(Arniiiii) : rewrite this part so it sends to gossipsub instead of the
-                // manual floodsub via manual request-response to everyone.
-                let connected_peers = self.swarm.connected_peers().cloned().collect::<Vec<_>>();
-                for peer in connected_peers {
-                    self.swarm
-                        .behaviour_mut()
-                        .request_response
-                        .send_request(&peer, data.clone());
-                }
+                match option_request_target_peer_id {
+                    Some(request_target_peer_id) => {
+                        if self.swarm.is_connected(&request_target_peer_id) {
+                            self.swarm
+                                .behaviour_mut()
+                                .request_response
+                                .send_request(&request_target_peer_id, data);
+                            return Ok(());
+                        }
 
-                Ok(())
+                        Ok(())
+                    }
+                    None => Err(Error::Logic(errors::LogicError::RequestResponseBeforeSetup)),
+                }
             }
             Command::ConnectToPeer(connect_to_peer_command) => {
                 // Add peer to swarm
