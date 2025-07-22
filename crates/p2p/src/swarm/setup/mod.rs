@@ -1,5 +1,3 @@
-//! Setup module for peer-to-peer connection establishment and handshake protocol.
-//!
 //! This module implements the setup phase of P2P connections, handling exchange of application
 //! public keys
 
