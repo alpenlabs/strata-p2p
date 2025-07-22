@@ -42,28 +42,53 @@ async fn test_setup_with_invalid_signature() {
     let tasks = tokio_util::task::TaskTracker::new();
 
     // --- Setup Good User ---
-    let app_keypair_good = Keypair::generate_ed25519();
-    let transport_keypair_good = Keypair::generate_ed25519();
-    let local_addr_good = build_multiaddr!(Memory(rand::random::<u64>()));
-    let cancel_good = CancellationToken::new();
+    let app_keypair_good1 = Keypair::generate_ed25519();
+    let app_keypair_good2 = Keypair::generate_ed25519();
+    let transport_keypair_good1 = Keypair::generate_ed25519();
+    let transport_keypair_good2 = Keypair::generate_ed25519();
+    let local_addr_good1 = build_multiaddr!(Memory(rand::random::<u64>()));
+    let local_addr_good2 = build_multiaddr!(Memory(rand::random::<u64>()));
+    let cancel_good1 = CancellationToken::new();
+    let cancel_good2 = CancellationToken::new();
 
-    let good_user = User::new(
-        app_keypair_good.clone(),
-        transport_keypair_good.clone(),
-        vec![], // No initial connections
-        local_addr_good.clone(),
-        vec![], // No initial allowlist
-        cancel_good.child_token(),
-        MockApplicationSigner::new(app_keypair_good.clone()),
+    let mut good_user1 = User::new(
+        app_keypair_good1.clone(),
+        transport_keypair_good1.clone(),
+        vec![local_addr_good2.clone()], // initial connect to
+        local_addr_good1.clone(),
+        vec![app_keypair_good2.public()], //  allowlist
+        cancel_good1.child_token(),
+        MockApplicationSigner::new(app_keypair_good1.clone()),
     )
     .unwrap();
 
-    let good_peer_id = good_user.transport_keypair.public().to_peer_id();
-    let good_command_handle = good_user.command.clone();
+    let mut good_user2 = User::new(
+        app_keypair_good2.clone(),
+        transport_keypair_good2.clone(),
+        vec![local_addr_good1.clone()], // initial connect to
+        local_addr_good2.clone(),
+        vec![app_keypair_good1.public()], //  allowlist
+        cancel_good2.child_token(),
+        MockApplicationSigner::new(app_keypair_good2.clone()),
+    )
+    .unwrap();
 
-    // Spawn good user's P2P listener in a task
+    let good_peer_id1 = good_user1.transport_keypair.public().to_peer_id();
+    let good_command_handle1 = good_user1.command.clone();
+
+    // Spawn first good user's P2P listener in a task
     tasks.spawn(async move {
-        good_user.p2p.listen().await;
+        good_user1.p2p.establish_connections().await;
+        good_user1.p2p.listen().await;
+    });
+
+    let good_peer_id2 = good_user2.transport_keypair.public().to_peer_id();
+    let good_command_handle2 = good_user2.command.clone();
+
+    // Spawn second good user's P2P listener in a task
+    tasks.spawn(async move {
+        good_user2.p2p.establish_connections().await;
+        good_user2.p2p.listen().await;
     });
 
     // --- Setup Bad User ---
@@ -77,7 +102,7 @@ async fn test_setup_with_invalid_signature() {
         transport_keypair_bad.clone(),
         vec![], // No initial connections
         local_addr_bad.clone(),
-        vec![], // No initial allowlist
+        vec![app_keypair_good1.public()], // No initial allowlist
         cancel_bad.child_token(),
         BadApplicationSigner::new(app_keypair_bad.clone()),
     )
@@ -92,15 +117,15 @@ async fn test_setup_with_invalid_signature() {
     });
 
     // Give some time for listeners to start
-    sleep(Duration::from_millis(100)).await;
+    sleep(Duration::from_secs(1)).await;
 
     // --- Initiate Connections ---
     // Good user tries to connect to bad user
     info!(
         "Good user ({}) attempting to connect to bad user ({}) at {}",
-        good_peer_id, bad_peer_id, local_addr_bad
+        good_peer_id1, bad_peer_id, local_addr_bad
     );
-    good_command_handle
+    good_command_handle1
         .send_command(Command::ConnectToPeer(ConnectToPeerCommand {
             peer_id: bad_peer_id,
             peer_addr: local_addr_bad.clone(),
@@ -110,12 +135,12 @@ async fn test_setup_with_invalid_signature() {
     // Bad user tries to connect to good user
     info!(
         "Bad user ({}) attempting to connect to good user ({}) at {}",
-        bad_peer_id, good_peer_id, local_addr_good
+        bad_peer_id, good_peer_id1, local_addr_good1
     );
     bad_command_handle
         .send_command(Command::ConnectToPeer(ConnectToPeerCommand {
-            peer_id: good_peer_id,
-            peer_addr: local_addr_good.clone(),
+            peer_id: good_peer_id1,
+            peer_addr: local_addr_good1.clone(),
         }))
         .await;
 
@@ -125,15 +150,28 @@ async fn test_setup_with_invalid_signature() {
     // --- Verify Connection States ---
     // Check good user's connections
     let (tx_good_peers, rx_good_peers) = channel::<Vec<PeerId>>();
-    good_command_handle
+    good_command_handle1
         .send_command(Command::QueryP2PState(
             QueryP2PStateCommand::GetConnectedPeers {
                 response_sender: tx_good_peers,
             },
         ))
         .await;
-    let connected_peers_good = rx_good_peers.await.unwrap();
-    info!(?connected_peers_good, "Good user connected peers");
+    let connected_peers_good1 = rx_good_peers.await.unwrap();
+    info!(?connected_peers_good1, "Good user connected peers");
+
+    // --- Verify Connection States ---
+    // Check second good user's connections
+    let (tx_good_peers, rx_good_peers) = channel::<Vec<PeerId>>();
+    good_command_handle2
+        .send_command(Command::QueryP2PState(
+            QueryP2PStateCommand::GetConnectedPeers {
+                response_sender: tx_good_peers,
+            },
+        ))
+        .await;
+    let connected_peers_good2 = rx_good_peers.await.unwrap();
+    info!(?connected_peers_good2, "Second good user connected peers");
 
     // Check bad user's connections
     let (tx_bad_peers, rx_bad_peers) = channel::<Vec<PeerId>>();
@@ -149,16 +187,33 @@ async fn test_setup_with_invalid_signature() {
 
     // Assertions: Neither user should be connected to the other
     assert!(
-        !connected_peers_good.contains(&bad_peer_id),
+        !connected_peers_good1.contains(&bad_peer_id),
         "Good user should NOT be connected to bad user due to invalid signature from bad user."
     );
     assert!(
-        !connected_peers_bad.contains(&good_peer_id),
+        connected_peers_good1.contains(&good_peer_id2),
+        "Good user should be connected to second good user."
+    );
+    // Assertions: Neither user should be connected to the other
+    assert!(
+        !connected_peers_good2.contains(&bad_peer_id),
+        "Second good user should NOT be connected to bad user due to invalid signature from bad user."
+    );
+    assert!(
+        connected_peers_good2.contains(&good_peer_id1),
+        "Good user should be connected to good user."
+    );
+    assert!(
+        !connected_peers_bad.contains(&good_peer_id1),
         "Bad user should NOT be connected to good user (or anyone else via this connection attempt)."
+    );
+    assert!(
+        !connected_peers_bad.contains(&good_peer_id2),
+        "Bad user should NOT be connected to second good user (or anyone else via this connection attempt)."
     );
 
     // --- Cleanup ---
-    cancel_good.cancel();
+    cancel_good1.cancel();
     cancel_bad.cancel();
     tasks.close();
 }

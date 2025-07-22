@@ -808,7 +808,7 @@ impl<S: ApplicationSigner> P2P<S> {
                 transport_id: peer_id,
                 error,
             } => {
-                error!(%peer_id, ?error, "Error during SetupBehaviour's handshake, disconnecting peer");
+                warn!(%peer_id, ?error, "Error during SetupBehaviour's handshake, disconnecting peer");
                 // Drop the connection
                 if let Err(e) = self.swarm.disconnect_peer_id(peer_id) {
                     warn!(%peer_id, ?e, "Failed to disconnect peer after SetupBehaviour's handshake failure");
