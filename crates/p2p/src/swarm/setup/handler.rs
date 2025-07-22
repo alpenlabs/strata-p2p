@@ -1,7 +1,7 @@
 //! Connection handler for the setup protocol.
 //!
 //! This module provides the [`SetupHandler`] which manages individual connection
-//! setup processes, handling both inbound and outbound substreams for the handshake
+//! setup processes, handling both inbound and outbound substreams for the setup
 //! protocol.
 
 use std::task::{Context, Poll};
@@ -14,9 +14,12 @@ use libp2p::{
 
 use crate::{
     signer::ApplicationSigner,
-    swarm::setup::{
-        events::SetupHandlerEvent,
-        upgrade::{InboundSetupUpgrade, OutboundSetupUpgrade},
+    swarm::{
+        message::SetupMessage,
+        setup::{
+            events::SetupHandlerEvent,
+            upgrade::{InboundSetupUpgrade, OutboundSetupUpgrade},
+        },
     },
 };
 
@@ -96,7 +99,37 @@ impl<S: ApplicationSigner> ConnectionHandler for SetupHandler<S> {
     ) {
         match event {
             libp2p::swarm::handler::ConnectionEvent::FullyNegotiatedInbound(inbound) => {
-                let (setup_msg, signature_valid) = inbound.protocol;
+                let setup_msg = inbound.protocol;
+
+                let setup_message: SetupMessage = match setup_msg.deserialize_message() {
+                    Ok(msg) => msg,
+                    Err(e) => {
+                        self.pending_events
+                            .push(ConnectionHandlerEvent::NotifyBehaviour(
+                                SetupHandlerEvent::SignatureVerificationFailed {
+                                    error: format!("Failed to deserialize message: {e}"),
+                                },
+                            ));
+                        return;
+                    }
+                };
+
+                let app_public_key = match setup_message.get_app_public_key() {
+                    Ok(key) => key,
+                    Err(e) => {
+                        self.pending_events
+                            .push(ConnectionHandlerEvent::NotifyBehaviour(
+                                SetupHandlerEvent::SignatureVerificationFailed {
+                                    error: format!("Invalid app public key: {e}"),
+                                },
+                            ));
+                        return;
+                    }
+                };
+
+                let signature_valid = setup_msg
+                    .verify_signature(&app_public_key)
+                    .unwrap_or(false);
 
                 if !signature_valid {
                     self.pending_events
@@ -108,32 +141,6 @@ impl<S: ApplicationSigner> ConnectionHandler for SetupHandler<S> {
                     return;
                 }
 
-                // Validate message format
-                if let Err(e) = setup_msg.validate() {
-                    self.pending_events
-                        .push(ConnectionHandlerEvent::NotifyBehaviour(
-                            SetupHandlerEvent::SignatureVerificationFailed {
-                                error: format!("Message validation failed: {e}"),
-                            },
-                        ));
-                    return;
-                }
-
-                // Get public key
-                let app_public_key = match setup_msg.get_app_public_key() {
-                    Ok(key) => key,
-                    Err(e) => {
-                        self.pending_events
-                            .push(ConnectionHandlerEvent::NotifyBehaviour(
-                                SetupHandlerEvent::SignatureVerificationFailed {
-                                    error: format!("Invalid public key: {e}"),
-                                },
-                            ));
-                        return;
-                    }
-                };
-
-                // Signature is already verified, so we can accept the message
                 self.pending_events
                     .push(ConnectionHandlerEvent::NotifyBehaviour(
                         SetupHandlerEvent::AppKeyReceived { app_public_key },
@@ -146,7 +153,6 @@ impl<S: ApplicationSigner> ConnectionHandler for SetupHandler<S> {
                     ));
             }
             libp2p::swarm::handler::ConnectionEvent::DialUpgradeError(error) => {
-                // Report as signature verification failure for signing errors
                 self.pending_events
                     .push(ConnectionHandlerEvent::NotifyBehaviour(
                         SetupHandlerEvent::SignatureVerificationFailed {
@@ -155,7 +161,6 @@ impl<S: ApplicationSigner> ConnectionHandler for SetupHandler<S> {
                     ));
             }
             libp2p::swarm::handler::ConnectionEvent::ListenUpgradeError(error) => {
-                // Report as signature verification failure for verification errors
                 self.pending_events
                     .push(ConnectionHandlerEvent::NotifyBehaviour(
                         SetupHandlerEvent::SignatureVerificationFailed {

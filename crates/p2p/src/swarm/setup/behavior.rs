@@ -1,7 +1,6 @@
 //! Network behavior implementation for the setup protocol.
 //!
-//! This module provides the [`SetupBehaviour`] which manages the setup phase
-//! of peer-to-peer connections, including handshake coordination and application
+//! This module provides the [`SetupBehaviour`] which manages the application
 //! public key exchange.
 
 use std::{
@@ -13,7 +12,7 @@ use libp2p::{
     PeerId,
     core::transport::PortUse,
     identity::PublicKey,
-    swarm::{NetworkBehaviour, ToSwarm},
+    swarm::{NetworkBehaviour},
 };
 
 use crate::{
@@ -32,7 +31,7 @@ pub struct SetupBehaviour<S: ApplicationSigner> {
     signer: S,
     peer_app_keys: HashMap<PeerId, PublicKey>,
     events: Vec<SetupBehaviourEvent>,
-    events_toswarm_unwrapped: Vec<ToSwarm<SetupBehaviourEvent, ()>>,
+    events_toswarm_unwrapped: Vec<libp2p::swarm::ToSwarm<SetupBehaviourEvent, ()>>,
     app_pk_allow_list: HashSet<PublicKey>,
 }
 
@@ -96,9 +95,7 @@ impl<S: ApplicationSigner> NetworkBehaviour for SetupBehaviour<S> {
         ))
     }
 
-    fn on_swarm_event(&mut self, event: libp2p::swarm::FromSwarm<'_>) {
-        if let libp2p::swarm::FromSwarm::ConnectionEstablished(_event) = event {}
-    }
+    fn on_swarm_event(&mut self, _: libp2p::swarm::FromSwarm<'_>) {}
 
     fn on_connection_handler_event(
         &mut self,
@@ -123,7 +120,7 @@ impl<S: ApplicationSigner> NetworkBehaviour for SetupBehaviour<S> {
                                 app_public_key,
                             });
                         self.events_toswarm_unwrapped
-                            .push(ToSwarm::CloseConnection {
+                            .push(libp2p::swarm::ToSwarm::CloseConnection {
                                 peer_id,
                                 connection: libp2p::swarm::CloseConnection::All,
                             });
@@ -156,6 +153,7 @@ impl<S: ApplicationSigner> NetworkBehaviour for SetupBehaviour<S> {
         if let Some(event) = self.events.pop() {
             return Poll::Ready(libp2p::swarm::ToSwarm::GenerateEvent(event));
         }
+
         Poll::Pending
     }
 }

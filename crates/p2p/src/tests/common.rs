@@ -53,7 +53,7 @@ impl ApplicationSigner for MockApplicationSigner {
     fn sign(
         &self,
         message: &[u8],
-        app_public_key: &PublicKey,
+        app_public_key: PublicKey,
     ) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
         // Verify that the provided public key matches our stored keypair
         let our_public_key = self.app_keypair.public();

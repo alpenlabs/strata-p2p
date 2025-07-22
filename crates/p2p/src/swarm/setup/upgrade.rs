@@ -15,7 +15,7 @@ use tokio::io;
 
 use crate::{
     signer::ApplicationSigner,
-    swarm::message::{SetupMessage, SignedMessage},
+    swarm::message::SignedMessage,
 };
 
 /// Inbound upgrade for handling incoming handshake requests.
@@ -42,7 +42,7 @@ impl UpgradeInfo for InboundSetupUpgrade {
 }
 
 impl InboundUpgrade<Stream> for InboundSetupUpgrade {
-    type Output = (SignedMessage, bool); // (signed_message, signature_valid)
+    type Output = SignedMessage;
     type Error = io::Error;
     type Future = Pin<Box<dyn Future<Output = Result<Self::Output, Self::Error>> + Send>>;
 
@@ -52,24 +52,7 @@ impl InboundUpgrade<Stream> for InboundSetupUpgrade {
 
             match StreamExt::next(&mut framed).await {
                 Some(Ok(signed_message)) => {
-                    let setup_message: SetupMessage =
-                        signed_message.deserialize_message().map_err(|e| {
-                            io::Error::new(
-                                io::ErrorKind::InvalidData,
-                                format!("Failed to deserialize message: {e}"),
-                            )
-                        })?;
-                    let app_public_key = setup_message.get_app_public_key().map_err(|e| {
-                        io::Error::new(
-                            io::ErrorKind::InvalidData,
-                            format!("Invalid app public key: {e}"),
-                        )
-                    })?;
-                    let signature_valid = signed_message
-                        .verify_signature(&app_public_key)
-                        .unwrap_or(false);
-
-                    Ok((signed_message, signature_valid))
+                    Ok(signed_message)
                 }
                 Some(Err(e)) => Err(io::Error::new(
                     io::ErrorKind::InvalidData,
