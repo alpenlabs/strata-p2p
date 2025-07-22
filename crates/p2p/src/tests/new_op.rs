@@ -10,7 +10,7 @@ use super::common::Setup;
 use crate::{
     commands::{Command, ConnectToPeerCommand, QueryP2PStateCommand},
     events::GossipEvent,
-    tests::common::{User, init_tracing},
+    tests::common::{MockApplicationSigner, User, init_tracing},
 };
 
 /// Tests sending a gossipsub message from a new user to all existing users.
@@ -63,6 +63,7 @@ async fn gossip_new_user() -> anyhow::Result<()> {
         local_addr.clone(),
         Vec::new(),
         cancel.child_token(),
+        MockApplicationSigner::new(new_user_app_keypair.clone()),
     )
     .unwrap();
 

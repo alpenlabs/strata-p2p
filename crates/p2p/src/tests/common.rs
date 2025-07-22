@@ -67,8 +67,8 @@ impl ApplicationSigner for MockApplicationSigner {
     }
 }
 
-pub(crate) struct User {
-    pub(crate) p2p: P2P<MockApplicationSigner>,
+pub(crate) struct User<S: ApplicationSigner = MockApplicationSigner> {
+    pub(crate) p2p: P2P<S>,
     pub(crate) gossip: GossipHandle,
     #[cfg(feature = "request-response")]
     pub(crate) reqresp: ReqRespHandle,
@@ -77,7 +77,7 @@ pub(crate) struct User {
     pub(crate) transport_keypair: Keypair,
 }
 
-impl User {
+impl<S: ApplicationSigner> User<S> {
     pub(crate) fn new(
         app_keypair: Keypair,
         transport_keypair: Keypair,
@@ -85,13 +85,14 @@ impl User {
         local_addr: Multiaddr,
         allow_list: Vec<PublicKey>,
         cancel: CancellationToken,
+        signer: S,
     ) -> anyhow::Result<Self> {
         debug!(%local_addr, "Creating new user with local address");
 
         let config = P2PConfig {
             app_public_key: app_keypair.public(),
             transport_keypair: transport_keypair.clone(),
-            signer: MockApplicationSigner::new(app_keypair.clone()),
+            signer,
             idle_connection_timeout: Duration::from_secs(30),
             max_retries: None,
             dial_timeout: None,
@@ -103,7 +104,7 @@ impl User {
             channel_timeout: None,
         };
 
-        let swarm = swarm::with_inmemory_transport::<MockApplicationSigner>(&config)?;
+        let swarm = swarm::with_inmemory_transport::<S>(&config)?;
 
         #[cfg(feature = "request-response")]
         let (p2p, reqresp) = P2P::from_config(config, cancel, swarm, None)?;
@@ -175,6 +176,9 @@ impl Setup {
                 addr.clone(),
                 other_app_pk,
                 cancel.child_token(),
+                MockApplicationSigner {
+                    app_keypair: app_keypair.clone(),
+                },
             )?;
 
             users.push(user);
