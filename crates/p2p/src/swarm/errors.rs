@@ -8,24 +8,31 @@ use thiserror::Error;
 /// P2P result type.
 pub type P2PResult<T> = Result<T, Error>;
 
-/// Errors for validatation inside of validate.
-#[derive(Debug, Clone, Error)]
-pub enum SetupMessageValidationError {
-    /// Version mismatch: version of message is not supported or is incorrect.
-    #[error("Invalid protocol version")]
-    VersionMismatch,
-    /// Protocol mismatch: protocol of message is not supported or is incorrect.
-    #[error("Invalid protocol ID")]
-    ProtocolMismatch,
-    /// Application public key in message is somehow empty.
-    #[error("Application public key is empty")]
-    AppPublicKeyEmpty,
-    /// Local (our) transport id is missing.
-    #[error("Local transport ID is empty")]
-    LocalTransportIdEmpty,
-    /// Remote (someone's) transport id is missing.
-    #[error("Remote transport ID is empty")]
-    RemoteTransportIdEmpty,
+/// Variations of error during a setup handshake.
+#[derive(Debug, Error)]
+pub enum ErrorDuringSetupHandshakeVariations {
+    /// Indicates that signature verification failed.
+    ///
+    /// This event is fired when the signature verification fails for a peer's
+    /// handshake message, indicating the connection should be dropped.
+    #[error("Signature verification failed")]
+    SignatureVerificationFailed,
+
+    /// Failed to deserialize something.
+    #[error("Deserialization failed: {0}")]
+    DeserializationFailed(Box<dyn error::Error + Send + Sync>),
+
+    /// In received message application public key is invalid.
+    #[error("Application public key invalid: {0}")]
+    AppPublicKeyInvalid(Box<dyn error::Error + Send + Sync>),
+
+    /// Error during sending to remote peer.
+    #[error("Outbound error: {0}")]
+    OutboundError(Box<dyn error::Error + Send + Sync>),
+
+    /// Error during receiving from remote peer.
+    #[error("Inbound error: {0}")]
+    InboundError(Box<dyn error::Error + Send + Sync>),
 }
 
 /// Swarm errors.

@@ -110,9 +110,10 @@ impl<S: ApplicationSigner> OutboundUpgrade<Stream> for OutboundSetupUpgrade<S> {
             .map_err(|e| SetupUpgradeError::SignedMessageCreation(e))?;
 
             let mut framed = Framed::new(stream, JsonCodec::<SignedMessage, SignedMessage>::new());
-            framed.send(setup_message).await.map_err(|e| {
-                SetupUpgradeError::JsonCodec(e.into())
-            })?;
+            framed
+                .send(setup_message)
+                .await
+                .map_err(|e| SetupUpgradeError::JsonCodec(e.into()))?;
             framed
                 .close()
                 .await

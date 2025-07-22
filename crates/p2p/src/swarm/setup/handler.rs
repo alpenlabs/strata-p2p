@@ -15,9 +15,10 @@ use libp2p::{
 use crate::{
     signer::ApplicationSigner,
     swarm::{
+        errors::ErrorDuringSetupHandshakeVariations,
         message::SetupMessage,
         setup::{
-            events::{ErrorDuringSetupHandshakeVariations, SetupHandlerEvent},
+            events::SetupHandlerEvent,
             upgrade::{InboundSetupUpgrade, OutboundSetupUpgrade},
         },
     },
@@ -106,7 +107,11 @@ impl<S: ApplicationSigner> ConnectionHandler for SetupHandler<S> {
                     Err(e) => {
                         self.pending_events
                             .push(ConnectionHandlerEvent::NotifyBehaviour(
-                                SetupHandlerEvent::ErrorDuringSetupHandshake(super::events::ErrorDuringSetupHandshakeVariations::DeserializationFailed(e)) ,
+                                SetupHandlerEvent::ErrorDuringSetupHandshake(
+                                    ErrorDuringSetupHandshakeVariations::DeserializationFailed(
+                                        e.into(),
+                                    ),
+                                ),
                             ));
                         return;
                     }
@@ -117,10 +122,12 @@ impl<S: ApplicationSigner> ConnectionHandler for SetupHandler<S> {
                     Err(e) => {
                         self.pending_events
                             .push(ConnectionHandlerEvent::NotifyBehaviour(
-                            SetupHandlerEvent::ErrorDuringSetupHandshake(
-                                super::events::ErrorDuringSetupHandshakeVariations::AppPkInvalid(e),
-                            ),
-                        ));
+                                SetupHandlerEvent::ErrorDuringSetupHandshake(
+                                    ErrorDuringSetupHandshakeVariations::AppPublicKeyInvalid(
+                                        e.into(),
+                                    ),
+                                ),
+                            ));
                         return;
                     }
                 };
@@ -130,7 +137,9 @@ impl<S: ApplicationSigner> ConnectionHandler for SetupHandler<S> {
                 if !signature_valid {
                     self.pending_events
                         .push(ConnectionHandlerEvent::NotifyBehaviour(
-                            SetupHandlerEvent::ErrorDuringSetupHandshake(super::events::ErrorDuringSetupHandshakeVariations::SignatureVerificationFailed),
+                            SetupHandlerEvent::ErrorDuringSetupHandshake(
+                                ErrorDuringSetupHandshakeVariations::SignatureVerificationFailed,
+                            ),
                         ));
                     return;
                 }
@@ -140,20 +149,19 @@ impl<S: ApplicationSigner> ConnectionHandler for SetupHandler<S> {
                         SetupHandlerEvent::AppKeyReceived { app_public_key },
                     ));
             }
-            libp2p::swarm::handler::ConnectionEvent::FullyNegotiatedOutbound(_outbound) => {}
-            libp2p::swarm::handler::ConnectionEvent::DialUpgradeError(ev) => {
+            libp2p::swarm::handler::ConnectionEvent::DialUpgradeError(e) => {
                 self.pending_events
                     .push(ConnectionHandlerEvent::NotifyBehaviour(
                         SetupHandlerEvent::ErrorDuringSetupHandshake(
-                            ErrorDuringSetupHandshakeVariations::OutboundError(ev.error),
+                            ErrorDuringSetupHandshakeVariations::OutboundError(e.error.into()),
                         ),
                     ));
             }
-            libp2p::swarm::handler::ConnectionEvent::ListenUpgradeError(error) => {
+            libp2p::swarm::handler::ConnectionEvent::ListenUpgradeError(e) => {
                 self.pending_events
                     .push(ConnectionHandlerEvent::NotifyBehaviour(
                         SetupHandlerEvent::ErrorDuringSetupHandshake(
-                            ErrorDuringSetupHandshakeVariations::InboundError(error.error),
+                            ErrorDuringSetupHandshakeVariations::InboundError(e.error.into()),
                         ),
                     ));
             }

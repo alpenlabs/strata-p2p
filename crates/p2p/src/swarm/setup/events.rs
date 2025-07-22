@@ -4,35 +4,9 @@
 //! of peer-to-peer connections, providing information about handshake progress
 //! and key exchange completion.
 
-use libp2p::{
-    PeerId,
-    identity::{DecodingError, PublicKey},
-    swarm::StreamUpgradeError,
-};
+use libp2p::{PeerId, identity::PublicKey};
 
-use crate::swarm::errors::SetupUpgradeError;
-
-/// Variations of error during a setup handshake.
-#[derive(Debug)]
-pub enum ErrorDuringSetupHandshakeVariations {
-    /// Indicates that signature verification failed.
-    ///
-    /// This event is fired when the signature verification fails for a peer's
-    /// handshake message, indicating the connection should be dropped.
-    SignatureVerificationFailed,
-
-    /// Failed to deserialize something.
-    DeserializationFailed(serde_json::Error),
-
-    /// In received message application public key is invalid.
-    AppPkInvalid(DecodingError),
-
-    /// Error during sending to remote peer.
-    OutboundError(StreamUpgradeError<SetupUpgradeError>),
-
-    /// Error during receiving from remote peer.
-    InboundError(SetupUpgradeError),
-}
+use crate::swarm::errors::ErrorDuringSetupHandshakeVariations;
 
 /// Events emitted during the setup phase of peer connections.
 ///
