@@ -107,7 +107,7 @@ impl<S: ApplicationSigner> OutboundUpgrade<Stream> for OutboundSetupUpgrade<S> {
                 self.remote_peer_id,
                 &self.signer,
             )
-            .map_err(|e| SetupUpgradeError::SignedMessageCreation(e))?;
+            .map_err(SetupUpgradeError::SignedMessageCreation)?;
 
             let mut framed = Framed::new(stream, JsonCodec::<SignedMessage, SignedMessage>::new());
             framed
