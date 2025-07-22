@@ -111,7 +111,7 @@ impl CommandHandle {
 
         // Send the command to check connection.
         let cmd = Command::QueryP2PState(QueryP2PStateCommand::IsConnected {
-            peer_id,
+            transport_id: peer_id,
             response_sender: sender,
         });
 
@@ -164,7 +164,7 @@ impl CommandHandle {
 
         // Send the command.
         let cmd = Command::QueryP2PState(QueryP2PStateCommand::GetAppPublicKey {
-            peer_id,
+            transport_id: peer_id,
             response_sender: sender,
         });
 

@@ -574,7 +574,7 @@ impl<S: ApplicationSigner> P2P<S> {
                     .swarm
                     .behaviour()
                     .setup
-                    .get_transport_id_by_app_pk(&app_pk);
+                    .get_transport_id_by_application_key(&app_pk);
 
                 match option_request_target_peer_id {
                     Some(request_target_peer_id) => {
@@ -620,7 +620,7 @@ impl<S: ApplicationSigner> P2P<S> {
             }
             Command::QueryP2PState(query) => match query {
                 QueryP2PStateCommand::IsConnected {
-                    peer_id,
+                    transport_id: peer_id,
                     response_sender,
                 } => {
                     info!(%peer_id, "Querying if peer is connected");
@@ -650,7 +650,7 @@ impl<S: ApplicationSigner> P2P<S> {
                     Ok(())
                 }
                 QueryP2PStateCommand::GetAppPublicKey {
-                    peer_id,
+                    transport_id: peer_id,
                     response_sender,
                 } => {
                     let app_pk = self

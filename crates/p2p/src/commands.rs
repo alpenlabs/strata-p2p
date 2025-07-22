@@ -53,7 +53,7 @@ pub enum QueryP2PStateCommand {
     /// Queries if we're connected to a specific peer
     IsConnected {
         /// Transport ID to check.
-        peer_id: PeerId,
+        transport_id: PeerId,
         /// Channel to send the response back.
         response_sender: oneshot::Sender<bool>,
     },
@@ -76,7 +76,7 @@ pub enum QueryP2PStateCommand {
     /// Returns None if we are not connected to the peer or key exchange hasn't happened yet.
     GetAppPublicKey {
         /// Transport ID to get the app public key for.
-        peer_id: PeerId,
+        transport_id: PeerId,
         /// Channel to send the response back.
         response_sender: oneshot::Sender<Option<PublicKey>>,
     },

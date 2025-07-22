@@ -35,7 +35,7 @@ async fn test_is_connected() -> anyhow::Result<()> {
     user_handles[0]
         .command
         .send_command(Command::from(QueryP2PStateCommand::IsConnected {
-            peer_id: user_handles[1].peer_id,
+            transport_id: user_handles[1].peer_id,
             response_sender: tx,
         }))
         .await;
