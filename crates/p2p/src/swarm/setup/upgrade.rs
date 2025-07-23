@@ -63,22 +63,22 @@ impl InboundUpgrade<Stream> for InboundSetupUpgrade {
 #[derive(Clone, Debug)]
 pub struct OutboundSetupUpgrade<S: ApplicationSigner> {
     app_public_key: PublicKey,
-    local_peer_id: PeerId,
-    remote_peer_id: PeerId,
+    local_transport_id: PeerId,
+    remote_transport_id: PeerId,
     signer: S,
 }
 
 impl<S: ApplicationSigner> OutboundSetupUpgrade<S> {
     pub(crate) const fn new(
         app_public_key: PublicKey,
-        local_peer_id: PeerId,
-        remote_peer_id: PeerId,
+        local_transport_id: PeerId,
+        remote_transport_id: PeerId,
         signer: S,
     ) -> Self {
         Self {
             app_public_key,
-            local_peer_id,
-            remote_peer_id,
+            local_transport_id,
+            remote_transport_id,
             signer,
         }
     }
@@ -102,11 +102,11 @@ impl<S: ApplicationSigner> OutboundUpgrade<Stream> for OutboundSetupUpgrade<S> {
         Box::pin(async move {
             let setup_message = SignedMessage::new_signed_setup(
                 self.app_public_key.clone(),
-                self.local_peer_id,
-                self.remote_peer_id,
+                self.local_transport_id,
+                self.remote_transport_id,
                 &self.signer,
             )
-            .map_err(SetupUpgradeError::SignedMessageCreation)?;
+            .map_err(|e| SetupUpgradeError::SignedMessageCreation(e.into()))?;
 
             let mut framed = Framed::new(stream, JsonCodec::<SignedMessage, SignedMessage>::new());
             framed
