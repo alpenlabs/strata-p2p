@@ -8,7 +8,7 @@ use thiserror::Error;
 /// P2P result type.
 pub type P2PResult<T> = Result<T, SwarmError>;
 
-/// Variations of error during a setup handshake.
+/// Errors that can happen during a setup handshake.
 #[derive(Debug, Error)]
 pub enum SetupError {
     /// Indicates that signature verification failed.
