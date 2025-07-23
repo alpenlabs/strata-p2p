@@ -100,7 +100,6 @@ impl<S: ApplicationSigner> OutboundUpgrade<Stream> for OutboundSetupUpgrade<S> {
 
     fn upgrade_outbound(self, stream: Stream, _: Self::Info) -> Self::Future {
         Box::pin(async move {
-            // Create a signed message directly
             let setup_message = SignedMessage::new_signed_setup(
                 self.app_public_key.clone(),
                 self.local_peer_id,
