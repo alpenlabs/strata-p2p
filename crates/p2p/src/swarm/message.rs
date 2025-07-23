@@ -6,58 +6,24 @@ use libp2p::{PeerId, identity::PublicKey};
 use serde::{Deserialize, Serialize};
 
 pub(super) mod opaque_serializer {
-    use std::fmt;
-
     use serde::{self, Deserializer, Serializer, de};
 
-    use super::PublicKey; // Import the types
+    use super::PublicKey;
 
     pub(super) fn serialize<S>(data: &PublicKey, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
-        let bytes = data.encode_protobuf();
-        serializer.serialize_bytes(&bytes)
+        serializer.serialize_bytes(&data.encode_protobuf())
     }
 
     pub(super) fn deserialize<'de, D>(deserializer: D) -> Result<PublicKey, D::Error>
     where
         D: Deserializer<'de>,
     {
-        struct OpaqueVisitor;
-
-        impl<'de> de::Visitor<'de> for OpaqueVisitor {
-            type Value = PublicKey;
-
-            fn expecting(&self, formatter: &'_ mut fmt::Formatter<'_>) -> fmt::Result {
-                formatter.write_str("a byte array")
-            }
-
-            fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
-            where
-                A: de::SeqAccess<'de>,
-            {
-                let mut vec = Vec::with_capacity(seq.size_hint().unwrap_or(36));
-
-                while let Some(element) = seq.next_element()? {
-                    vec.push(element);
-                }
-                PublicKey::try_decode_protobuf(&vec).map_err(|e| {
-                    de::Error::custom(format_args!("Failed to create PublicKey from bytes: {e}",))
-                })
-            }
-
-            fn visit_bytes<E>(self, v: &[u8]) -> Result<Self::Value, E>
-            where
-                E: de::Error,
-            {
-                PublicKey::try_decode_protobuf(v).map_err(|e| {
-                    de::Error::custom(format_args!("Failed to create PublicKey from bytes: {e}",))
-                })
-            }
-        }
-
-        deserializer.deserialize_bytes(OpaqueVisitor)
+        let bytes: Vec<u8> = serde::Deserialize::deserialize(deserializer)?;
+        PublicKey::try_decode_protobuf(&bytes)
+            .map_err(|e| de::Error::custom(format!("Failed to decode PublicKey: {e}")))
     }
 }
 
