@@ -9,6 +9,7 @@ use super::errors::{SetupError, SetupUpgradeError};
 
 pub(super) mod opaque_serializer {
     use serde::{self, Deserializer, Serializer, de};
+
     use super::PublicKey;
 
     pub(super) fn serialize<S>(data: &PublicKey, serializer: S) -> Result<S::Ok, S::Error>
@@ -53,9 +54,10 @@ impl SignedMessage {
         T: Serialize,
         S: crate::signer::ApplicationSigner,
     {
-        let message_bytes = serde_json::to_vec(&message)
-            .map_err(|e| SetupUpgradeError::JsonCodec(e.into()))?;
-        let signature = signer.sign(&message_bytes, app_public_key)
+        let message_bytes =
+            serde_json::to_vec(&message).map_err(|e| SetupUpgradeError::JsonCodec(e.into()))?;
+        let signature = signer
+            .sign(&message_bytes, app_public_key)
             .map_err(SetupUpgradeError::SignedMessageCreation)?;
 
         Ok(Self {
@@ -65,10 +67,7 @@ impl SignedMessage {
     }
 
     /// Verifies the signature of this message.
-    pub(crate) fn verify_signature(
-        &self,
-        app_public_key: &PublicKey,
-    ) -> Result<bool, SetupError> {
+    pub(crate) fn verify_signature(&self, app_public_key: &PublicKey) -> Result<bool, SetupError> {
         Ok(app_public_key.verify(&self.message, &self.signature))
     }
 
@@ -84,8 +83,7 @@ impl SignedMessage {
     /// Deserializes a signed message from JSON bytes.
     #[expect(dead_code)]
     pub(crate) fn from_json_bytes(data: &[u8]) -> Result<Self, SetupError> {
-        serde_json::from_slice(data)
-            .map_err(|e| SetupError::DeserializationFailed(e.into()))
+        serde_json::from_slice(data).map_err(|e| SetupError::DeserializationFailed(e.into()))
     }
 }
 
@@ -97,8 +95,11 @@ impl SignedMessage {
         remote_transport_id: PeerId,
         signer: &S,
     ) -> Result<Self, SetupUpgradeError> {
-        let setup_message =
-            SetupMessage::new(app_public_key.clone(), local_transport_id, remote_transport_id);
+        let setup_message = SetupMessage::new(
+            app_public_key.clone(),
+            local_transport_id,
+            remote_transport_id,
+        );
 
         SignedMessage::new(setup_message, signer, app_public_key)
     }

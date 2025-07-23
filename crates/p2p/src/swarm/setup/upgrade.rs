@@ -4,7 +4,7 @@
 //! setup protocols, handling the serialization and exchange of setup messages
 //! over libp2p streams.
 
-use std::{future::Future, pin::Pin};
+use std::{future::Future, iter, pin::Pin};
 
 use asynchronous_codec::{Framed, JsonCodec};
 use futures::{SinkExt, StreamExt};
@@ -32,10 +32,10 @@ impl InboundSetupUpgrade {
 
 impl UpgradeInfo for InboundSetupUpgrade {
     type Info = &'static str;
-    type InfoIter = std::iter::Once<Self::Info>;
+    type InfoIter = iter::Once<Self::Info>;
 
     fn protocol_info(&self) -> Self::InfoIter {
-        std::iter::once("/handshake/1.0.0")
+        iter::once("/handshake/1.0.0")
     }
 }
 
@@ -86,10 +86,10 @@ impl<S: ApplicationSigner> OutboundSetupUpgrade<S> {
 
 impl<S: ApplicationSigner> UpgradeInfo for OutboundSetupUpgrade<S> {
     type Info = &'static str;
-    type InfoIter = std::iter::Once<Self::Info>;
+    type InfoIter = iter::Once<Self::Info>;
 
     fn protocol_info(&self) -> Self::InfoIter {
-        std::iter::once("/handshake/1.0.0")
+        iter::once("/handshake/1.0.0")
     }
 }
 
