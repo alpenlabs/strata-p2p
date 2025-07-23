@@ -12,18 +12,14 @@ pub(super) mod opaque_serializer {
 
     use super::PublicKey; // Import the types
 
-    // The `serialize` function.
     pub(super) fn serialize<S>(data: &PublicKey, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
-        // Use the type's own `to_bytes` method.
         let bytes = data.encode_protobuf();
-        // Use the serializer's `serialize_bytes` method.
         serializer.serialize_bytes(&bytes)
     }
 
-    // The `deserialize` function.
     pub(super) fn deserialize<'de, D>(deserializer: D) -> Result<PublicKey, D::Error>
     where
         D: Deserializer<'de>,
@@ -41,32 +37,26 @@ pub(super) mod opaque_serializer {
             where
                 A: de::SeqAccess<'de>,
             {
-                // Pre-allocate a vector if the size is known.
                 let mut vec = Vec::with_capacity(seq.size_hint().unwrap_or(36));
 
-                // Loop through each element in the sequence.
                 while let Some(element) = seq.next_element()? {
                     vec.push(element);
                 }
-                // Use the type's own `try_from_bytes` method.
                 PublicKey::try_decode_protobuf(&vec).map_err(|e| {
                     de::Error::custom(format_args!("Failed to create PublicKey from bytes: {e}",))
                 })
             }
 
-            // This is the method that gets called when the deserializer sees bytes.
             fn visit_bytes<E>(self, v: &[u8]) -> Result<Self::Value, E>
             where
                 E: de::Error,
             {
-                // Use the type's own `try_from_bytes` method.
                 PublicKey::try_decode_protobuf(v).map_err(|e| {
                     de::Error::custom(format_args!("Failed to create PublicKey from bytes: {e}",))
                 })
             }
         }
 
-        // Use the deserializer's `deserialize_bytes` method.
         deserializer.deserialize_bytes(OpaqueVisitor)
     }
 }
