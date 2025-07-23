@@ -120,7 +120,7 @@ impl<S: ApplicationSigner> ConnectionHandler for SetupHandler<S> {
                     }
                 };
 
-                let app_public_key = setup_message.get_app_public_key();
+                let app_public_key = setup_message.app_public_key.clone();
 
                 let signature_valid = setup_msg.verify_signature(&app_public_key).unwrap_or(false);
 

@@ -185,21 +185,4 @@ impl SetupMessage {
             date: timestamp,
         }
     }
-
-    /// Gets the application public key.
-    pub(crate) fn get_app_public_key(&self) -> PublicKey {
-        self.app_public_key.clone()
-    }
-
-    /// Gets the local transport ID.
-    #[expect(dead_code)]
-    pub(crate) const fn get_local_peer_id(&self) -> PeerId {
-        self.local_transport_id
-    }
-
-    /// Gets the remote transport ID.
-    #[expect(dead_code)]
-    pub(crate) const fn get_remote_peer_id(&self) -> PeerId {
-        self.remote_transport_id
-    }
 }
