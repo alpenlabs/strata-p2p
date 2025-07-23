@@ -55,7 +55,6 @@ mod message;
 pub mod setup;
 
 /// Global topic name for gossipsub messages.
-// TODO(Velnbur): make this configurable later
 static TOPIC: LazyLock<Sha256Topic> = LazyLock::new(|| Sha256Topic::new("bitvm2"));
 
 /// Global MAX_TRANSMIT_SIZE for gossipsub messages.
