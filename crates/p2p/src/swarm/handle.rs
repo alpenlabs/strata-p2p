@@ -113,7 +113,7 @@ impl CommandHandle {
 
     /// Checks if the P2P node is connected to the specified peer.
     /// Returns true if connected, false otherwise.
-    async fn is_connected_impl(&self, peer_id: PeerId, timeout_duration: Duration) -> bool {
+    pub async fn is_connected_impl(&self, peer_id: PeerId, timeout_duration: Duration) -> bool {
         let (sender, receiver) = oneshot::channel();
 
         // Send the command to check connection.
