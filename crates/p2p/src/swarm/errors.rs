@@ -26,9 +26,9 @@ pub enum ValidationError {
     /// The signature is invalid.
     #[error("Invalid signature")]
     InvalidSignature,
-    /// The message signer is not in the signer's allowlist.
-    #[error("Not in signers allowlist")]
-    NotInSignersAllowlist,
+    /// The message signer is in the signer's blacklist.
+    #[error("In signer's blacklist")]
+    InSignersBlacklist,
 }
 
 /// Errors from libp2p
