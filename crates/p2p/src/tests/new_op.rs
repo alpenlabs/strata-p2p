@@ -11,7 +11,7 @@ use tracing_test::traced_test;
 use super::common::Setup;
 use crate::{
     commands::{Command, ConnectToPeerCommand, QueryP2PStateCommand},
-    events::Event,
+    events::GossipEvent,
     tests::common::{MULTIADDR_MEMORY_ID_OFFSET_GOSSIP_NEW_USER, User},
 };
 
@@ -21,8 +21,8 @@ use crate::{
 async fn gossip_new_user() -> anyhow::Result<()> {
     const USERS_NUM: usize = 9;
 
-    info!("Setting up {} users setup all-to-all", USERS_NUM);
-    // Create the original users
+    info!(users = USERS_NUM, "Setting up users in all-to-all topology");
+    // Create the original users with allowlist containing the new user
     let Setup {
         mut user_handles,
         cancel,
@@ -35,7 +35,7 @@ async fn gossip_new_user() -> anyhow::Result<()> {
     for (index, user_handle) in user_handles.iter().enumerate().take(USERS_NUM) {
         let (tx, rx) = channel::<Vec<Multiaddr>>();
         user_handle
-            .handle
+            .command
             .send_command(Command::QueryP2PState(
                 QueryP2PStateCommand::GetMyListeningAddresses {
                     response_sender: tx,
@@ -43,13 +43,7 @@ async fn gossip_new_user() -> anyhow::Result<()> {
             ))
             .await;
         let result = rx.await.unwrap();
-        debug!(
-            "Got next listening multiaddresses for user {index} : {:?}",
-            result
-                .iter()
-                .map(|addr| addr.to_string())
-                .collect::<Vec<_>>()
-        );
+        debug!(index, addresses = ?result, "Retrieved listening addresses");
         connect_addrs.push(result[0].clone());
     }
 
@@ -61,9 +55,7 @@ async fn gossip_new_user() -> anyhow::Result<()> {
 
     // Create new user with all necessary information
     info!(
-        "Creating new user to listen at {} peer_id: {}",
-        local_addr,
-        new_user_keypair.public().to_peer_id()
+        %local_addr, peer_id = %new_user_keypair.public().to_peer_id(), "Creating new user"
     );
     let mut new_user = User::new(
         new_user_keypair.clone(),
@@ -116,13 +108,16 @@ async fn gossip_new_user() -> anyhow::Result<()> {
     });
 
     // Ask the old users to the first new one
-    for index in 0..connect_addrs.len() {
+    for (index, addr) in connect_addrs.iter().enumerate() {
         info!(
-            "Asking an old user (index {}, connect_addr: {}, peer_id {}) to connect to first new user",
-            index, connect_addrs[index], user_handles[index].peer_id
+            index,
+            addr = %addr,
+            old_peer = %user_handles[index].peer_id,
+            new_peer = %new_user.kp.public().to_peer_id(),
+            "Old user connecting to new user"
         );
         user_handles[index]
-            .handle
+            .command
             .send_command(Command::ConnectToPeer(ConnectToPeerCommand {
                 peer_id: new_user.kp.public().to_peer_id(),
                 peer_addr: local_addr.clone(),
@@ -137,7 +132,7 @@ async fn gossip_new_user() -> anyhow::Result<()> {
             index, connect_addrs[index], user_handles[index].peer_id
         );
         new_user2
-            .handle
+            .command
             .send_command(Command::ConnectToPeer(ConnectToPeerCommand {
                 peer_id: user_handles[index].peer_id,
                 peer_addr: connect_addrs[index].clone(),
@@ -157,7 +152,7 @@ async fn gossip_new_user() -> anyhow::Result<()> {
 
     info!("Regular user sending test message");
     user_handles[0]
-        .handle
+        .command
         .send_command(Command::PublishMessage {
             data: message_from_inside.clone(),
         })
@@ -165,7 +160,7 @@ async fn gossip_new_user() -> anyhow::Result<()> {
 
     info!("First new user sending test message");
     new_user
-        .handle
+        .command
         .send_command(Command::PublishMessage {
             data: message_from_outsider1.clone(),
         })
@@ -173,7 +168,7 @@ async fn gossip_new_user() -> anyhow::Result<()> {
 
     info!("Second new user sending test message");
     new_user2
-        .handle
+        .command
         .send_command(Command::PublishMessage {
             data: message_from_outsider2.clone(),
         })
@@ -188,14 +183,14 @@ async fn gossip_new_user() -> anyhow::Result<()> {
 
     // Check that existing users received the message
     for user in &mut user_handles {
-        info!(peer_id=%user.peer_id, "Checking if user received message");
+        info!(peer_id = %user.peer_id, "Checking if user received message");
 
-        while !user.handle.events_is_empty() {
-            let event = user.handle.next_event().await?;
-            info!(?event, "Received event");
+        while !user.gossip.events_is_empty() {
+            let event = user.gossip.next_event().await?;
+            debug!(?event, "Received event");
 
             match event {
-                Event::ReceivedMessage(msg) => {
+                GossipEvent::ReceivedMessage(msg) => {
                     if msg == message_from_inside {
                         info!("User received message from regular user");
                         counter_messages_from_regular_user += 1;
@@ -207,17 +202,15 @@ async fn gossip_new_user() -> anyhow::Result<()> {
                         counter_messages_from_outsider2 += 1;
                     }
                 }
-                _ => bail!("Unexpected event type"),
             }
         }
     }
-
-    while !new_user.handle.events_is_empty() {
-        let event = new_user.handle.next_event().await?;
-        info!(?event, "Received event");
+    while !new_user.gossip.events_is_empty() {
+        let event = new_user.gossip.next_event().await?;
+        debug!(?event, "New user received event");
 
         match event {
-            Event::ReceivedMessage(msg) => {
+            GossipEvent::ReceivedMessage(msg) => {
                 if msg == message_from_inside {
                     info!("First new user received message from regular user");
                     counter_messages_from_regular_user += 1;
@@ -229,16 +222,15 @@ async fn gossip_new_user() -> anyhow::Result<()> {
                     counter_messages_from_outsider2 += 1;
                 }
             }
-            _ => bail!("Unexpected event type"),
         }
     }
 
-    while !new_user2.handle.events_is_empty() {
-        let event = new_user2.handle.next_event().await?;
+    while !new_user2.gossip.events_is_empty() {
+        let event = new_user2.gossip.next_event().await?;
         info!(?event, "Received event");
 
         match event {
-            Event::ReceivedMessage(msg) => {
+            GossipEvent::ReceivedMessage(msg) => {
                 if msg == message_from_inside {
                     info!("Second new user received message from regular user");
                     counter_messages_from_regular_user += 1;

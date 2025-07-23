@@ -8,51 +8,57 @@ use tracing_test::traced_test;
 
 use super::common::Setup;
 use crate::{
-    commands::Command, events::Event,
+    commands::Command, events::ReqRespEvent
     tests::common::MULTIADDR_MEMORY_ID_OFFSET_REQUEST_RESPONSE_BASIC,
 };
+use tracing::info;
 
-/// Tests the gossip protocol in an all to all connected network with multiple IDs.
+use crate::{commands::Command, };
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 #[traced_test]
-async fn request_response_basic() -> anyhow::Result<()> {
-    const USERS_NUM: usize = 2;
-
+async fn test_reqresp_basic() -> anyhow::Result<()> {
     let Setup {
-        mut user_handles,
         cancel,
+        mut user_handles,
         tasks,
     } = Setup::all_to_all(USERS_NUM, MULTIADDR_MEMORY_ID_OFFSET_REQUEST_RESPONSE_BASIC).await?;
 
     let _ = sleep(Duration::from_secs(1)).await;
 
+    let req_msg = b"request from node1".to_vec();
+    let resp_msg = b"response from node2".to_vec();
     user_handles[0]
-        .handle
+        .command
         .send_command(Command::RequestMessage {
             peer_id: user_handles[1].peer_id,
-            data: Vec::<u8>::from("Hello, it's a request..."),
+            data: req_msg.clone(),
         })
         .await;
+    info!("Node 1 sent request to Node 2");
 
-    match user_handles[1].handle.next_event().await {
-        Ok(event) => match event {
-            Event::ReceivedMessage(_data) => {
-                bail!(
-                    "Something is insanely wrong: it got a gossipsub's message when it should have got a request from Request-response protocol.",
-                );
-            }
-            Event::ReceivedRequest(data) => {
-                assert_eq!(
-                    String::from_utf8(data),
-                    String::from_utf8(Vec::<u8>::from("Hello, it's a request..."))
-                );
-            }
-        },
-        Err(e) => bail!("Something is wrong: {e}"),
+    match user_handles[1].reqresp.next_event().await.unwrap() {
+        ReqRespEvent::ReceivedRequest(data, channel) => {
+            info!(?data, "Node 2 received request");
+            assert_eq!(data, req_msg, "Node 2 did not receive the correct request");
+            let _ = channel.send(resp_msg.clone());
+            info!("Node 2 sent response");
+        }
+        _ => unreachable!("Node 2 did not receive a request"),
+    }
+
+    match user_handles[0].reqresp.next_event().await.unwrap() {
+        ReqRespEvent::ReceivedResponse(resp) => {
+            info!(?resp, "Node 1 received response");
+            assert_eq!(
+                resp, resp_msg,
+                "Node 1 did not receive the correct response",
+            );
+        }
+        _ => unreachable!("Node 1 did not receive a response"),
     }
 
     cancel.cancel();
-
     tasks.wait().await;
 
     Ok(())

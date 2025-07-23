@@ -7,7 +7,12 @@ use libp2p::{Multiaddr, PeerId, StreamProtocol, build_multiaddr, identity::Keypa
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use tracing::{debug, trace};
 
-use crate::swarm::{self, P2P, P2PConfig, handle::P2PHandle};
+#[cfg(feature = "request-response")]
+use crate::swarm::handle::ReqRespHandle;
+use crate::swarm::{
+    self, P2P, P2PConfig,
+    handle::{CommandHandle, GossipHandle},
+};
 
 pub(crate) const MULTIADDR_MEMORY_ID_OFFSET_GOSSIP_BASIC: u64 = 120;
 pub(crate) const MULTIADDR_MEMORY_ID_OFFSET_TEST_IS_CONNECTED: u64 = 150;
@@ -17,7 +22,10 @@ pub(crate) const MULTIADDR_MEMORY_ID_OFFSET_TEST_MANUALLY_GET_ALL_PEERS: u64 = 5
 
 pub(crate) struct User {
     pub(crate) p2p: P2P,
-    pub(crate) handle: P2PHandle,
+    pub(crate) gossip: GossipHandle,
+    #[cfg(feature = "request-response")]
+    pub(crate) reqresp: ReqRespHandle,
+    pub(crate) command: CommandHandle,
     pub(crate) kp: Keypair,
 }
 
@@ -28,7 +36,7 @@ impl User {
         local_addr: Multiaddr,
         cancel: CancellationToken,
     ) -> anyhow::Result<Self> {
-        debug!("In User::new: local_addr: {}", local_addr.clone());
+        debug!(%local_addr, "Creating new user with local address");
 
         let config = P2PConfig {
             keypair: keypair.clone(),
@@ -40,14 +48,23 @@ impl User {
             listening_addr: local_addr,
             connect_to,
             kad_protocol_name: Some(StreamProtocol::new("/ipfs/kad_strata-p2p/0.0.1")),
+            channel_timeout: None,
         };
 
         let swarm = swarm::with_inmemory_transport(&config)?;
-        let (p2p, handle) = P2P::from_config(config, cancel, swarm, None)?;
+        #[cfg(feature = "request-response")]
+        let (p2p, reqresp) = P2P::from_config(config, cancel, swarm, None)?;
+        #[cfg(not(feature = "request-response"))]
+        let p2p = P2P::from_config(config, cancel, swarm, None)?;
+        let gossip = p2p.new_gossip_handle();
+        let command = p2p.new_command_handle();
 
         Ok(Self {
-            handle,
             p2p,
+            gossip,
+            #[cfg(feature = "request-response")]
+            reqresp,
+            command,
             kp: keypair,
         })
     }
@@ -56,7 +73,10 @@ impl User {
 /// Auxiliary structure to control users from outside.
 #[expect(dead_code)]
 pub(crate) struct UserHandle {
-    pub(crate) handle: P2PHandle,
+    pub(crate) gossip: GossipHandle,
+    #[cfg(feature = "request-response")]
+    pub(crate) reqresp: ReqRespHandle,
+    pub(crate) command: CommandHandle,
     pub(crate) peer_id: PeerId,
     pub(crate) kp: Keypair,
 }
@@ -114,7 +134,7 @@ impl Setup {
             .map(|_| Keypair::generate_ed25519())
             .collect::<Vec<_>>();
 
-        debug!("len(keypairs):{}", keypairs.len());
+        debug!(len = %keypairs.len(), "Generated keypairs for test setup");
 
         let peer_ids = keypairs
             .iter()
@@ -145,9 +165,11 @@ impl Setup {
             let peer_id = user.p2p.local_peer_id();
             trace!("Spawning task to listen for {peer_id}");
             tasks.spawn(user.p2p.listen());
-
             levers.push(UserHandle {
-                handle: user.handle,
+                gossip: user.gossip,
+                #[cfg(feature = "request-response")]
+                reqresp: user.reqresp,
+                command: user.command,
                 peer_id,
                 kp: user.kp,
             });

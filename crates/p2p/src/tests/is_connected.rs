@@ -32,7 +32,7 @@ async fn test_is_connected() -> anyhow::Result<()> {
 
     // Verify user 0 is connected to user 1
     let is_connected = user_handles[0]
-        .handle
+        .command
         .is_connected(user_handles[1].peer_id)
         .await;
     assert!(is_connected);
@@ -41,7 +41,7 @@ async fn test_is_connected() -> anyhow::Result<()> {
 
     // Verify user 0 is connected to user 1 manually
     user_handles[0]
-        .handle
+        .command
         .send_command(Command::from(QueryP2PStateCommand::IsConnected {
             peer_id: user_handles[1].peer_id,
             response_sender: tx,
@@ -51,13 +51,13 @@ async fn test_is_connected() -> anyhow::Result<()> {
     assert!(is_connected);
 
     // Also test the get_connected_peers API
-    let connected_peers = user_handles[0].handle.get_connected_peers().await;
+    let connected_peers = user_handles[0].command.get_connected_peers().await;
     assert!(connected_peers.contains(&user_handles[1].peer_id));
 
     let (tx, rx) = oneshot::channel::<Vec<PeerId>>();
     // Also test the get_connected_peers API manually
     user_handles[0]
-        .handle
+        .command
         .send_command(Command::from(QueryP2PStateCommand::GetConnectedPeers {
             response_sender: tx,
         }))
@@ -100,7 +100,7 @@ async fn test_manually_get_all_peers() -> anyhow::Result<()> {
     info!("Sending command Command::QueryP2PState(QueryP2PStateCommand::GetConnectedPeers");
 
     user_handles[0]
-        .handle
+        .command
         .send_command(Command::QueryP2PState(
             QueryP2PStateCommand::GetConnectedPeers {
                 response_sender: tx,
@@ -117,7 +117,9 @@ async fn test_manually_get_all_peers() -> anyhow::Result<()> {
         Err(e) => bail!("error {e}"),
     };
 
-    assert!(user_handles[0].handle.events_is_empty());
+    assert!(user_handles[0].gossip.events_is_empty());
+    #[cfg(feature = "request-response")]
+    assert!(user_handles[0].reqresp.events_is_empty());
 
     cancel.cancel();
 
