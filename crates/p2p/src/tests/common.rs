@@ -93,6 +93,7 @@ impl<S: ApplicationSigner> User<S> {
             connection_check_interval: None,
             listening_addr: local_addr,
             connect_to,
+            #[cfg(feature = "request-response")]
             channel_timeout: None,
         };
 
@@ -101,7 +102,7 @@ impl<S: ApplicationSigner> User<S> {
         #[cfg(feature = "request-response")]
         let (p2p, reqresp) = P2P::from_config(config, cancel, swarm, allowlist, None, signer)?;
         #[cfg(not(feature = "request-response"))]
-        let p2p = P2P::from_config(config, cancel, swarm, None, signer)?;
+        let p2p = P2P::from_config(config, cancel, swarm, allowlist, None, signer)?;
         let gossip = p2p.new_gossip_handle();
         let command = p2p.new_command_handle();
 

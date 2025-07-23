@@ -7,9 +7,7 @@ use std::{
 };
 
 use behavior::{Behaviour, BehaviourEvent};
-#[cfg(feature = "request-response")]
-use errors::SwarmError;
-use errors::{P2PResult, ProtocolError};
+use errors::{P2PResult, ProtocolError, SwarmError};
 use futures::StreamExt as _;
 #[cfg(feature = "request-response")]
 use handle::ReqRespHandle;
@@ -207,9 +205,11 @@ impl<S: ApplicationSigner> P2P<S> {
     pub fn from_config(
         cfg: P2PConfig,
         cancel: CancellationToken,
-        mut swarm: Swarm<Behaviour>,
+        mut swarm: Swarm<Behaviour<S>>,
+        allowlist: Vec<PublicKey>,
         channel_size: Option<usize>,
-    ) -> P2PResult<P2P> {
+        signer: S,
+    ) -> P2PResult<P2P<S>> {
         swarm
             .listen_on(cfg.listening_addr.clone())
             .map_err(ProtocolError::Listen)?;
@@ -218,12 +218,6 @@ impl<S: ApplicationSigner> P2P<S> {
         let (gossip_events_tx, _gossip_events_rx) = broadcast::channel(channel_size);
         let (cmds_tx, cmds_rx) = mpsc::channel(64);
 
-        // Set the local transport ID on the setup behavior
-        p2p.swarm
-            .behaviour_mut()
-            .setup
-            .set_local_peer_id(local_peer_id);
-
         Ok(Self {
             swarm,
             gossip_events: gossip_events_tx,
@@ -231,6 +225,8 @@ impl<S: ApplicationSigner> P2P<S> {
             commands_sender: cmds_tx.clone(),
             cancellation_token: cancel,
             config: cfg,
+            allowlist: HashSet::from_iter(allowlist.iter().cloned()),
+            signer,
         })
     }
 
