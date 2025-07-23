@@ -2,11 +2,74 @@
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use libp2p::{
-    PeerId,
-    identity::{DecodingError, ParseError, PublicKey},
-};
+use libp2p::{PeerId, identity::PublicKey};
 use serde::{Deserialize, Serialize};
+
+pub(super) mod opaque_serializer {
+    use std::fmt;
+
+    use serde::{self, Deserializer, Serializer, de};
+
+    use super::PublicKey; // Import the types
+
+    // The `serialize` function.
+    pub(super) fn serialize<S>(data: &PublicKey, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        // Use the type's own `to_bytes` method.
+        let bytes = data.encode_protobuf();
+        // Use the serializer's `serialize_bytes` method.
+        serializer.serialize_bytes(&bytes)
+    }
+
+    // The `deserialize` function.
+    pub(super) fn deserialize<'de, D>(deserializer: D) -> Result<PublicKey, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct OpaqueVisitor;
+
+        impl<'de> de::Visitor<'de> for OpaqueVisitor {
+            type Value = PublicKey;
+
+            fn expecting(&self, formatter: &'_ mut fmt::Formatter<'_>) -> fmt::Result {
+                formatter.write_str("a byte array")
+            }
+
+            fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+            where
+                A: de::SeqAccess<'de>,
+            {
+                // Pre-allocate a vector if the size is known.
+                let mut vec = Vec::with_capacity(seq.size_hint().unwrap_or(36));
+
+                // Loop through each element in the sequence.
+                while let Some(element) = seq.next_element()? {
+                    vec.push(element);
+                }
+                // Use the type's own `try_from_bytes` method.
+                PublicKey::try_decode_protobuf(&vec).map_err(|e| {
+                    de::Error::custom(format_args!("Failed to create PublicKey from bytes: {e}",))
+                })
+            }
+
+            // This is the method that gets called when the deserializer sees bytes.
+            fn visit_bytes<E>(self, v: &[u8]) -> Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
+                // Use the type's own `try_from_bytes` method.
+                PublicKey::try_decode_protobuf(v).map_err(|e| {
+                    de::Error::custom(format_args!("Failed to create PublicKey from bytes: {e}",))
+                })
+            }
+        }
+
+        // Use the deserializer's `deserialize_bytes` method.
+        deserializer.deserialize_bytes(OpaqueVisitor)
+    }
+}
 
 /// Protocol version for all messages
 pub(crate) const PROTOCOL_VERSION: u8 = 2;
@@ -91,11 +154,12 @@ pub(crate) struct SetupMessage {
     /// Protocol identifier (setup)
     pub protocol: u8,
     /// The application public key (Ed25519) - stored as bytes for serialization
-    pub app_public_key: Vec<u8>,
+    #[serde(with = "opaque_serializer")]
+    pub app_public_key: PublicKey,
     /// Local transport ID (PeerId) - stored as bytes for serialization
-    pub local_transport_id: Vec<u8>,
+    pub local_transport_id: PeerId,
     /// Remote transport ID (PeerId) - stored as bytes for serialization
-    pub remote_transport_id: Vec<u8>,
+    pub remote_transport_id: PeerId,
     /// Timestamp of message creation
     pub date: u64,
 }
@@ -115,27 +179,27 @@ impl SetupMessage {
         Self {
             version: PROTOCOL_VERSION,
             protocol: SETUP_PROTOCOL_ID,
-            app_public_key: app_public_key.encode_protobuf(),
-            local_transport_id: local_peer_id.to_bytes(),
-            remote_transport_id: remote_peer_id.to_bytes(),
+            app_public_key,
+            local_transport_id: local_peer_id,
+            remote_transport_id: remote_peer_id,
             date: timestamp,
         }
     }
 
     /// Gets the application public key.
-    pub(crate) fn get_app_public_key(&self) -> Result<PublicKey, DecodingError> {
-        PublicKey::try_decode_protobuf(&self.app_public_key)
+    pub(crate) fn get_app_public_key(&self) -> PublicKey {
+        self.app_public_key.clone()
     }
 
     /// Gets the local transport ID.
     #[expect(dead_code)]
-    pub(crate) fn get_local_peer_id(&self) -> Result<PeerId, ParseError> {
-        PeerId::from_bytes(&self.local_transport_id)
+    pub(crate) const fn get_local_peer_id(&self) -> PeerId {
+        self.local_transport_id
     }
 
     /// Gets the remote transport ID.
     #[expect(dead_code)]
-    pub(crate) fn get_remote_peer_id(&self) -> Result<PeerId, ParseError> {
-        PeerId::from_bytes(&self.remote_transport_id)
+    pub(crate) const fn get_remote_peer_id(&self) -> PeerId {
+        self.remote_transport_id
     }
 }

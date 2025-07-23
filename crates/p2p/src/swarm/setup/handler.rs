@@ -11,6 +11,7 @@ use libp2p::{
     identity::PublicKey,
     swarm::{ConnectionHandler, ConnectionHandlerEvent, SubstreamProtocol},
 };
+use tracing::trace;
 
 use crate::{
     signer::ApplicationSigner,
@@ -105,6 +106,10 @@ impl<S: ApplicationSigner> ConnectionHandler for SetupHandler<S> {
                 let setup_message: SetupMessage = match setup_msg.deserialize_message() {
                     Ok(msg) => msg,
                     Err(e) => {
+                        trace!(
+                            "Failed to deserialize a message {}",
+                            String::from_utf8(setup_msg.message).unwrap()
+                        );
                         self.pending_events
                             .push(ConnectionHandlerEvent::NotifyBehaviour(
                                 SetupHandlerEvent::ErrorDuringSetupHandshake(
@@ -115,18 +120,7 @@ impl<S: ApplicationSigner> ConnectionHandler for SetupHandler<S> {
                     }
                 };
 
-                let app_public_key = match setup_message.get_app_public_key() {
-                    Ok(key) => key,
-                    Err(e) => {
-                        self.pending_events
-                            .push(ConnectionHandlerEvent::NotifyBehaviour(
-                                SetupHandlerEvent::ErrorDuringSetupHandshake(
-                                    SetupError::AppPublicKeyInvalid(e.into()),
-                                ),
-                            ));
-                        return;
-                    }
-                };
+                let app_public_key = setup_message.get_app_public_key();
 
                 let signature_valid = setup_msg.verify_signature(&app_public_key).unwrap_or(false);
 
