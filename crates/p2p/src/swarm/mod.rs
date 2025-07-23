@@ -192,7 +192,7 @@ impl<S: ApplicationSigner> P2P<S> {
                 commands: cmds_rx,
                 commands_sender: cmds_tx.clone(),
                 cancellation_token: cancel,
-                allowlist: HashSet::from_iter(allowlist.into_iter()),
+                allowlist: HashSet::from_iter(allowlist),
                 config: cfg,
                 signer,
             },
@@ -225,7 +225,7 @@ impl<S: ApplicationSigner> P2P<S> {
             commands_sender: cmds_tx.clone(),
             cancellation_token: cancel,
             config: cfg,
-            allowlist: HashSet::from_iter(allowlist.into_iter()),
+            allowlist: HashSet::from_iter(allowlist),
             signer,
         })
     }
