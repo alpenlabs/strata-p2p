@@ -2,7 +2,6 @@
 
 use std::time::Duration;
 
-use anyhow::bail;
 use libp2p::{Multiaddr, build_multiaddr, identity::Keypair};
 use tokio::{sync::oneshot::channel, time::sleep};
 use tracing::{debug, info};
@@ -242,7 +241,6 @@ async fn gossip_new_user() -> anyhow::Result<()> {
                     counter_messages_from_outsider2 += 1;
                 }
             }
-            _ => bail!("Unexpected event type"),
         }
     }
 

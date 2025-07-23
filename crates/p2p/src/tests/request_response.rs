@@ -2,22 +2,21 @@
 
 use std::time::Duration;
 
-use anyhow::bail;
 use tokio::time::sleep;
+use tracing::info;
 use tracing_test::traced_test;
 
 use super::common::Setup;
 use crate::{
-    commands::Command, events::ReqRespEvent
+    commands::Command, events::ReqRespEvent,
     tests::common::MULTIADDR_MEMORY_ID_OFFSET_REQUEST_RESPONSE_BASIC,
 };
-use tracing::info;
-
-use crate::{commands::Command, };
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 #[traced_test]
 async fn test_reqresp_basic() -> anyhow::Result<()> {
+    const USERS_NUM: usize = 2;
+
     let Setup {
         cancel,
         mut user_handles,
