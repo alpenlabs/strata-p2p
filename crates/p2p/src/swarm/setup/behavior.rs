@@ -21,11 +21,17 @@ use crate::{
 /// Network behavior for managing the setup phase.
 #[derive(Debug)]
 pub struct SetupBehaviour<S: ApplicationSigner> {
+    /// Our Application public key.
     app_public_key: PublicKey,
+    /// Our transport id.
     local_transport_id: PeerId,
+    /// Object that can sign with Application private key.
     signer: S,
+    /// A bimap-like solution for transport_id <-> app_public_keys
     transport_ids: HashMap<PeerId, PublicKey>,
     app_public_keys: HashMap<PublicKey, PeerId>,
+    /// Internal vec of events. Pushed to it in `on_connection_handler_event` and pulled from it
+    /// in `poll`
     events: Vec<SetupBehaviourEvent>,
 }
 
