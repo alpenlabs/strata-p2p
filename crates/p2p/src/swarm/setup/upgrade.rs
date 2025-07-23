@@ -62,10 +62,10 @@ impl InboundUpgrade<Stream> for InboundSetupUpgrade {
 /// This upgrade sends the setup messages to remote peers.
 #[derive(Clone, Debug)]
 pub struct OutboundSetupUpgrade<S: ApplicationSigner> {
-    pub(crate) app_public_key: PublicKey,
-    pub(crate) local_peer_id: PeerId,
-    pub(crate) remote_peer_id: PeerId,
-    pub(crate) signer: S,
+    app_public_key: PublicKey,
+    local_peer_id: PeerId,
+    remote_peer_id: PeerId,
+    signer: S,
 }
 
 impl<S: ApplicationSigner> OutboundSetupUpgrade<S> {
