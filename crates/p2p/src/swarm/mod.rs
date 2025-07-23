@@ -591,7 +591,9 @@ impl<S: ApplicationSigner> P2P<S> {
 
                         Ok(())
                     }
-                    None => Err(SwarmError::Logic(errors::LogicError::RequestResponseBeforeSetup)),
+                    None => Err(SwarmError::Logic(
+                        errors::LogicError::RequestResponseBeforeSetup,
+                    )),
                 }
             }
             Command::ConnectToPeer(connect_to_peer_command) => {
@@ -737,9 +739,9 @@ impl<S: ApplicationSigner> P2P<S> {
                     match send_result {
                         Ok(Ok(())) => {}
                         Ok(Err(e)) => {
-                            return Err(SwarmError::Protocol(ProtocolError::ReqRespEventChannelClosed(
-                                e.into(),
-                            )));
+                            return Err(SwarmError::Protocol(
+                                ProtocolError::ReqRespEventChannelClosed(e.into()),
+                            ));
                         }
                         Err(_) => {
                             error!("Timeout while sending ReceivedRequest event");
@@ -777,9 +779,9 @@ impl<S: ApplicationSigner> P2P<S> {
                     match send_result {
                         Ok(Ok(())) => {}
                         Ok(Err(e)) => {
-                            return Err(SwarmError::Protocol(ProtocolError::ReqRespEventChannelClosed(
-                                e.into(),
-                            )));
+                            return Err(SwarmError::Protocol(
+                                ProtocolError::ReqRespEventChannelClosed(e.into()),
+                            ));
                         }
                         Err(_) => {
                             error!("Timeout while sending ReceivedResponse event");

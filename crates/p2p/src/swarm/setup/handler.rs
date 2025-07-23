@@ -108,9 +108,7 @@ impl<S: ApplicationSigner> ConnectionHandler for SetupHandler<S> {
                         self.pending_events
                             .push(ConnectionHandlerEvent::NotifyBehaviour(
                                 SetupHandlerEvent::ErrorDuringSetupHandshake(
-                                    SetupError::DeserializationFailed(
-                                        e.into(),
-                                    ),
+                                    SetupError::DeserializationFailed(e.into()),
                                 ),
                             ));
                         return;
@@ -123,9 +121,7 @@ impl<S: ApplicationSigner> ConnectionHandler for SetupHandler<S> {
                         self.pending_events
                             .push(ConnectionHandlerEvent::NotifyBehaviour(
                                 SetupHandlerEvent::ErrorDuringSetupHandshake(
-                                    SetupError::AppPublicKeyInvalid(
-                                        e.into(),
-                                    ),
+                                    SetupError::AppPublicKeyInvalid(e.into()),
                                 ),
                             ));
                         return;
@@ -152,17 +148,17 @@ impl<S: ApplicationSigner> ConnectionHandler for SetupHandler<S> {
             libp2p::swarm::handler::ConnectionEvent::DialUpgradeError(e) => {
                 self.pending_events
                     .push(ConnectionHandlerEvent::NotifyBehaviour(
-                        SetupHandlerEvent::ErrorDuringSetupHandshake(
-                            SetupError::OutboundError(e.error.into()),
-                        ),
+                        SetupHandlerEvent::ErrorDuringSetupHandshake(SetupError::OutboundError(
+                            e.error.into(),
+                        )),
                     ));
             }
             libp2p::swarm::handler::ConnectionEvent::ListenUpgradeError(e) => {
                 self.pending_events
                     .push(ConnectionHandlerEvent::NotifyBehaviour(
-                        SetupHandlerEvent::ErrorDuringSetupHandshake(
-                            SetupError::InboundError(e.error.into()),
-                        ),
+                        SetupHandlerEvent::ErrorDuringSetupHandshake(SetupError::InboundError(
+                            e.error.into(),
+                        )),
                     ));
             }
             _ => {}
