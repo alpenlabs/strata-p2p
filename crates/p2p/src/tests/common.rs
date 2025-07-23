@@ -106,7 +106,7 @@ impl<S: ApplicationSigner> User<S> {
             .listening_addrs
             .first()
             .map(|addr| addr.to_string().starts_with("/memory/"))
-            .unwrap_or(true);
+            .unwrap_or(false);
 
         let swarm = if use_inmemory {
             swarm::with_inmemory_transport(&config)?
