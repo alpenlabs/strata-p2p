@@ -8,7 +8,7 @@ use std::{
 
 use behavior::{Behaviour, BehaviourEvent};
 #[cfg(feature = "request-response")]
-use errors::Error;
+use errors::SwarmError;
 use errors::{P2PResult, ProtocolError};
 use futures::StreamExt as _;
 #[cfg(feature = "request-response")]
@@ -591,7 +591,7 @@ impl<S: ApplicationSigner> P2P<S> {
 
                         Ok(())
                     }
-                    None => Err(Error::Logic(errors::LogicError::RequestResponseBeforeSetup)),
+                    None => Err(SwarmError::Logic(errors::LogicError::RequestResponseBeforeSetup)),
                 }
             }
             Command::ConnectToPeer(connect_to_peer_command) => {
@@ -737,7 +737,7 @@ impl<S: ApplicationSigner> P2P<S> {
                     match send_result {
                         Ok(Ok(())) => {}
                         Ok(Err(e)) => {
-                            return Err(Error::Protocol(ProtocolError::ReqRespEventChannelClosed(
+                            return Err(SwarmError::Protocol(ProtocolError::ReqRespEventChannelClosed(
                                 e.into(),
                             )));
                         }
@@ -777,7 +777,7 @@ impl<S: ApplicationSigner> P2P<S> {
                     match send_result {
                         Ok(Ok(())) => {}
                         Ok(Err(e)) => {
-                            return Err(Error::Protocol(ProtocolError::ReqRespEventChannelClosed(
+                            return Err(SwarmError::Protocol(ProtocolError::ReqRespEventChannelClosed(
                                 e.into(),
                             )));
                         }

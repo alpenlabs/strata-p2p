@@ -6,7 +6,7 @@ use libp2p::TransportError;
 use thiserror::Error;
 
 /// P2P result type.
-pub type P2PResult<T> = Result<T, Error>;
+pub type P2PResult<T> = Result<T, SwarmError>;
 
 /// Variations of error during a setup handshake.
 #[derive(Debug, Error)]
@@ -37,7 +37,7 @@ pub enum SetupError {
 
 /// Swarm errors.
 #[derive(Debug, Error)]
-pub enum Error {
+pub enum SwarmError {
     /// Validation errors.
     #[error("Validation error {0}")]
     Validation(#[from] ValidationError),
