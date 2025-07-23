@@ -9,7 +9,9 @@ use std::task::{Context, Poll};
 use libp2p::{
     PeerId,
     identity::PublicKey,
-    swarm::{ConnectionHandler, ConnectionHandlerEvent, SubstreamProtocol},
+    swarm::{
+        ConnectionHandler, ConnectionHandlerEvent, SubstreamProtocol, handler::ConnectionEvent,
+    },
 };
 use tracing::trace;
 
@@ -93,14 +95,10 @@ impl<S: ApplicationSigner> ConnectionHandler for SetupHandler<S> {
 
     fn on_connection_event(
         &mut self,
-        event: libp2p::swarm::handler::ConnectionEvent<
-            '_,
-            Self::InboundProtocol,
-            Self::OutboundProtocol,
-        >,
+        event: ConnectionEvent<'_, Self::InboundProtocol, Self::OutboundProtocol>,
     ) {
         match event {
-            libp2p::swarm::handler::ConnectionEvent::FullyNegotiatedInbound(inbound) => {
+            ConnectionEvent::FullyNegotiatedInbound(inbound) => {
                 let setup_msg = inbound.protocol;
 
                 let setup_message: SetupMessage = match setup_msg.deserialize_message() {
@@ -139,7 +137,7 @@ impl<S: ApplicationSigner> ConnectionHandler for SetupHandler<S> {
                         SetupHandlerEvent::AppKeyReceived { app_public_key },
                     ));
             }
-            libp2p::swarm::handler::ConnectionEvent::DialUpgradeError(e) => {
+            ConnectionEvent::DialUpgradeError(e) => {
                 self.pending_events
                     .push(ConnectionHandlerEvent::NotifyBehaviour(
                         SetupHandlerEvent::ErrorDuringSetupHandshake(SetupError::OutboundError(
@@ -147,7 +145,7 @@ impl<S: ApplicationSigner> ConnectionHandler for SetupHandler<S> {
                         )),
                     ));
             }
-            libp2p::swarm::handler::ConnectionEvent::ListenUpgradeError(e) => {
+            ConnectionEvent::ListenUpgradeError(e) => {
                 self.pending_events
                     .push(ConnectionHandlerEvent::NotifyBehaviour(
                         SetupHandlerEvent::ErrorDuringSetupHandshake(SetupError::InboundError(

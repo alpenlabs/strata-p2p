@@ -8,7 +8,15 @@ use std::{
     task::{Context, Poll},
 };
 
-use libp2p::{PeerId, core::transport::PortUse, identity::PublicKey, swarm::NetworkBehaviour};
+use libp2p::{
+    PeerId,
+    core::transport::PortUse,
+    identity::PublicKey,
+    swarm::{
+        ConnectionDenied, ConnectionId, FromSwarm, NetworkBehaviour, THandler, THandlerInEvent,
+        THandlerOutEvent, ToSwarm,
+    },
+};
 
 use crate::{
     signer::ApplicationSigner,
@@ -67,11 +75,11 @@ impl<S: ApplicationSigner> NetworkBehaviour for SetupBehaviour<S> {
 
     fn handle_established_inbound_connection(
         &mut self,
-        _: libp2p::swarm::ConnectionId,
+        _: ConnectionId,
         remote_transport_id: PeerId,
         _: &libp2p::Multiaddr,
         _: &libp2p::Multiaddr,
-    ) -> Result<libp2p::swarm::THandler<Self>, libp2p::swarm::ConnectionDenied> {
+    ) -> Result<THandler<Self>, ConnectionDenied> {
         Ok(SetupHandler::new(
             self.app_public_key.clone(),
             self.local_transport_id,
@@ -82,12 +90,12 @@ impl<S: ApplicationSigner> NetworkBehaviour for SetupBehaviour<S> {
 
     fn handle_established_outbound_connection(
         &mut self,
-        _: libp2p::swarm::ConnectionId,
+        _: ConnectionId,
         remote_transport_id: PeerId,
         _: &libp2p::Multiaddr,
         _: libp2p::core::Endpoint,
         _: PortUse,
-    ) -> Result<libp2p::swarm::THandler<Self>, libp2p::swarm::ConnectionDenied> {
+    ) -> Result<THandler<Self>, ConnectionDenied> {
         Ok(SetupHandler::new(
             self.app_public_key.clone(),
             self.local_transport_id,
@@ -96,13 +104,13 @@ impl<S: ApplicationSigner> NetworkBehaviour for SetupBehaviour<S> {
         ))
     }
 
-    fn on_swarm_event(&mut self, _: libp2p::swarm::FromSwarm<'_>) {}
+    fn on_swarm_event(&mut self, _: FromSwarm<'_>) {}
 
     fn on_connection_handler_event(
         &mut self,
         peer_id: PeerId,
-        _: libp2p::swarm::ConnectionId,
-        event: libp2p::swarm::THandlerOutEvent<Self>,
+        _: ConnectionId,
+        event: THandlerOutEvent<Self>,
     ) {
         match event {
             SetupHandlerEvent::AppKeyReceived { app_public_key } => {
@@ -123,12 +131,9 @@ impl<S: ApplicationSigner> NetworkBehaviour for SetupBehaviour<S> {
         }
     }
 
-    fn poll(
-        &mut self,
-        _: &mut Context<'_>,
-    ) -> Poll<libp2p::swarm::ToSwarm<Self::ToSwarm, libp2p::swarm::THandlerInEvent<Self>>> {
+    fn poll(&mut self, _: &mut Context<'_>) -> Poll<ToSwarm<Self::ToSwarm, THandlerInEvent<Self>>> {
         if let Some(event) = self.events.pop() {
-            return Poll::Ready(libp2p::swarm::ToSwarm::GenerateEvent(event));
+            return Poll::Ready(ToSwarm::GenerateEvent(event));
         }
 
         Poll::Pending
