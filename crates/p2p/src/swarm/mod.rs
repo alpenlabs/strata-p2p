@@ -620,11 +620,27 @@ impl<S: ApplicationSigner> P2P<S> {
             }
             Command::QueryP2PState(query) => match query {
                 QueryP2PStateCommand::IsConnected {
-                    transport_id: peer_id,
+                    app_public_key,
                     response_sender,
                 } => {
-                    info!(%peer_id, "Querying if peer is connected");
-                    let is_connected = self.swarm.is_connected(&peer_id);
+                    info!("Querying if app public key is connected");
+
+                    let is_connected = match self
+                        .swarm
+                        .behaviour()
+                        .setup
+                        .get_transport_id_by_application_key(&app_public_key)
+                    {
+                        Some(transport_id) => {
+                            info!(%transport_id, "Found transport ID for app public key");
+                            self.swarm.is_connected(&transport_id)
+                        }
+                        None => {
+                            info!("No transport ID found for app public key");
+                            false
+                        }
+                    };
+
                     let _ = response_sender.send(is_connected);
                     Ok(())
                 }
@@ -647,19 +663,6 @@ impl<S: ApplicationSigner> P2P<S> {
                     let multiaddresses =
                         self.swarm.listeners().cloned().collect::<Vec<Multiaddr>>();
                     let _ = response_sender.send(multiaddresses);
-                    Ok(())
-                }
-                QueryP2PStateCommand::GetAppPublicKey {
-                    transport_id: peer_id,
-                    response_sender,
-                } => {
-                    let app_pk = self
-                        .swarm
-                        .behaviour()
-                        .setup
-                        .get_app_public_key_by_transport_id(&peer_id);
-                    info!(%peer_id, ?app_pk, "Querying app public key for peer");
-                    let _ = response_sender.send(app_pk);
                     Ok(())
                 }
             },

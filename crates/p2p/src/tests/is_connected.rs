@@ -23,9 +23,10 @@ async fn test_is_connected() -> anyhow::Result<()> {
     let _ = sleep(Duration::from_secs(1)).await;
 
     // Verify user 0 is connected to user 1
+    let user1_app_pk = user_handles[1].app_keypair.public();
     let is_connected = user_handles[0]
         .command
-        .is_connected(user_handles[1].peer_id)
+        .is_connected(&user1_app_pk, None)
         .await;
     assert!(is_connected);
 
@@ -35,7 +36,7 @@ async fn test_is_connected() -> anyhow::Result<()> {
     user_handles[0]
         .command
         .send_command(Command::from(QueryP2PStateCommand::IsConnected {
-            transport_id: user_handles[1].peer_id,
+            app_public_key: user1_app_pk,
             response_sender: tx,
         }))
         .await;
@@ -43,7 +44,7 @@ async fn test_is_connected() -> anyhow::Result<()> {
     assert!(is_connected);
 
     // Also test the get_connected_peers API
-    let connected_peers = user_handles[0].command.get_connected_peers().await;
+    let connected_peers = user_handles[0].command.get_connected_peers(None).await;
     assert!(connected_peers.contains(&user_handles[1].peer_id));
 
     let (tx, rx) = oneshot::channel::<Vec<PeerId>>();

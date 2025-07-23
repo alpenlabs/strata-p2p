@@ -104,103 +104,53 @@ impl CommandHandle {
         let _ = self.commands.send(command.into()).await;
     }
 
-    /// Checks if the P2P node is connected to the specified peer.
+    /// Checks if the P2P node is connected to the specified peer by app public key.
+    /// If timeout is None, uses the default timeout of 1 second.
     /// Returns true if connected, false otherwise.
-    pub async fn is_connected(&self, peer_id: PeerId) -> bool {
-        self.is_connected_impl(peer_id, Duration::from_secs(1))
-            .await
-    }
-
-    /// Checks if the P2P node is connected to the specified peer.
-    /// Returns true if connected, false otherwise.
-    pub async fn is_connected_impl(&self, peer_id: PeerId, timeout_duration: Duration) -> bool {
+    pub async fn is_connected(
+        &self,
+        app_public_key: &PublicKey,
+        timeout_duration: Option<Duration>,
+    ) -> bool {
         let (sender, receiver) = oneshot::channel();
 
-        // Send the command to check connection.
         let cmd = Command::QueryP2PState(QueryP2PStateCommand::IsConnected {
-            transport_id: peer_id,
+            app_public_key: app_public_key.clone(),
             response_sender: sender,
         });
 
-        // Use a cloned sender to avoid borrow issues.
+        let duration = timeout_duration.unwrap_or(Duration::from_secs(1));
         let cmd_sender = self.commands.clone();
 
-        // Send the command
         if cmd_sender.send(cmd).await.is_err() {
-            // If the command channel is closed, assume not connected.
             return false;
         }
 
-        // Wait for response with timeout.
-        match timeout(timeout_duration, receiver).await {
+        match timeout(duration, receiver).await {
             Ok(Ok(is_connected)) => is_connected,
-            _ => false, // Timeout or channel closed
+            _ => false,
         }
     }
 
     /// Gets the list of all currently connected peers.
-    pub async fn get_connected_peers(&self) -> Vec<PeerId> {
-        self.get_connected_peers_impl(Duration::from_secs(1)).await
-    }
-
-    /// Gets the list of all currently connected peers.
-    pub async fn get_connected_peers_impl(&self, timeout_duration: Duration) -> Vec<PeerId> {
+    /// If timeout is None, uses the default timeout of 1 second.
+    pub async fn get_connected_peers(&self, timeout_duration: Option<Duration>) -> Vec<PeerId> {
         let (sender, receiver) = oneshot::channel();
 
-        // Send the command.
         let cmd = Command::QueryP2PState(QueryP2PStateCommand::GetConnectedPeers {
             response_sender: sender,
         });
 
-        // Use a cloned sender to avoid borrow issues.
+        let duration = timeout_duration.unwrap_or(Duration::from_secs(1));
         let cmd_sender = self.commands.clone();
 
-        // If sending fails, return empty list.
         if cmd_sender.send(cmd).await.is_err() {
             return Vec::new();
         }
 
-        // Wait for response with timeout.
-        match timeout(timeout_duration, receiver).await {
+        match timeout(duration, receiver).await {
             Ok(Ok(peers)) => peers,
-            _ => Vec::new(), // Timeout or channel closed
-        }
-    }
-
-    /// Gets the app public key for a specific peer.
-    /// Returns None if we are not connected to the peer or key exchange hasn't happened yet.
-    pub async fn get_app_public_key(&self, peer_id: PeerId) -> Option<PublicKey> {
-        self.get_app_public_key_impl(peer_id, Duration::from_secs(1))
-            .await
-    }
-
-    /// Gets the app public key for a specific peer.
-    /// Returns None if we are not connected to the peer or key exchange hasn't happened yet.
-    pub async fn get_app_public_key_impl(
-        &self,
-        peer_id: PeerId,
-        timeout_duration: Duration,
-    ) -> Option<PublicKey> {
-        let (sender, receiver) = oneshot::channel();
-
-        // Send the command.
-        let cmd = Command::QueryP2PState(QueryP2PStateCommand::GetAppPublicKey {
-            transport_id: peer_id,
-            response_sender: sender,
-        });
-
-        // Use a cloned sender to avoid borrow issues.
-        let cmd_sender = self.commands.clone();
-
-        // If sending fails, return None.
-        if cmd_sender.send(cmd).await.is_err() {
-            return None;
-        }
-
-        // Wait for response with timeout.
-        match timeout(timeout_duration, receiver).await {
-            Ok(Ok(app_key)) => app_key,
-            _ => None, // Timeout or channel closed
+            _ => Vec::new(),
         }
     }
 }

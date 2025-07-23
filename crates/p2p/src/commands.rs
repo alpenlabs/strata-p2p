@@ -52,8 +52,8 @@ impl From<ConnectToPeerCommand> for Command {
 pub enum QueryP2PStateCommand {
     /// Queries if we're connected to a specific peer
     IsConnected {
-        /// Transport ID to check.
-        transport_id: PeerId,
+        /// App public key to check.
+        app_public_key: PublicKey,
         /// Channel to send the response back.
         response_sender: oneshot::Sender<bool>,
     },
@@ -70,15 +70,6 @@ pub enum QueryP2PStateCommand {
     GetMyListeningAddresses {
         /// Channel to send the response back.
         response_sender: oneshot::Sender<Vec<Multiaddr>>,
-    },
-
-    /// Gets the app public key for a specific peer.
-    /// Returns None if we are not connected to the peer or key exchange hasn't happened yet.
-    GetAppPublicKey {
-        /// Transport ID to get the app public key for.
-        transport_id: PeerId,
-        /// Channel to send the response back.
-        response_sender: oneshot::Sender<Option<PublicKey>>,
     },
 }
 
