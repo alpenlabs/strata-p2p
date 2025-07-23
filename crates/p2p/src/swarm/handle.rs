@@ -144,7 +144,7 @@ impl CommandHandle {
     }
 
     /// Gets the list of all currently connected peers.
-    pub async fn get_connected_peers_impl(&self, duration_timeout: Duration) -> Vec<PeerId> {
+    pub async fn get_connected_peers_impl(&self, timeout_duration: Duration) -> Vec<PeerId> {
         let (sender, receiver) = oneshot::channel();
 
         // Send the command.
@@ -161,7 +161,7 @@ impl CommandHandle {
         }
 
         // Wait for response with timeout.
-        match timeout(duration_timeout, receiver).await {
+        match timeout(timeout_duration, receiver).await {
             Ok(Ok(peers)) => peers,
             _ => Vec::new(), // Timeout or channel closed
         }
@@ -179,7 +179,7 @@ impl CommandHandle {
     pub async fn get_app_public_key_impl(
         &self,
         peer_id: PeerId,
-        duration: Duration,
+        timeout_duration: Duration,
     ) -> Option<PublicKey> {
         let (sender, receiver) = oneshot::channel();
 
@@ -198,7 +198,7 @@ impl CommandHandle {
         }
 
         // Wait for response with timeout.
-        match timeout(duration, receiver).await {
+        match timeout(timeout_duration, receiver).await {
             Ok(Ok(app_key)) => app_key,
             _ => None, // Timeout or channel closed
         }
