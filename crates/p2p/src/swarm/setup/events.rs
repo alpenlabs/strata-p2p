@@ -6,7 +6,7 @@
 
 use libp2p::{PeerId, identity::PublicKey};
 
-use crate::swarm::errors::ErrorDuringSetupHandshakeVariations;
+use crate::swarm::errors::SetupError;
 
 /// Events emitted during the setup phase of peer connections.
 ///
@@ -29,7 +29,7 @@ pub enum SetupBehaviourEvent {
     /// setup message, indicating the connection should be dropped.
     ErrorDuringSetupHandshake {
         transport_id: PeerId,
-        error: ErrorDuringSetupHandshakeVariations,
+        error: SetupError,
     },
 }
 
@@ -46,5 +46,5 @@ pub enum SetupHandlerEvent {
     AppKeyReceived { app_public_key: PublicKey },
 
     /// Something has failed during setup handshake.
-    ErrorDuringSetupHandshake(ErrorDuringSetupHandshakeVariations),
+    ErrorDuringSetupHandshake(SetupError),
 }

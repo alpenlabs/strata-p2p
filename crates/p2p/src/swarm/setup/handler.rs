@@ -15,7 +15,7 @@ use libp2p::{
 use crate::{
     signer::ApplicationSigner,
     swarm::{
-        errors::ErrorDuringSetupHandshakeVariations,
+        errors::SetupError,
         message::SetupMessage,
         setup::{
             events::SetupHandlerEvent,
@@ -108,7 +108,7 @@ impl<S: ApplicationSigner> ConnectionHandler for SetupHandler<S> {
                         self.pending_events
                             .push(ConnectionHandlerEvent::NotifyBehaviour(
                                 SetupHandlerEvent::ErrorDuringSetupHandshake(
-                                    ErrorDuringSetupHandshakeVariations::DeserializationFailed(
+                                    SetupError::DeserializationFailed(
                                         e.into(),
                                     ),
                                 ),
@@ -123,7 +123,7 @@ impl<S: ApplicationSigner> ConnectionHandler for SetupHandler<S> {
                         self.pending_events
                             .push(ConnectionHandlerEvent::NotifyBehaviour(
                                 SetupHandlerEvent::ErrorDuringSetupHandshake(
-                                    ErrorDuringSetupHandshakeVariations::AppPublicKeyInvalid(
+                                    SetupError::AppPublicKeyInvalid(
                                         e.into(),
                                     ),
                                 ),
@@ -138,7 +138,7 @@ impl<S: ApplicationSigner> ConnectionHandler for SetupHandler<S> {
                     self.pending_events
                         .push(ConnectionHandlerEvent::NotifyBehaviour(
                             SetupHandlerEvent::ErrorDuringSetupHandshake(
-                                ErrorDuringSetupHandshakeVariations::SignatureVerificationFailed,
+                                SetupError::SignatureVerificationFailed,
                             ),
                         ));
                     return;
@@ -153,7 +153,7 @@ impl<S: ApplicationSigner> ConnectionHandler for SetupHandler<S> {
                 self.pending_events
                     .push(ConnectionHandlerEvent::NotifyBehaviour(
                         SetupHandlerEvent::ErrorDuringSetupHandshake(
-                            ErrorDuringSetupHandshakeVariations::OutboundError(e.error.into()),
+                            SetupError::OutboundError(e.error.into()),
                         ),
                     ));
             }
@@ -161,7 +161,7 @@ impl<S: ApplicationSigner> ConnectionHandler for SetupHandler<S> {
                 self.pending_events
                     .push(ConnectionHandlerEvent::NotifyBehaviour(
                         SetupHandlerEvent::ErrorDuringSetupHandshake(
-                            ErrorDuringSetupHandshakeVariations::InboundError(e.error.into()),
+                            SetupError::InboundError(e.error.into()),
                         ),
                     ));
             }

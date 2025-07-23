@@ -10,7 +10,7 @@ pub type P2PResult<T> = Result<T, Error>;
 
 /// Variations of error during a setup handshake.
 #[derive(Debug, Error)]
-pub enum ErrorDuringSetupHandshakeVariations {
+pub enum SetupError {
     /// Indicates that signature verification failed.
     ///
     /// This event is fired when the signature verification fails for a peer's
