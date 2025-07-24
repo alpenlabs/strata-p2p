@@ -199,6 +199,20 @@ impl Stream for GossipHandle {
     }
 }
 
+#[cfg(feature = "request-response")]
+impl Stream for ReqRespHandle {
+    type Item = ReqRespEvent;
+
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let poll = Box::pin(self.next_event()).poll_unpin(cx);
+        match poll {
+            Poll::Ready(Some(v)) => Poll::Ready(Some(v)),
+            Poll::Ready(None) => Poll::Ready(None),
+            Poll::Pending => Poll::Pending,
+        }
+    }
+}
+
 // Sink implementation for GossipHandle to publish messages
 #[cfg(feature = "gossipsub")]
 impl Sink<GossipCommand> for GossipHandle {
