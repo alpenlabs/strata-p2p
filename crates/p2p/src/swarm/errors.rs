@@ -80,9 +80,9 @@ pub enum ValidationError {
 pub enum SetupUpgradeError {
     /// Invalid signature size - expected 64 bytes.
     #[error("Invalid signature size: expected 64 bytes, got {actual}")]
-    InvalidSignatureSize { 
+    InvalidSignatureSize {
         /// The actual size of the signature that was received.
-        actual: usize 
+        actual: usize,
     },
 
     /// Failed to create a signed message.
