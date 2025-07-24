@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use super::errors::{SetupError, SetupUpgradeError};
 
-pub(super) mod opaque_serializer {
+pub(super) mod pubkey_serializer {
     use serde::{self, Deserializer, Serializer, de};
 
     use super::PublicKey;
@@ -24,7 +24,29 @@ pub(super) mod opaque_serializer {
         D: Deserializer<'de>,
     {
         let bytes: Vec<u8> = serde::Deserialize::deserialize(deserializer)?;
-        PublicKey::try_decode_protobuf(&bytes).map_err(de::Error::custom)
+        PublicKey::try_decode_protobuf(&bytes)
+            .map_err(de::Error::custom("Failed to deserialize pubkey"))
+    }
+}
+
+pub(super) mod signature_serializer {
+    use serde::{self, Deserializer, Serializer, de};
+
+    pub(super) fn serialize<S>(data: &[u8; 64], serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_bytes(data)
+    }
+
+    pub(super) fn deserialize<'de, D>(deserializer: D) -> Result<[u8; 64], D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let bytes: Vec<u8> = serde::Deserialize::deserialize(deserializer)?;
+        bytes
+            .try_into()
+            .map_err(|_| de::Error::custom("Signature must be exactly 64 bytes"))
     }
 }
 
@@ -40,7 +62,8 @@ pub struct SignedMessage {
     /// The serialized message content.
     pub message: Vec<u8>,
     /// The signature of the message.
-    pub signature: Vec<u8>,
+    #[serde(with = "signature_serializer")]
+    pub signature: [u8; 64],
 }
 
 impl SignedMessage {
@@ -58,7 +81,13 @@ impl SignedMessage {
             serde_json::to_vec(&message).map_err(|e| SetupUpgradeError::JsonCodec(e.into()))?;
         let signature = signer
             .sign(&message_bytes, app_public_key)
-            .map_err(SetupUpgradeError::SignedMessageCreation)?;
+            .map_err(SetupUpgradeError::SignedMessageCreation)?
+            .try_into()
+            .map_err(|e: Vec<u8>| {
+                SetupUpgradeError::SignedMessageCreation(
+                    format!("Expected 64-byte signature, got {} bytes", e.len()).into(),
+                )
+            })?;
 
         Ok(Self {
             message: message_bytes,
@@ -114,7 +143,7 @@ pub(crate) struct SetupMessage {
     /// Protocol identifier (setup).
     pub protocol: u8,
     /// The application public key (Ed25519) - stored as bytes for serialization.
-    #[serde(with = "opaque_serializer")]
+    #[serde(with = "pubkey_serializer")]
     pub app_public_key: PublicKey,
     /// Local transport ID (PeerId) - our transport ID.
     pub local_transport_id: PeerId,
