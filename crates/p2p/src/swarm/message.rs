@@ -25,7 +25,7 @@ pub(super) mod pubkey_serializer {
     {
         let bytes: Vec<u8> = serde::Deserialize::deserialize(deserializer)?;
         PublicKey::try_decode_protobuf(&bytes)
-            .map_err(de::Error::custom("Failed to deserialize pubkey"))
+            .map_err(|_| de::Error::custom("Failed to deserialize pubkey"))
     }
 }
 
@@ -83,11 +83,7 @@ impl SignedMessage {
             .sign(&message_bytes, app_public_key)
             .map_err(SetupUpgradeError::SignedMessageCreation)?
             .try_into()
-            .map_err(|e: Vec<u8>| {
-                SetupUpgradeError::SignedMessageCreation(
-                    format!("Expected 64-byte signature, got {} bytes", e.len()).into(),
-                )
-            })?;
+            .map_err(|e: Vec<u8>| SetupUpgradeError::InvalidSignatureSize { actual: e.len() })?;
 
         Ok(Self {
             message: message_bytes,
