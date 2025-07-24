@@ -7,7 +7,7 @@ use std::{
 };
 
 use behavior::{Behaviour, BehaviourEvent};
-use errors::{P2PResult, ProtocolError, SwarmError};
+use errors::{P2PResult, ProtocolError};
 use futures::StreamExt as _;
 #[cfg(feature = "request-response")]
 use handle::ReqRespHandle;
@@ -583,13 +583,15 @@ impl<S: ApplicationSigner> P2P<S> {
                                 .send_request(&request_target_peer_id, data);
                             return Ok(());
                         }
-
-                        Ok(())
                     }
-                    None => Err(SwarmError::Logic(
-                        errors::LogicError::RequestResponseBeforeSetup,
-                    )),
+                    None => {
+                        error!(
+                            "Logic error: Request response is attempted on a peer we haven't done Setup yet."
+                        )
+                    }
                 }
+
+                Ok(())
             }
             Command::ConnectToPeer(connect_to_peer_command) => {
                 // Add peer to swarm
@@ -737,7 +739,7 @@ impl<S: ApplicationSigner> P2P<S> {
                     match send_result {
                         Ok(Ok(())) => {}
                         Ok(Err(e)) => {
-                            return Err(SwarmError::Protocol(
+                            return Err(errors::SwarmError::Protocol(
                                 ProtocolError::ReqRespEventChannelClosed(e.into()),
                             ));
                         }
@@ -777,7 +779,7 @@ impl<S: ApplicationSigner> P2P<S> {
                     match send_result {
                         Ok(Ok(())) => {}
                         Ok(Err(e)) => {
-                            return Err(SwarmError::Protocol(
+                            return Err(errors::SwarmError::Protocol(
                                 ProtocolError::ReqRespEventChannelClosed(e.into()),
                             ));
                         }

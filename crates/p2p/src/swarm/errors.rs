@@ -38,41 +38,9 @@ pub enum SetupError {
 /// Swarm errors.
 #[derive(Debug, Error)]
 pub enum SwarmError {
-    /// Validation errors.
-    #[error("Validation error {0}")]
-    Validation(#[from] ValidationError),
-
     /// Protocol errors.
     #[error("Protocol error {0}")]
     Protocol(#[from] ProtocolError),
-
-    /// Setup upgrade errors.
-    #[error("Setup upgrade error {0}")]
-    SetupUpgrade(#[from] SetupUpgradeError),
-
-    /// Logic error.
-    #[error("Logic error {0}")]
-    Logic(#[from] LogicError),
-}
-
-/// Logic error.
-#[derive(Debug, Error)]
-pub enum LogicError {
-    /// If we haven't done Setup, we maybe don't know the guy. Until DHT, this is the only option
-    /// for now.
-    #[error("Attempt to send request response before Setup ever done")]
-    RequestResponseBeforeSetup,
-}
-
-/// Validation errors.
-#[derive(Debug, Error)]
-pub enum ValidationError {
-    /// The signature is invalid.
-    #[error("Invalid signature")]
-    InvalidSignature,
-    /// The message signer is not in the signer's allowlist.
-    #[error("Not in signers allowlist")]
-    NotInSignersAllowlist,
 }
 
 /// Errors that can occur during the setup upgrade process.
