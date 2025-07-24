@@ -33,7 +33,6 @@ use libp2p::{
 #[cfg(feature = "request-response")]
 use tokio::sync::oneshot;
 use tokio::{
-    select,
     sync::{broadcast, mpsc},
     time::timeout,
 };
