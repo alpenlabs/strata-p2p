@@ -47,8 +47,7 @@ use crate::{
     signer::ApplicationSigner,
     swarm::setup::events::SetupBehaviourEvent,
 };
-
-mod behavior;
+pub mod behavior;
 mod codec_raw;
 pub mod errors;
 pub mod handle;

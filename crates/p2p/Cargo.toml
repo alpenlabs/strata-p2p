@@ -4,15 +4,13 @@ version.workspace = true
 edition.workspace = true
 
 [features]
-default = ["request-response"]
+default = ["request-response", "quic"]
 request-response = []
+quic = []
 
 [lints]
 workspace = true
 
-[features]
-default = ["quic"]
-quic = []
 
 [dependencies]
 asynchronous-codec.workspace = true
