@@ -3,7 +3,6 @@
 use std::collections::HashSet;
 
 use libp2p::{
-    PeerId, StreamProtocol,
     allow_block_list::{AllowedPeers, Behaviour as AllowListBehaviour},
     gossipsub::{
         self, Behaviour as Gossipsub, IdentityTransform, MessageAuthenticity,
@@ -15,9 +14,10 @@ use libp2p::{
         Behaviour as RequestResponse, Config as RequestResponseConfig, ProtocolSupport,
     },
     swarm::NetworkBehaviour,
+    PeerId, StreamProtocol,
 };
 
-use super::{MAX_TRANSMIT_SIZE, TOPIC, codec_raw};
+use super::{codec_raw, MAX_TRANSMIT_SIZE, TOPIC};
 
 /// Alias for request-response behaviour with messages serialized by using
 /// homebrewed codec implementation.
