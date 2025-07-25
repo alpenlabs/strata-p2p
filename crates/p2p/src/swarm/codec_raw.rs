@@ -1,18 +1,32 @@
+<<<<<<< HEAD
 //! This module implement serialization/deserialization codec for [`libp2p::request_response`]
 //! behaviour. Historically, this file was used to allow protobuf's encoding/decoding be done
 //! inside [`libp2p`], and since we moved from any schemas, it just implements codec that gives raw
 //! [`Vec<u8>`].
+=======
+//! This module implement protobuf serialization/deserizliation codec for request-response
+//! behaviour.
+>>>>>>> d57be6f (WIP: remove protobuf)
 //!
 //! Copied from `rust-libp2p/protocols/request-response/src/json.rs` and
 //! rewritten so that it exposes raw bytes.
 
+<<<<<<< HEAD
 use std::{io, marker::PhantomData, pin::Pin};
 
+=======
+use std::{io, marker::PhantomData};
+
+use async_trait::async_trait;
+>>>>>>> d57be6f (WIP: remove protobuf)
 use futures::prelude::*;
 use libp2p::swarm::StreamProtocol;
 
 /// Max request size in bytes.
+<<<<<<< HEAD
 // TODO(Arniiiii): make this configurable
+=======
+>>>>>>> d57be6f (WIP: remove protobuf)
 // NOTE(Velnbur): commit f096394 in rust-libp2p repo made this one
 // configurable recently, so we may want to configure it too.
 const REQUEST_SIZE_MAXIMUM: u64 = 1024 * 1024;
@@ -43,6 +57,7 @@ impl Clone for Codec {
     }
 }
 
+<<<<<<< HEAD
 // Note: the next code looks ugly because libp2p uses crate `async_trait` which is an old
 // workaround of declaring `async fn` in a trait, and we moved away from using the crate
 // since, technically speaking, from Rust 1.75.0 it's possible to write `async fn`. But
@@ -50,10 +65,16 @@ impl Clone for Codec {
 // in a spectacular way because Rust has some problems with implicit lifetimes in
 // such contexts.
 impl libp2p::request_response::Codec for Codec {
+=======
+#[async_trait]
+impl libp2p::request_response::Codec for Codec
+{
+>>>>>>> d57be6f (WIP: remove protobuf)
     type Protocol = StreamProtocol;
     type Request = Vec<u8>;
     type Response = Vec<u8>;
 
+<<<<<<< HEAD
     fn read_request<'life0, 'life1, 'life2, 'async_trait, T>(
         &'life0 mut self,
         _: &'life1 Self::Protocol,
@@ -138,5 +159,55 @@ impl libp2p::request_response::Codec for Codec {
 
             Ok(())
         })
+=======
+    async fn read_request<T>(&mut self, _: &Self::Protocol, io: &mut T) -> io::Result<Self::Request>
+    where
+        T: AsyncRead + Unpin + Send,
+    {
+        let mut vec = Vec::new();
+
+        io.take(REQUEST_SIZE_MAXIMUM).read_to_end(&mut vec).await?;
+
+        Ok(vec)
+    }
+
+    async fn read_response<T>(&mut self, _: &Self::Protocol, io: &mut T) -> io::Result<Self::Response>
+    where
+        T: AsyncRead + Unpin + Send,
+    {
+        let mut vec = Vec::new();
+
+        io.take(RESPONSE_SIZE_MAXIMUM).read_to_end(&mut vec).await?;
+
+        Ok(vec)
+    }
+
+    async fn write_request<T>(
+        &mut self,
+        _: &Self::Protocol,
+        io: &mut T,
+        req: Self::Request,
+    ) -> io::Result<()>
+    where
+        T: AsyncWrite + Unpin + Send,
+    {
+        io.write_all(&req).await?;
+
+        Ok(())
+    }
+
+    async fn write_response<T>(
+        &mut self,
+        _: &Self::Protocol,
+        io: &mut T,
+        resp: Self::Response,
+    ) -> io::Result<()>
+    where
+        T: AsyncWrite + Unpin + Send,
+    {
+        io.write_all(&resp).await?;
+
+        Ok(())
+>>>>>>> d57be6f (WIP: remove protobuf)
     }
 }

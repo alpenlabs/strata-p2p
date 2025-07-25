@@ -30,13 +30,16 @@ libp2p = { workspace = true, features = [
 async-trait.workspace = true
 bitcoin = { workspace = true, features = ["serde"] }
 futures.workspace = true
-musig2 = { workspace = true, features = ["serde"] }
-prost.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["macros", "time"] }
 tokio-util.workspace = true
 tracing.workspace = true
 
+<<<<<<< HEAD
+=======
+strata-p2p-types.path = "../types"
+# strata-p2p-wire.path = "../wire"
+>>>>>>> d57be6f (WIP: remove protobuf)
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt", "rt-multi-thread"] }

@@ -4,7 +4,7 @@
 use std::fmt;
 
 use hex::ToHex;
-use libp2p_identity::secp256k1::PublicKey;
+use libp2p_identity::{secp256k1::PublicKey, PeerId, PublicKey as WrapperPublicKey};
 
 /// P2P [`P2POperatorPubKey`] serves as an identifier of protocol entity.
 ///
@@ -51,6 +51,14 @@ impl P2POperatorPubKey {
             Ok(key) => key.verify(message, signature),
             Err(_) => false,
         }
+    }
+
+    /// Returns the [`PeerId`] with respect to PublicKey.
+    pub fn peer_id(&self) -> PeerId {
+        // convert P2POperatorPubKey into LibP2P secp256k1 PK
+        let pk = PublicKey::try_from_bytes(&self.0).expect("infallible");
+        let pk: WrapperPublicKey = pk.into();
+        pk.into()
     }
 }
 
