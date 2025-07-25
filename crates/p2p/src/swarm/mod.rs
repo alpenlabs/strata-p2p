@@ -25,7 +25,6 @@ use libp2p::{
     },
     identity::Keypair,
     noise,
-    request_response::{self, Event as RequestResponseEvent},
     swarm::{
         dial_opts::{DialOpts, PeerCondition},
         SwarmEvent,
@@ -259,6 +258,9 @@ where
             commands_sender: cmds_tx.clone(),
             cancellation_token: cancel,
             config: cfg,
+            score_manager,
+            peer_penalty_storage,
+            _phantom_data: PhantomData,
         })
     }
 
@@ -462,7 +464,7 @@ where
                 _ = heartbeat.tick() => {
                     self.score_manager.apply_decay();
                     info!("Score decay is applied");
-                    return;
+                    Ok(())
                 }
                 _ = self.cancellation_token.cancelled() => {
                     debug!("Received cancellation, stopping listening");
@@ -486,7 +488,7 @@ where
     // Apply penalties for peer
     async fn apply_penalty(&mut self, peer_id: &PeerId, penalty: PenaltyType) {
         match penalty {
-            PenaltyType::Ignore => return,
+            PenaltyType::Ignore => (),
             PenaltyType::MuteGossip(time_amount) => {
                 let until = SystemTime::now() + time_amount;
                 match self.peer_penalty_storage.mute_peer_gossip(peer_id, until) {
@@ -533,18 +535,18 @@ where
             .swarm
             .behaviour()
             .gossipsub
-            .peer_score(&peer_id)
+            .peer_score(peer_id)
             .unwrap_or(0.0);
         let gossip_app_score = self
             .score_manager
-            .get_gossipsub_app_score(&peer_id)
+            .get_gossipsub_app_score(peer_id)
             .unwrap_or(DEFAULT_GOSSIP_APP_SCORE);
         let reqresp_app_score = self
             .score_manager
-            .get_req_resp_score(&peer_id)
+            .get_req_resp_score(peer_id)
             .unwrap_or(DEFAULT_REQ_RESP_APP_SCORE);
 
-        return (gossip_internal_score, gossip_app_score, reqresp_app_score);
+        (gossip_internal_score, gossip_app_score, reqresp_app_score)
     }
 
     /// Handles a [`SwarmEvent`] from the swarm.
@@ -596,8 +598,44 @@ where
     ) -> P2PResult<()> {
         trace!("Got message: {:?}", &message.data);
 
-        let propagation_result = self
-            .swarm
+        // Score/penalty logic for gossipsub
+        if self
+            .peer_penalty_storage
+            .is_gossip_muted(&propagation_source)
+        {
+            warn!(
+                "Peer(peer_id={}) is muted for Gossipsub",
+                propagation_source
+            );
+            return Ok(());
+        }
+        let old_app_score = self
+            .score_manager
+            .get_gossipsub_app_score(&propagation_source)
+            .unwrap_or(DEFAULT_GOSSIP_APP_SCORE);
+
+        let updated_score = DefaultP2PValidator::validate_msg(
+            &MessageType::Gossipsub(message.data.clone()),
+            old_app_score,
+        );
+
+        self.score_manager
+            .update_gossipsub_app_score(&propagation_source, updated_score);
+
+        let (gossip_internal_score, gossip_app_score, reqresp_app_score) =
+            self.get_all_scores(&propagation_source);
+
+        if let Some(penalty) = DefaultP2PValidator::get_penalty(
+            &MessageType::Gossipsub(message.data.clone()),
+            gossip_internal_score,
+            gossip_app_score,
+            reqresp_app_score,
+        ) {
+            self.apply_penalty(&propagation_source, penalty).await;
+            return Ok(());
+        }
+
+        self.swarm
             .behaviour_mut()
             .gossipsub
             .report_message_validation_result(
@@ -606,13 +644,10 @@ where
                 MessageAcceptance::Ignore,
             );
 
-        let _ = self
-            .process_message_event(
-                &propagation_source,
-                MessageType::Gossipsub(message.data.clone()),
-                Event::ReceivedMessage(message.data),
-            )
-            .await;
+        // Send event to gossip_events channel
+        self.gossip_events
+            .send(GossipEvent::ReceivedMessage(message.data))
+            .map_err(|e| ProtocolError::GossipEventsChannelClosed(e.into()))?;
 
         Ok(())
     }
@@ -815,7 +850,7 @@ where
     #[cfg(feature = "request-response")]
     async fn handle_message_event(
         &mut self,
-        _peer_id: PeerId,
+        peer_id: PeerId,
         msg: request_response::Message<Vec<u8>, Vec<u8>, Vec<u8>>,
     ) -> P2PResult<()> {
         let reqresp_timeout = self
@@ -823,91 +858,129 @@ where
             .channel_timeout
             .unwrap_or(DEFAULT_CHANNEL_TIMEOUT);
         match msg {
-            request_response::Message::Request { request, .. } => {
-                self.process_message_event(
-                    &peer_id,
-                    MessageType::Request(request.clone()),
-                    Event::ReceivedRequest(request),
-                )
-                .await
-            }
-            request_response::Message::Response {
-                request_id,
-                response,
+            request_response::Message::Request {
+                request, channel, ..
             } => {
-                if response.is_empty() {
-                    warn!(%request_id, ?response, "Received empty response");
-                    return Ok(());
-                }
-                self.process_message_event(
-                    &peer_id,
-                    MessageType::Response(response.clone()),
-                    Event::ReceivedMessage(response),
-                )
-                .await
-            }
-        }
-    }
-
-    // this func process messages from req/resp and from gossipsub
-    async fn process_message_event(
-        &mut self,
-        peer_id: &PeerId,
-        msg_type: MessageType,
-        event: Event,
-    ) -> P2PResult<()> {
-        match &msg_type {
-            MessageType::Gossipsub(_) => {
-                if self.peer_penalty_storage.is_gossip_muted(peer_id) {
-                    warn!("Peer(peer_id={}) is muted for Gossipsub", peer_id);
-                    return Ok(());
-                }
-            }
-            _ => {
-                if self.peer_penalty_storage.is_req_resp_muted(peer_id) {
+                // Score/penalty logic for request
+                if self.peer_penalty_storage.is_req_resp_muted(&peer_id) {
                     warn!("Peer(peer_id={}) is muted for request/response", peer_id);
                     return Ok(());
                 }
+
+                let old_app_score = self
+                    .score_manager
+                    .get_req_resp_score(&peer_id)
+                    .unwrap_or(DEFAULT_REQ_RESP_APP_SCORE);
+
+                let updated_score = DefaultP2PValidator::validate_msg(
+                    &MessageType::Request(request.clone()),
+                    old_app_score,
+                );
+
+                self.score_manager
+                    .update_req_resp_app_score(&peer_id, updated_score);
+
+                let (gossip_internal_score, gossip_app_score, reqresp_app_score) =
+                    self.get_all_scores(&peer_id);
+
+                if let Some(penalty) = DefaultP2PValidator::get_penalty(
+                    &MessageType::Request(request.clone()),
+                    gossip_internal_score,
+                    gossip_app_score,
+                    reqresp_app_score,
+                ) {
+                    self.apply_penalty(&peer_id, penalty).await;
+                    return Ok(());
+                }
+
+                let (tx, rx) = oneshot::channel();
+
+                let event = ReqRespEvent::ReceivedRequest(request, tx);
+                let send_result = timeout(reqresp_timeout, self.req_resp_events.send(event)).await;
+
+                match send_result {
+                    Ok(Ok(())) => {}
+                    Ok(Err(e)) => {
+                        return Err(Error::Protocol(ProtocolError::ReqRespEventChannelClosed(
+                            e.into(),
+                        )));
+                    }
+                    Err(_) => {
+                        error!("Timeout while sending ReceivedRequest event");
+                    }
+                }
+
+                let resp = timeout(reqresp_timeout, rx).await;
+                let _ = match resp {
+                        Ok(Ok(response)) => self
+                            .swarm
+                            .behaviour_mut()
+                            .request_response
+                            .send_response(channel, response)
+                            .map_err(|_| {
+                                error!("Failed to send response: connection dropped or response channel closed");
+                            }),
+                        Ok(Err(err)) => {
+                            error!("Received error in response: {err:?}");
+                            Ok(())
+                        }
+                        Err(_) => {
+                            error!("Timeout waiting for response to request");
+                            Ok(())
+                        }
+                    };
+                Ok(())
+            }
+            request_response::Message::Response { response, .. } => {
+                // Score/penalty logic for response
+                if self.peer_penalty_storage.is_req_resp_muted(&peer_id) {
+                    warn!("Peer(peer_id={}) is muted for request/response", peer_id);
+                    return Ok(());
+                }
+
+                let old_app_score = self
+                    .score_manager
+                    .get_req_resp_score(&peer_id)
+                    .unwrap_or(DEFAULT_REQ_RESP_APP_SCORE);
+
+                let updated_score = DefaultP2PValidator::validate_msg(
+                    &MessageType::Response(response.clone()),
+                    old_app_score,
+                );
+
+                self.score_manager
+                    .update_req_resp_app_score(&peer_id, updated_score);
+
+                let (gossip_internal_score, gossip_app_score, reqresp_app_score) =
+                    self.get_all_scores(&peer_id);
+
+                if let Some(penalty) = DefaultP2PValidator::get_penalty(
+                    &MessageType::Response(response.clone()),
+                    gossip_internal_score,
+                    gossip_app_score,
+                    reqresp_app_score,
+                ) {
+                    self.apply_penalty(&peer_id, penalty).await;
+                    return Ok(());
+                }
+
+                let event = ReqRespEvent::ReceivedResponse(response);
+                let send_result = timeout(reqresp_timeout, self.req_resp_events.send(event)).await;
+                match send_result {
+                    Ok(Ok(())) => {}
+                    Ok(Err(e)) => {
+                        return Err(Error::Protocol(ProtocolError::ReqRespEventChannelClosed(
+                            e.into(),
+                        )));
+                    }
+                    Err(_) => {
+                        error!("Timeout while sending ReceivedResponse event");
+                    }
+                }
+
+                Ok(())
             }
         }
-
-        let old_app_score = match msg_type {
-            MessageType::Gossipsub(_) => self
-                .score_manager
-                .get_gossipsub_app_score(peer_id)
-                .unwrap_or(DEFAULT_GOSSIP_APP_SCORE),
-            _ => self
-                .score_manager
-                .get_req_resp_score(peer_id)
-                .unwrap_or(DEFAULT_REQ_RESP_APP_SCORE),
-        };
-        let updated_score = V::validate_msg(&msg_type, old_app_score);
-        match msg_type {
-            MessageType::Gossipsub(_) => self
-                .score_manager
-                .update_gossipsub_app_score(peer_id, updated_score),
-            _ => self
-                .score_manager
-                .update_req_resp_app_score(peer_id, updated_score),
-        }
-
-        let (gossip_internal_score, gossip_app_score, reqresp_app_score) =
-            self.get_all_scores(peer_id);
-
-        if let Some(penalty) = V::get_penalty(
-            &msg_type,
-            gossip_internal_score,
-            gossip_app_score,
-            reqresp_app_score,
-        ) {
-            self.apply_penalty(peer_id, penalty).await;
-            return Ok(());
-        }
-
-        self.events
-            .send(event)
-            .map_err(|e| ProtocolError::EventsChannelClosed(e.into()))?;
-        Ok(())
     }
 }
 

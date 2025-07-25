@@ -36,19 +36,19 @@ impl ScoreManager {
     }
 
     pub fn update_gossipsub_app_score(&mut self, peer_id: &PeerId, new_score: f64) {
-        self.gossipsub_app_score.insert(peer_id.clone(), new_score);
+        self.gossipsub_app_score.insert(*peer_id, new_score);
     }
 
     pub fn update_req_resp_app_score(&mut self, peer_id: &PeerId, new_score: f64) {
-        self.req_resp_app_score.insert(peer_id.clone(), new_score);
+        self.req_resp_app_score.insert(*peer_id, new_score);
     }
 
     pub fn apply_decay(&mut self) {
         for (_peer_id, score) in self.gossipsub_app_score.iter_mut() {
-            *score = *score * self.decay_factor;
+            *score *= self.decay_factor;
         }
         for (_peer_id, score) in self.req_resp_app_score.iter_mut() {
-            *score = *score * self.decay_factor;
+            *score *= self.decay_factor;
         }
     }
 }
