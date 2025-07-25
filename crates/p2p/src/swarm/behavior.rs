@@ -3,11 +3,10 @@
 use std::collections::HashSet;
 
 use libp2p::{
-    PeerId, StreamProtocol,
     allow_block_list::{AllowedPeers, Behaviour as AllowListBehaviour},
     gossipsub::{
-        self, Behaviour as Gossipsub, IdentityTransform, MessageAuthenticity,
-        WhitelistSubscriptionFilter,
+        self, Behaviour as Gossipsub, IdentityTransform, MessageAuthenticity, PeerScoreParams,
+        PeerScoreThresholds, TopicScoreParams, WhitelistSubscriptionFilter,
     },
     identify::{Behaviour as Identify, Config},
     identity::Keypair,
@@ -15,9 +14,10 @@ use libp2p::{
         Behaviour as RequestResponse, Config as RequestResponseConfig, ProtocolSupport,
     },
     swarm::NetworkBehaviour,
+    PeerId, StreamProtocol,
 };
 
-use super::{MAX_TRANSMIT_SIZE, TOPIC, codec_raw};
+use super::{codec_raw, MAX_TRANSMIT_SIZE, TOPIC};
 
 /// Alias for request-response behaviour with messages serialized by using
 /// homebrewed codec implementation.
@@ -41,34 +41,68 @@ pub struct Behaviour {
     pub allow_list: AllowListBehaviour<AllowedPeers>,
 }
 
+fn create_gossipsub(
+    keypair: &Keypair,
+    gossipsub_score_params: &Option<PeerScoreParams>,
+    gossipsub_score_thresholds: &Option<PeerScoreThresholds>,
+) -> Gossipsub<IdentityTransform, WhitelistSubscriptionFilter> {
+    let mut filter = HashSet::new();
+    filter.insert(TOPIC.hash()); // Target topic for subscription.
+
+    let peer_score_params = gossipsub_score_params.clone().unwrap_or_else(|| {
+        let mut params = PeerScoreParams::default();
+        params.topics.insert(
+            TOPIC.hash(),
+            TopicScoreParams {
+                ..Default::default()
+            },
+        );
+        params
+    });
+
+    let peer_score_thresholds = gossipsub_score_thresholds.clone().unwrap_or_default();
+
+    let mut gossipsub = Gossipsub::new_with_subscription_filter(
+        MessageAuthenticity::Author(PeerId::from_public_key(&keypair.public().clone())),
+        gossipsub::ConfigBuilder::default()
+            .validation_mode(gossipsub::ValidationMode::Permissive)
+            .validate_messages()
+            .max_transmit_size(MAX_TRANSMIT_SIZE)
+            .idontwant_on_publish(true)
+            .build()
+            .expect("gossipsub config at this stage must be valid"),
+        None,
+        WhitelistSubscriptionFilter(filter),
+    )
+    .unwrap();
+
+    // Apply peer score configuration
+    let _ = gossipsub.with_peer_score(peer_score_params, peer_score_thresholds);
+
+    gossipsub
+}
+
 impl Behaviour {
     /// Creates a new [`Behaviour`] given a `protocol_name`, [`Keypair`], and an allow list of
     /// [`PeerId`]s.
-    pub fn new(protocol_name: &'static str, keypair: &Keypair, allowlist: &[PeerId]) -> Self {
+    pub fn new(
+        protocol_name: &'static str,
+        keypair: &Keypair,
+        allowlist: &[PeerId],
+        gossipsub_score_params: &Option<PeerScoreParams>,
+        gossipsub_score_thresholds: &Option<PeerScoreThresholds>,
+    ) -> Self {
         let mut allow_list = AllowListBehaviour::default();
         for peer in allowlist {
             allow_list.allow_peer(*peer);
         }
 
-        let mut filter = HashSet::new();
-        filter.insert(TOPIC.hash());
+        let gossipsub =
+            create_gossipsub(keypair, gossipsub_score_params, gossipsub_score_thresholds);
 
         Self {
             identify: Identify::new(Config::new(protocol_name.to_string(), keypair.public())),
-            gossipsub: Gossipsub::new_with_subscription_filter(
-                MessageAuthenticity::Author(PeerId::from_public_key(&keypair.public())),
-                gossipsub::ConfigBuilder::default()
-                    .validation_mode(gossipsub::ValidationMode::Permissive)
-                    .validate_messages()
-                    .max_transmit_size(MAX_TRANSMIT_SIZE)
-                    // Avoids spamming the network and nodes with messages
-                    .idontwant_on_publish(true)
-                    .build()
-                    .expect("gossipsub config at this stage must be valid"),
-                None,
-                WhitelistSubscriptionFilter(filter),
-            )
-            .unwrap(),
+            gossipsub,
             request_response: RequestResponseRawBehaviour::new(
                 [(StreamProtocol::new(protocol_name), ProtocolSupport::Full)],
                 RequestResponseConfig::default(),

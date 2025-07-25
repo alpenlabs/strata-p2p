@@ -3,7 +3,7 @@
 use std::time::Duration;
 
 use futures::future::join_all;
-use libp2p::{Multiaddr, PeerId, build_multiaddr, identity::Keypair};
+use libp2p::{build_multiaddr, identity::Keypair, Multiaddr, PeerId};
 use rand::Rng;
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use tracing::debug;
@@ -11,8 +11,9 @@ use tracing::debug;
 #[cfg(feature = "request-response")]
 use crate::swarm::handle::ReqRespHandle;
 use crate::swarm::{
-    self, P2P, P2PConfig,
+    self,
     handle::{CommandHandle, GossipHandle},
+    P2PConfig, P2P,
 };
 
 pub(crate) struct User {
@@ -44,7 +45,11 @@ impl User {
             listening_addr: local_addr,
             allowlist,
             connect_to,
+            #[cfg(feature = "request-response")]
             channel_timeout: None,
+            decay_factor: None,
+            gossipsub_score_params: None,
+            gossipsub_score_thresholds: None,
         };
 
         let swarm = swarm::with_inmemory_transport(&config)?;

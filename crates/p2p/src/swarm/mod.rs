@@ -2,8 +2,9 @@
 
 use std::{
     collections::HashSet,
+    marker::PhantomData,
     sync::LazyLock,
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime},
 };
 
 use behavior::{Behaviour, BehaviourEvent};
@@ -17,18 +18,18 @@ use handle::{CommandHandle, GossipHandle};
 #[cfg(feature = "request-response")]
 use libp2p::request_response::{self, Event as RequestResponseEvent};
 use libp2p::{
-    Multiaddr, PeerId, Swarm, SwarmBuilder, Transport,
-    core::{ConnectedPoint, muxing::StreamMuxerBox, transport::MemoryTransport},
+    core::{muxing::StreamMuxerBox, transport::MemoryTransport, ConnectedPoint},
     gossipsub::{
-        Event as GossipsubEvent, Message, MessageAcceptance, MessageId, PublishError, Sha256Topic,
+        Event as GossipsubEvent, Message, MessageAcceptance, MessageId, PeerScoreParams,
+        PeerScoreThresholds, PublishError, Sha256Topic,
     },
     identity::Keypair,
     noise,
     swarm::{
-        SwarmEvent,
         dial_opts::{DialOpts, PeerCondition},
+        SwarmEvent,
     },
-    yamux,
+    yamux, Multiaddr, PeerId, Swarm, SwarmBuilder, Transport,
 };
 #[cfg(feature = "request-response")]
 use tokio::sync::oneshot;
@@ -45,6 +46,13 @@ use crate::events::ReqRespEvent;
 use crate::{
     commands::{Command, QueryP2PStateCommand},
     events::GossipEvent,
+    score_manager::{
+        ScoreManager, DEFAULT_DECAY_FACTOR, DEFAULT_GOSSIP_APP_SCORE, DEFAULT_REQ_RESP_APP_SCORE,
+    },
+    validator::{
+        DefaultP2PValidator, Message as MessageType, PenaltyPeerStorage, PenaltyType, Validator,
+        DEFAULT_BAN_PERIOD,
+    },
 };
 mod behavior;
 mod codec_raw;
@@ -118,11 +126,34 @@ pub struct P2PConfig {
     /// Timeout for channel operations (e.g., sending/receiving on channels).
     #[cfg(feature = "request-response")]
     pub channel_timeout: Option<Duration>,
+
+    /// Fields for [`ScoreManager`]s.
+    ///
+    /// This parameter is used to decay the score.
+    /// Default value is [`DEFAULT_DECAY_FACTOR`].
+    pub decay_factor: Option<f64>,
+
+    /// Gossipsub peer scoring parameters.
+    ///
+    /// If `None`, the default parameters will be used.
+    /// Use this to fine-tune how peers are scored for message delivery, invalid messages, etc.
+    /// See [`PeerScoreParams`] for all available options.
+    pub gossipsub_score_params: Option<PeerScoreParams>,
+
+    /// Gossipsub peer score thresholds.
+    ///
+    /// If `None`, the default thresholds will be used.
+    /// These thresholds determine when peers are muted, graylisted, or banned based on their
+    /// score. See [`PeerScoreThresholds`] for details.
+    pub gossipsub_score_thresholds: Option<PeerScoreThresholds>,
 }
 
 /// Implementation of P2P protocol data exchange.
 #[expect(missing_debug_implementations)]
-pub struct P2P {
+pub struct P2P<V = DefaultP2PValidator>
+where
+    V: Validator + Send + Sync + 'static,
+{
     /// The swarm that handles the networking.
     swarm: Swarm<Behaviour>,
 
@@ -149,13 +180,25 @@ pub struct P2P {
 
     /// Underlying configuration.
     config: P2PConfig,
+
+    /// Score manager.
+    score_manager: ScoreManager,
+
+    /// Storage with penalty for peer's penalty
+    peer_penalty_storage: PenaltyPeerStorage,
+
+    // PhantomData
+    _phantom_data: PhantomData<V>,
 }
 
 /// Alias for [`P2P`] and [`ReqRespHandle`] tuple.
 #[cfg(feature = "request-response")]
-pub type P2PWithReqRespHandle = (P2P, ReqRespHandle);
+pub type P2PWithReqRespHandle<V> = (P2P<V>, ReqRespHandle);
 
-impl P2P {
+impl<V> P2P<V>
+where
+    V: Validator + Send + Sync + 'static,
+{
     /// Creates a new P2P instance from the given configuration.
     #[cfg(feature = "request-response")]
     pub fn from_config(
@@ -163,7 +206,7 @@ impl P2P {
         cancel: CancellationToken,
         mut swarm: Swarm<Behaviour>,
         channel_size: Option<usize>,
-    ) -> P2PResult<P2PWithReqRespHandle> {
+    ) -> P2PResult<P2PWithReqRespHandle<V>> {
         swarm
             .listen_on(cfg.listening_addr.clone())
             .map_err(ProtocolError::Listen)?;
@@ -172,6 +215,8 @@ impl P2P {
         let (gossip_events_tx, _gossip_events_rx) = broadcast::channel(channel_size);
         let (req_resp_event_tx, req_resp_event_rx) = mpsc::channel(64);
         let (cmds_tx, cmds_rx) = mpsc::channel(64);
+        let score_manager = ScoreManager::new(cfg.decay_factor.unwrap_or(DEFAULT_DECAY_FACTOR));
+        let peer_penalty_storage = PenaltyPeerStorage::new();
 
         Ok((
             Self {
@@ -182,6 +227,9 @@ impl P2P {
                 commands_sender: cmds_tx.clone(),
                 cancellation_token: cancel,
                 config: cfg,
+                score_manager,
+                peer_penalty_storage,
+                _phantom_data: PhantomData,
             },
             ReqRespHandle::new(req_resp_event_rx),
         ))
@@ -210,6 +258,9 @@ impl P2P {
             commands_sender: cmds_tx.clone(),
             cancellation_token: cancel,
             config: cfg,
+            score_manager,
+            peer_penalty_storage,
+            _phantom_data: PhantomData,
         })
     }
 
@@ -407,8 +458,14 @@ impl P2P {
     /// This method should be spawned in separate async task or polled periodically
     /// to advance handling of new messages, event or commands.
     pub async fn listen(mut self) {
+        let mut heartbeat = tokio::time::interval(Duration::from_secs(30));
         loop {
             let result = select! {
+                _ = heartbeat.tick() => {
+                    self.score_manager.apply_decay();
+                    info!("Score decay is applied");
+                    Ok(())
+                }
                 _ = self.cancellation_token.cancelled() => {
                     debug!("Received cancellation, stopping listening");
                     return;
@@ -426,6 +483,70 @@ impl P2P {
                 return;
             }
         }
+    }
+
+    // Apply penalties for peer
+    async fn apply_penalty(&mut self, peer_id: &PeerId, penalty: PenaltyType) {
+        match penalty {
+            PenaltyType::Ignore => (),
+            PenaltyType::MuteGossip(time_amount) => {
+                let until = SystemTime::now() + time_amount;
+                match self.peer_penalty_storage.mute_peer_gossip(peer_id, until) {
+                    Ok(()) => info!(%peer_id, ?until, "Peer muted for Gossipsub"),
+                    Err(e) => error!(%peer_id, ?e, "Failed to mute peer"),
+                }
+            }
+            PenaltyType::MuteReqresp(time_amount) => {
+                let until = SystemTime::now() + time_amount;
+                match self.peer_penalty_storage.mute_peer_req_resp(peer_id, until) {
+                    Ok(()) => info!(%peer_id, ?until, "Peer muted for RequestResponse"),
+                    Err(e) => error!(%peer_id, ?e, "Failed to mute peer"),
+                }
+            }
+            PenaltyType::MuteBoth(time_amount) => {
+                let until = SystemTime::now() + time_amount;
+                let gossip_mute_result = self.peer_penalty_storage.mute_peer_gossip(peer_id, until);
+                let req_resp_mute_result =
+                    self.peer_penalty_storage.mute_peer_req_resp(peer_id, until);
+                match (gossip_mute_result, req_resp_mute_result) {
+                    (Ok(()), Ok(())) => {
+                        info!(%peer_id, ?until, "Peer muted for both Gossipsub and RequestResponse")
+                    }
+                    (Err(e1), Err(e2)) => {
+                        error!(%peer_id, ?e1, ?e2, "Failed to mute peer for both protocols")
+                    }
+                    (Err(e), _) | (_, Err(e)) => {
+                        error!(%peer_id, ?e, "Failed to mute peer for one protocol")
+                    }
+                }
+            }
+            PenaltyType::Ban(opt_time_amount) => {
+                let until = SystemTime::now() + opt_time_amount.unwrap_or(DEFAULT_BAN_PERIOD);
+                match self.peer_penalty_storage.ban_peer(peer_id, until) {
+                    Ok(()) => info!(%peer_id, ?until, "Peer banned"),
+                    Err(e) => error!(%peer_id, ?e, "Failed to ban peer"),
+                }
+            }
+        }
+    }
+
+    fn get_all_scores(&self, peer_id: &PeerId) -> (f64, f64, f64) {
+        let gossip_internal_score = self
+            .swarm
+            .behaviour()
+            .gossipsub
+            .peer_score(peer_id)
+            .unwrap_or(0.0);
+        let gossip_app_score = self
+            .score_manager
+            .get_gossipsub_app_score(peer_id)
+            .unwrap_or(DEFAULT_GOSSIP_APP_SCORE);
+        let reqresp_app_score = self
+            .score_manager
+            .get_req_resp_score(peer_id)
+            .unwrap_or(DEFAULT_REQ_RESP_APP_SCORE);
+
+        (gossip_internal_score, gossip_app_score, reqresp_app_score)
     }
 
     /// Handles a [`SwarmEvent`] from the swarm.
@@ -477,28 +598,55 @@ impl P2P {
     ) -> P2PResult<()> {
         trace!("Got message: {:?}", &message.data);
 
-        let _ = message
-            .source
-            .expect("Message must have author as ValidationMode set to Permissive");
+        // Score/penalty logic for gossipsub
+        if self
+            .peer_penalty_storage
+            .is_gossip_muted(&propagation_source)
+        {
+            warn!(
+                "Peer(peer_id={}) is muted for Gossipsub",
+                propagation_source
+            );
+            return Ok(());
+        }
+        let old_app_score = self
+            .score_manager
+            .get_gossipsub_app_score(&propagation_source)
+            .unwrap_or(DEFAULT_GOSSIP_APP_SCORE);
 
-        let event = GossipEvent::ReceivedMessage(message.data);
+        let updated_score = DefaultP2PValidator::validate_msg(
+            &MessageType::Gossipsub(message.data.clone()),
+            old_app_score,
+        );
 
-        let propagation_result = self
-            .swarm
+        self.score_manager
+            .update_gossipsub_app_score(&propagation_source, updated_score);
+
+        let (gossip_internal_score, gossip_app_score, reqresp_app_score) =
+            self.get_all_scores(&propagation_source);
+
+        if let Some(penalty) = DefaultP2PValidator::get_penalty(
+            &MessageType::Gossipsub(message.data.clone()),
+            gossip_internal_score,
+            gossip_app_score,
+            reqresp_app_score,
+        ) {
+            self.apply_penalty(&propagation_source, penalty).await;
+            return Ok(());
+        }
+
+        self.swarm
             .behaviour_mut()
             .gossipsub
             .report_message_validation_result(
                 &message_id,
                 &propagation_source,
-                MessageAcceptance::Accept,
+                MessageAcceptance::Ignore,
             );
 
-        if !propagation_result {
-            warn!(?event, "failed to propagate accepted message further");
-        }
-
+        // Send event to gossip_events channel
         self.gossip_events
-            .send(event)
+            .send(GossipEvent::ReceivedMessage(message.data))
             .map_err(|e| ProtocolError::GossipEventsChannelClosed(e.into()))?;
 
         Ok(())
@@ -702,7 +850,7 @@ impl P2P {
     #[cfg(feature = "request-response")]
     async fn handle_message_event(
         &mut self,
-        _peer_id: PeerId,
+        peer_id: PeerId,
         msg: request_response::Message<Vec<u8>, Vec<u8>, Vec<u8>>,
     ) -> P2PResult<()> {
         let reqresp_timeout = self
@@ -713,26 +861,57 @@ impl P2P {
             request_response::Message::Request {
                 request, channel, ..
             } => {
-                {
-                    let (tx, rx) = oneshot::channel();
+                // Score/penalty logic for request
+                if self.peer_penalty_storage.is_req_resp_muted(&peer_id) {
+                    warn!("Peer(peer_id={}) is muted for request/response", peer_id);
+                    return Ok(());
+                }
 
-                    let event = ReqRespEvent::ReceivedRequest(request, tx);
-                    let send_result =
-                        timeout(reqresp_timeout, self.req_resp_events.send(event)).await;
-                    match send_result {
-                        Ok(Ok(())) => {}
-                        Ok(Err(e)) => {
-                            return Err(Error::Protocol(ProtocolError::ReqRespEventChannelClosed(
-                                e.into(),
-                            )));
-                        }
-                        Err(_) => {
-                            error!("Timeout while sending ReceivedRequest event");
-                        }
+                let old_app_score = self
+                    .score_manager
+                    .get_req_resp_score(&peer_id)
+                    .unwrap_or(DEFAULT_REQ_RESP_APP_SCORE);
+
+                let updated_score = DefaultP2PValidator::validate_msg(
+                    &MessageType::Request(request.clone()),
+                    old_app_score,
+                );
+
+                self.score_manager
+                    .update_req_resp_app_score(&peer_id, updated_score);
+
+                let (gossip_internal_score, gossip_app_score, reqresp_app_score) =
+                    self.get_all_scores(&peer_id);
+
+                if let Some(penalty) = DefaultP2PValidator::get_penalty(
+                    &MessageType::Request(request.clone()),
+                    gossip_internal_score,
+                    gossip_app_score,
+                    reqresp_app_score,
+                ) {
+                    self.apply_penalty(&peer_id, penalty).await;
+                    return Ok(());
+                }
+
+                let (tx, rx) = oneshot::channel();
+
+                let event = ReqRespEvent::ReceivedRequest(request, tx);
+                let send_result = timeout(reqresp_timeout, self.req_resp_events.send(event)).await;
+
+                match send_result {
+                    Ok(Ok(())) => {}
+                    Ok(Err(e)) => {
+                        return Err(Error::Protocol(ProtocolError::ReqRespEventChannelClosed(
+                            e.into(),
+                        )));
                     }
+                    Err(_) => {
+                        error!("Timeout while sending ReceivedRequest event");
+                    }
+                }
 
-                    let resp = timeout(reqresp_timeout, rx).await;
-                    let _ = match resp {
+                let resp = timeout(reqresp_timeout, rx).await;
+                let _ = match resp {
                         Ok(Ok(response)) => self
                             .swarm
                             .behaviour_mut()
@@ -750,25 +929,52 @@ impl P2P {
                             Ok(())
                         }
                     };
-                }
                 Ok(())
             }
-
             request_response::Message::Response { response, .. } => {
-                {
-                    let event = ReqRespEvent::ReceivedResponse(response);
-                    let send_result =
-                        timeout(reqresp_timeout, self.req_resp_events.send(event)).await;
-                    match send_result {
-                        Ok(Ok(())) => {}
-                        Ok(Err(e)) => {
-                            return Err(Error::Protocol(ProtocolError::ReqRespEventChannelClosed(
-                                e.into(),
-                            )));
-                        }
-                        Err(_) => {
-                            error!("Timeout while sending ReceivedResponse event");
-                        }
+                // Score/penalty logic for response
+                if self.peer_penalty_storage.is_req_resp_muted(&peer_id) {
+                    warn!("Peer(peer_id={}) is muted for request/response", peer_id);
+                    return Ok(());
+                }
+
+                let old_app_score = self
+                    .score_manager
+                    .get_req_resp_score(&peer_id)
+                    .unwrap_or(DEFAULT_REQ_RESP_APP_SCORE);
+
+                let updated_score = DefaultP2PValidator::validate_msg(
+                    &MessageType::Response(response.clone()),
+                    old_app_score,
+                );
+
+                self.score_manager
+                    .update_req_resp_app_score(&peer_id, updated_score);
+
+                let (gossip_internal_score, gossip_app_score, reqresp_app_score) =
+                    self.get_all_scores(&peer_id);
+
+                if let Some(penalty) = DefaultP2PValidator::get_penalty(
+                    &MessageType::Response(response.clone()),
+                    gossip_internal_score,
+                    gossip_app_score,
+                    reqresp_app_score,
+                ) {
+                    self.apply_penalty(&peer_id, penalty).await;
+                    return Ok(());
+                }
+
+                let event = ReqRespEvent::ReceivedResponse(response);
+                let send_result = timeout(reqresp_timeout, self.req_resp_events.send(event)).await;
+                match send_result {
+                    Ok(Ok(())) => {}
+                    Ok(Err(e)) => {
+                        return Err(Error::Protocol(ProtocolError::ReqRespEventChannelClosed(
+                            e.into(),
+                        )));
+                    }
+                    Err(_) => {
+                        error!("Timeout while sending ReceivedResponse event");
                     }
                 }
 
@@ -800,7 +1006,15 @@ macro_rules! finish_swarm {
     ($builder:expr, $cfg:expr) => {
         $builder
             .map_err(|e| ProtocolError::TransportInitialization(e.into()))?
-            .with_behaviour(|_| Behaviour::new(PROTOCOL_NAME, &$cfg.keypair, &$cfg.allowlist))
+            .with_behaviour(|_| {
+                Behaviour::new(
+                    PROTOCOL_NAME,
+                    &$cfg.keypair,
+                    &$cfg.allowlist,
+                    &$cfg.gossipsub_score_params,
+                    &$cfg.gossipsub_score_thresholds,
+                )
+            })
             .map_err(|e| ProtocolError::BehaviourInitialization(e.into()))?
             .with_swarm_config(|c| c.with_idle_connection_timeout($cfg.idle_connection_timeout))
             .build()

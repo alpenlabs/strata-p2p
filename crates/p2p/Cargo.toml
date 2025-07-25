@@ -1,14 +1,18 @@
 [package]
 name = "strata-p2p"
-version.workspace = true
-edition.workspace = true
+version = "0.1.0"
+edition = "2021"
 
 [features]
 default = ["request-response"]
 request-response = []
 
 [lints]
-workspace = true
+rust.missing_debug_implementations = "warn"
+rust.unreachable_pub = "warn"
+rust.unused_crate_dependencies = "deny"
+rust.unused_must_use = "deny"
+rust.rust_2018_idioms = { level = "deny", priority = -1 }
 
 [dependencies]
 libp2p = { workspace = true, features = [
@@ -28,6 +32,7 @@ thiserror.workspace = true
 tokio = { workspace = true, features = ["macros", "time"] }
 tokio-util.workspace = true
 tracing.workspace = true
+
 
 
 [dev-dependencies]

@@ -2,10 +2,10 @@
 
 use std::time::Duration;
 
-use libp2p::{Multiaddr, PeerId, build_multiaddr, identity::Keypair};
+use libp2p::{build_multiaddr, identity::Keypair, Multiaddr, PeerId};
 use tokio::{sync::oneshot::channel, time::sleep};
 use tracing::{debug, info};
-use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, util::SubscriberInitExt};
+use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
 use super::common::Setup;
 use crate::{
