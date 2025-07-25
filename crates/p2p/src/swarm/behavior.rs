@@ -1,4 +1,7 @@
 //! Request-Response [`Behaviour`] and [`NetworkBehaviour`] for the P2P protocol.
+// Allow missing docs to avoid 'missing documentation for a variant' error from NetworkBehaviour
+// derive.
+#![allow(missing_docs)]
 
 use std::collections::HashSet;
 
@@ -9,7 +12,7 @@ use libp2p::{
         WhitelistSubscriptionFilter,
     },
     identify::{Behaviour as Identify, Config},
-    identity::Keypair,
+    identity::{Keypair, PublicKey},
     request_response::{
         Behaviour as RequestResponse, Config as RequestResponseConfig, ProtocolSupport,
     },
@@ -47,7 +50,7 @@ impl<S: ApplicationSigner> Behaviour<S> {
     pub fn new(
         protocol_name: &'static str,
         transport_keypair: &Keypair,
-        app_public_key: &libp2p::identity::PublicKey,
+        app_public_key: &PublicKey,
         signer: S,
     ) -> Self {
         let mut filter = HashSet::new();

@@ -12,14 +12,13 @@ use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use tracing::debug;
 use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, util::SubscriberInitExt};
 
+#[cfg(feature = "gossipsub")]
+use crate::swarm::handle::GossipHandle;
 #[cfg(feature = "request-response")]
 use crate::swarm::handle::ReqRespHandle;
 use crate::{
     signer::ApplicationSigner,
-    swarm::{
-        self, P2P, P2PConfig,
-        handle::{CommandHandle, GossipHandle},
-    },
+    swarm::{self, P2P, P2PConfig, handle::CommandHandle},
 };
 
 /// Only attempt to start tracing once
@@ -77,12 +76,15 @@ impl<S: ApplicationSigner> User<S> {
         app_keypair: Keypair,
         transport_keypair: Keypair,
         connect_to: Vec<Multiaddr>,
-        local_addr: Multiaddr,
         allowlist: Vec<PublicKey>,
+        listening_addrs: Vec<Multiaddr>,
         cancel: CancellationToken,
         signer: S,
     ) -> anyhow::Result<Self> {
-        debug!(%local_addr, "Creating new user with local address");
+        debug!(
+            ?listening_addrs,
+            "Creating new user with listening addresses"
+        );
 
         let config = P2PConfig {
             app_public_key: app_keypair.public(),
@@ -92,23 +94,37 @@ impl<S: ApplicationSigner> User<S> {
             dial_timeout: None,
             general_timeout: None,
             connection_check_interval: None,
-            listening_addr: local_addr,
+            listening_addrs,
             connect_to,
             #[cfg(feature = "request-response")]
             channel_timeout: None,
         };
 
-        let swarm = swarm::with_inmemory_transport::<S>(&config, signer.clone())?;
+        // Determine transport type based on the first listening address
+        let use_inmemory = config
+            .listening_addrs
+            .first()
+            .map(|addr| addr.to_string().starts_with("/memory/"))
+            .unwrap_or(false);
+
+        let swarm = if use_inmemory {
+            swarm::with_inmemory_transport(&config, signer.clone())?
+        } else {
+            swarm::with_default_transport(&config, signer.clone())?
+        };
 
         #[cfg(feature = "request-response")]
-        let (p2p, reqresp) = P2P::from_config(config, cancel, swarm, allowlist, None, signer)?;
+        let (p2p, reqresp) =
+            P2P::from_config(config, cancel, swarm, allowlist, None, signer.clone())?;
         #[cfg(not(feature = "request-response"))]
-        let p2p = P2P::from_config(config, cancel, swarm, allowlist, None, signer)?;
+        let p2p = P2P::from_config(config, cancel, swarm, None, None, signer.clone())?;
+        #[cfg(feature = "gossipsub")]
         let gossip = p2p.new_gossip_handle();
         let command = p2p.new_command_handle();
 
         Ok(Self {
             p2p,
+            #[cfg(feature = "gossipsub")]
             gossip,
             #[cfg(feature = "request-response")]
             reqresp,
@@ -120,15 +136,14 @@ impl<S: ApplicationSigner> User<S> {
 }
 
 /// Auxiliary structure to control users from outside.
-#[expect(dead_code)]
 pub(crate) struct UserHandle {
+    pub(crate) peer_id: PeerId,
+    #[cfg(feature = "gossipsub")]
     pub(crate) gossip: GossipHandle,
     #[cfg(feature = "request-response")]
     pub(crate) reqresp: ReqRespHandle,
     pub(crate) command: CommandHandle,
-    pub(crate) peer_id: PeerId,
     pub(crate) app_keypair: Keypair,
-    pub(crate) transport_keypair: Keypair,
 }
 
 pub(crate) struct Setup {
@@ -178,8 +193,8 @@ impl Setup {
                 app_keypair.clone(),
                 transport_keypair.clone(),
                 other_addrs,
-                addr.clone(),
                 other_app_pk,
+                vec![addr.clone()],
                 cancel.child_token(),
                 MockApplicationSigner {
                     app_keypair: app_keypair.clone(),
@@ -263,13 +278,13 @@ impl Setup {
             let peer_id = user.p2p.local_peer_id();
             tasks.spawn(user.p2p.listen());
             levers.push(UserHandle {
+                #[cfg(feature = "gossipsub")]
                 gossip: user.gossip,
                 #[cfg(feature = "request-response")]
                 reqresp: user.reqresp,
                 command: user.command,
                 peer_id,
                 app_keypair: user.app_keypair,
-                transport_keypair: user.transport_keypair,
             });
         }
 

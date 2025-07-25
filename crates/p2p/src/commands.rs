@@ -6,45 +6,47 @@ use tokio::sync::oneshot;
 /// Commands that users can send to the P2P node.
 #[derive(Debug)]
 pub enum Command {
-    /// Publishes message through gossip sub network of peers.
-    PublishMessage {
-        /// Message payload in raw bytes.
-        ///
-        /// The user is responsible for properly serializing/deserializing the data.
-        data: Vec<u8>,
-    },
-
-    /// Requests some message directly from other operator by public Key.
-    RequestMessage {
-        /// Libp2p application [`PublicKey`] of target peer.
+    /// Dials a set of address directly.
+    ConnectToPeer {
+        /// Application public key to associate with the dial sequence.
         app_public_key: PublicKey,
-        /// Message payload in raw bytes.
-        ///
-        /// The user is responsible for properly serializing/deserializing the data.
-        data: Vec<u8>,
+        /// List of multiaddresses to try dialing.
+        addresses: Vec<Multiaddr>,
     },
 
-    /// Connects to a peer, whitelists peer, and adds peer to the gossip sub network.
-    ConnectToPeer(ConnectToPeerCommand),
+    /// Disconnects from a peer.
+    DisconnectFromPeer {
+        /// Libp2p [`PeerId`] of target peer.
+        peer_id: PeerId,
+    },
 
     /// Directly queries P2P state (doesn't produce events).
     QueryP2PState(QueryP2PStateCommand),
 }
 
-/// Connects to a peer, whitelists peer, and adds peer to the gossip sub network.
-#[derive(Debug, Clone)]
-pub struct ConnectToPeerCommand {
-    /// Transport ID.
-    pub peer_id: PeerId,
-
-    /// Peer address.
-    pub peer_addr: Multiaddr,
+/// Command to publish a message through gossipsub.
+#[cfg(feature = "gossipsub")]
+#[derive(Debug)]
+pub struct GossipCommand {
+    /// Message payload in raw bytes.
+    ///
+    /// The user is responsible for properly serializing/deserializing the data.
+    pub data: Vec<u8>,
 }
 
-impl From<ConnectToPeerCommand> for Command {
-    fn from(v: ConnectToPeerCommand) -> Self {
-        Self::ConnectToPeer(v)
-    }
+/// Command to request a message from a specific peer.
+#[cfg(feature = "request-response")]
+#[derive(Debug)]
+pub struct RequestResponseCommand {
+    /// Libp2p [`PeerId`] of target peer.
+    ///
+    /// Note: [`PeerId`] can be created from public key of corresponding peer via
+    /// `the_pubkey.to_peer_id()`.
+    pub peer_id: PeerId,
+    /// Message payload in raw bytes.
+    ///
+    /// The user is responsible for properly serializing/deserializing the data.
+    pub data: Vec<u8>,
 }
 
 /// Commands to directly query P2P state information.

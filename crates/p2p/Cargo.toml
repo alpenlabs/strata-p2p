@@ -4,8 +4,10 @@ version.workspace = true
 edition.workspace = true
 
 [features]
-default = ["request-response"]
-request-response = []
+default = ["request-response", "quic", "gossipsub"]
+request-response = ["libp2p/request-response"]
+quic = ["libp2p/quic"]
+gossipsub = ["libp2p/gossipsub"]
 
 [lints]
 workspace = true
@@ -14,9 +16,7 @@ workspace = true
 asynchronous-codec.workspace = true
 libp2p = { workspace = true, features = [
   "noise",
-  "gossipsub",
   "tcp",
-  "request-response",
   "tokio",
   "ed25519",
   "macros",
@@ -30,6 +30,9 @@ tokio-util.workspace = true
 tracing.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+crossbeam-deque.workspace = true
+dashmap.workspace = true
+
 
 [dev-dependencies]
 anyhow = "1.0.95"
