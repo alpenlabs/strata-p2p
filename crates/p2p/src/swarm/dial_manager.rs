@@ -5,7 +5,7 @@ use std::{
     sync::Arc,
 };
 
-use libp2p::{Multiaddr, swarm::ConnectionId};
+use libp2p::{Multiaddr, identity::PublicKey, swarm::ConnectionId};
 use tokio::sync::Mutex;
 
 /// Manages the state for multi-address dial attempts, including address queues and connection ID
@@ -13,10 +13,10 @@ use tokio::sync::Mutex;
 /// sequence.
 #[derive(Debug)]
 pub struct DialManager {
-    /// Maps a unique dial sequence ID to the queue of remaining addresses to try.
-    pub dial_queues: Arc<Mutex<HashMap<u32, VecDeque<Multiaddr>>>>,
-    /// Maps a libp2p connection ID to the corresponding dial sequence ID.
-    pub conn_to_dial: Arc<Mutex<HashMap<ConnectionId, u32>>>,
+    /// Maps an app_pk (PublicKey) to the queue of remaining addresses to try.
+    pub dial_queues: Arc<Mutex<HashMap<PublicKey, VecDeque<Multiaddr>>>>,
+    /// Maps a libp2p connection ID to the corresponding app_pk (PublicKey).
+    pub conn_to_dial: Arc<Mutex<HashMap<ConnectionId, PublicKey>>>,
 }
 
 impl DialManager {
@@ -29,45 +29,48 @@ impl DialManager {
     }
 
     /// Insert a new queue for a dial sequence id
-    pub async fn insert_queue(&self, id: u32, addresses: Vec<Multiaddr>) {
+    pub async fn insert_queue(&self, app_pk: PublicKey, addresses: Vec<Multiaddr>) {
         let mut queues = self.dial_queues.lock().await;
-        queues.insert(id, VecDeque::from(addresses));
+        queues.insert(app_pk, VecDeque::from(addresses));
     }
 
-    /// Pop the next address from the queue for a given id
-    pub async fn pop_next_addr(&self, id: u32) -> Option<Multiaddr> {
+    /// Pop the next address from the queue for a given app_pk (PublicKey)
+    pub async fn pop_next_addr(&self, app_pk: &PublicKey) -> Option<Multiaddr> {
         let mut queues = self.dial_queues.lock().await;
-        if let Some(queue) = queues.get_mut(&id) {
+        if let Some(queue) = queues.get_mut(app_pk) {
             queue.pop_front()
         } else {
             None
         }
     }
 
-    /// Map a connection id to a dial sequence id
-    pub async fn map_connid(&self, conn_id: ConnectionId, id: u32) {
+    /// Map a connection id to an app_pk (PublicKey)
+    pub async fn map_connid(&self, conn_id: ConnectionId, app_pk: PublicKey) {
         let mut map = self.conn_to_dial.lock().await;
-        map.insert(conn_id, id);
+        map.insert(conn_id, app_pk);
     }
 
-    /// Remove and get the dial sequence id for a connection id
-    pub async fn remove_connid(&self, conn_id: &ConnectionId) -> Option<u32> {
+    /// Remove and get the app_pk (PublicKey) for a connection id
+    pub async fn remove_connid(&self, conn_id: &ConnectionId) -> Option<PublicKey> {
         let mut map = self.conn_to_dial.lock().await;
         map.remove(conn_id)
     }
 
-    /// Remove the queue for a dial sequence id
-    pub async fn remove_queue(&self, id: u32) {
+    /// Remove the queue for an app_pk (PublicKey)
+    pub async fn remove_queue(&self, app_pk: &PublicKey) {
         let mut queues = self.dial_queues.lock().await;
-        queues.remove(&id);
+        queues.remove(app_pk);
     }
 
-    /// Returns the dial sequence ID associated with the given connection ID, if any.
-    pub async fn get_dial_sequence_id_by_connection_id(
-        &self,
-        conn_id: &ConnectionId,
-    ) -> Option<u32> {
+    /// Returns the app_pk (PublicKey) associated with the given connection ID, if any.
+    pub async fn get_app_pk_by_connection_id(&self, conn_id: &ConnectionId) -> Option<PublicKey> {
         let map = self.conn_to_dial.lock().await;
         map.get(conn_id).cloned()
+    }
+}
+
+impl Default for DialManager {
+    fn default() -> Self {
+        Self::new()
     }
 }

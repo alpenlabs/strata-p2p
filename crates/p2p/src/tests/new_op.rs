@@ -93,9 +93,13 @@ async fn gossip_new_user() -> anyhow::Result<()> {
             new_peer = %new_user.kp.public().to_peer_id(),
             "Old user connecting to new user"
         );
+        let app_pk = user_handles[index].kp.public();
         user_handles[index]
             .command
-            .send_command(Command::ConnectToAddresses(vec![local_addr.clone()]))
+            .send_command(Command::ConnectToAddresses {
+                app_pk,
+                addresses: vec![local_addr.clone()],
+            })
             .await;
     }
 

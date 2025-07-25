@@ -117,7 +117,6 @@ impl<S: ApplicationSigner> User<S> {
 }
 
 /// Auxiliary structure to control users from outside.
-#[expect(dead_code)]
 pub(crate) struct UserHandle {
     pub(crate) gossip: GossipHandle,
     #[cfg(feature = "request-response")]

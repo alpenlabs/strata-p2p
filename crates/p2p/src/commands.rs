@@ -24,8 +24,13 @@ pub enum Command {
         data: Vec<u8>,
     },
 
-    /// Dials a set of address directly (without peer id).
-    ConnectToAddresses(Vec<Multiaddr>),
+    /// Dials a set of address directly.
+    ConnectToAddresses {
+        /// Application public key to associate with the dial sequence.
+        app_pk: PublicKey,
+        /// List of multiaddresses to try dialing.
+        addresses: Vec<Multiaddr>,
+    },
 
     /// Directly queries P2P state (doesn't produce events).
     QueryP2PState(QueryP2PStateCommand),

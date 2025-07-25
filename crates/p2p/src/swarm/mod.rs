@@ -417,10 +417,10 @@ impl<S: ApplicationSigner> P2P<S> {
 
     /// Dials the given address and maps the resulting connection ID to the dial sequence ID.
     /// Used for both initial and retry dial attempts.
-    async fn dial_and_map(&mut self, addr: Multiaddr, id: u32) {
+    async fn dial_and_map(&mut self, addr: Multiaddr, app_pk: PublicKey) {
         let dial_opts = DialOpts::unknown_peer_id().address(addr.clone()).build();
         let conn_id = dial_opts.connection_id();
-        self.dial_manager.map_connid(conn_id, id).await;
+        self.dial_manager.map_connid(conn_id, app_pk).await;
         match self.swarm.dial(dial_opts) {
             Ok(()) => info!(address = %addr, "Dialing libp2p peer"),
             Err(err) => error!(address = %addr, error = %err, "Could not connect to peer"),
@@ -468,28 +468,28 @@ impl<S: ApplicationSigner> P2P<S> {
                 connection_id,
                 ..
             } => {
-                if let Some(id) = self
+                if let Some(app_pk) = self
                     .dial_manager
-                    .get_dial_sequence_id_by_connection_id(&connection_id)
+                    .get_app_pk_by_connection_id(&connection_id)
                     .await
                 {
-                    self.dial_manager.remove_queue(id).await;
+                    self.dial_manager.remove_queue(&app_pk).await;
                     self.dial_manager.remove_connid(&connection_id).await;
                     info!(peer_id = %peer_id, "connected to peerx");
                 }
                 Ok(())
             }
             SwarmEvent::OutgoingConnectionError { connection_id, .. } => {
-                if let Some(id) = self
+                if let Some(app_pk) = self
                     .dial_manager
-                    .get_dial_sequence_id_by_connection_id(&connection_id)
+                    .get_app_pk_by_connection_id(&connection_id)
                     .await
                 {
                     self.dial_manager.remove_connid(&connection_id).await;
-                    if let Some(next_addr) = self.dial_manager.pop_next_addr(id).await {
-                        self.dial_and_map(next_addr, id).await;
+                    if let Some(next_addr) = self.dial_manager.pop_next_addr(&app_pk).await {
+                        self.dial_and_map(next_addr, app_pk).await;
                     } else {
-                        self.dial_manager.remove_queue(id).await;
+                        self.dial_manager.remove_queue(&app_pk).await;
                     }
                 }
                 Ok(())
@@ -643,15 +643,26 @@ impl<S: ApplicationSigner> P2P<S> {
 
                 Ok(())
             }
-            Command::ConnectToPeer(connect_to_peer_command) => {
-                // Add peer to swarm
-                self.swarm.add_peer_address(
-                    connect_to_peer_command.peer_id,
-                    connect_to_peer_command.peer_addr.clone(),
-                );
+            Command::ConnectToAddresses { app_pk, addresses } => {
+                if addresses.is_empty() {
+                    info!("No addresses provided to dial");
+                    return Ok(());
+                }
+                let addr = addresses[0].clone();
+                // whitelist the peer
+                self.config.connect_to.push(addr.clone());
+                let (quic_addrs, other_addrs): (Vec<_>, Vec<_>) = addresses[1..]
+                    .iter()
+                    .cloned()
+                    .partition(|addr| addr.protocol_stack().any(|proto| proto.contains("quic")));
 
-                self.dial_manager.insert_queue(id, prioritized).await;
-                self.dial_and_map(addr, id).await;
+                let mut prioritized = quic_addrs;
+                prioritized.extend(other_addrs);
+
+                self.dial_manager
+                    .insert_queue(app_pk.clone(), prioritized)
+                    .await;
+                self.dial_and_map(addr, app_pk).await;
 
                 Ok(())
             }

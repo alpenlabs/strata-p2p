@@ -1,4 +1,5 @@
 pub(crate) mod common;
+#[cfg(feature = "gossipsub")]
 pub(crate) mod gossipsub;
 pub(crate) mod is_connected;
 pub(crate) mod new_op;

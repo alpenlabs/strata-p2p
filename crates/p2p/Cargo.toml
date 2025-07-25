@@ -5,26 +5,23 @@ edition.workspace = true
 
 [features]
 default = ["request-response", "quic"]
-request-response = []
-quic = []
+request-response = ["libp2p/request-response"]
+quic = ["libp2p/quic"]
+gossipsub = ["libp2p/gossipsub"]
 
 [lints]
 workspace = true
-
 
 [dependencies]
 asynchronous-codec.workspace = true
 libp2p = { workspace = true, features = [
   "noise",
-  "gossipsub",
   "tcp",
-  "request-response",
   "tokio",
   "ed25519",
   "macros",
   "yamux",
   "identify",
-  "quic",
 ] }
 futures.workspace = true
 thiserror.workspace = true
