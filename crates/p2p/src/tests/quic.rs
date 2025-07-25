@@ -11,34 +11,10 @@ use libp2p::{
 use tokio::time::timeout;
 use tracing::info;
 
-use crate::swarm::{P2PConfig, behavior::Behaviour, with_default_transport};
-
-const DISCONNECT_TIMEOUT: Duration = Duration::from_secs(5);
-const WAIT_CONNECTION_TIMEOUT: Duration = Duration::from_secs(10);
-const GENERAL_TIMEOUT: Duration = Duration::from_secs(2);
-const IDLE_CONNECTION_TIMEOUT: Duration = Duration::from_secs(10);
-const MAX_RETRIES: usize = 3;
-const CONNECTION_CHECK_INTERVAL: Duration = Duration::from_millis(100);
-
-fn make_swarm(
-    keypair: &Keypair,
-    allowlist: Vec<libp2p::PeerId>,
-    listening_addr: Multiaddr,
-) -> Swarm<Behaviour> {
-    let cfg = P2PConfig {
-        keypair: keypair.clone(),
-        idle_connection_timeout: IDLE_CONNECTION_TIMEOUT,
-        max_retries: Some(MAX_RETRIES),
-        dial_timeout: Some(GENERAL_TIMEOUT),
-        general_timeout: Some(GENERAL_TIMEOUT),
-        connection_check_interval: Some(CONNECTION_CHECK_INTERVAL),
-        listening_addr,
-        allowlist,
-        connect_to: vec![],
-        channel_timeout: None,
-    };
-    with_default_transport(&cfg).expect("build swarm")
-}
+use crate::{
+    swarm::behavior::Behaviour,
+    tests::common::{DISCONNECT_TIMEOUT, GENERAL_TIMEOUT, WAIT_CONNECTION_TIMEOUT, make_swarm},
+};
 
 #[tokio::test]
 async fn test_quic_and_tcp_connectivity_ipv4_ipv6() {

@@ -2,7 +2,6 @@
 
 use std::{
     collections::HashSet,
-    num::NonZeroU8,
     sync::LazyLock,
     time::{Duration, Instant},
 };
@@ -45,10 +44,12 @@ use crate::{
     commands::{Command, QueryP2PStateCommand},
     events::GossipEvent,
     signer::ApplicationSigner,
-    swarm::setup::events::SetupBehaviourEvent,
+    swarm::{dial_manager::DialManager, setup::events::SetupBehaviourEvent},
 };
+
 pub mod behavior;
 mod codec_raw;
+pub mod dial_manager;
 pub mod errors;
 pub mod handle;
 mod message;
@@ -159,6 +160,8 @@ pub struct P2P<S: ApplicationSigner> {
 
     /// Application signer for signing setup messages.
     signer: S,
+    /// Manages dial sequences and address queues for multiaddress connections.
+    dial_manager: DialManager,
 }
 
 /// Alias for [`P2P`] and [`ReqRespHandle`] tuple.
@@ -196,6 +199,7 @@ impl<S: ApplicationSigner> P2P<S> {
                 allowlist: HashSet::from_iter(allowlist),
                 config: cfg,
                 signer,
+                dial_manager: DialManager::new(),
             },
             ReqRespHandle::new(req_resp_event_rx),
         ))
@@ -228,6 +232,7 @@ impl<S: ApplicationSigner> P2P<S> {
             config: cfg,
             allowlist: HashSet::from_iter(allowlist),
             signer,
+            addr_store: SharedAddrStore(Arc::new(Mutex::new(HashMap::new()))),
         })
     }
 
@@ -410,6 +415,18 @@ impl<S: ApplicationSigner> P2P<S> {
         info!("established all connections and subscriptions");
     }
 
+    /// Dials the given address and maps the resulting connection ID to the dial sequence ID.
+    /// Used for both initial and retry dial attempts.
+    async fn dial_and_map(&mut self, addr: Multiaddr, id: u32) {
+        let dial_opts = DialOpts::unknown_peer_id().address(addr.clone()).build();
+        let conn_id = dial_opts.connection_id();
+        self.dial_manager.map_connid(conn_id, id).await;
+        match self.swarm.dial(dial_opts) {
+            Ok(()) => info!(address = %addr, "Dialing libp2p peer"),
+            Err(err) => error!(address = %addr, error = %err, "Could not connect to peer"),
+        }
+    }
+
     /// Starts listening and handling events from the network and commands from
     /// handles.
     ///
@@ -446,6 +463,37 @@ impl<S: ApplicationSigner> P2P<S> {
     ) -> P2PResult<()> {
         match event {
             SwarmEvent::Behaviour(event) => self.handle_behaviour_event(event).await,
+            SwarmEvent::ConnectionEstablished {
+                peer_id,
+                connection_id,
+                ..
+            } => {
+                if let Some(id) = self
+                    .dial_manager
+                    .get_dial_sequence_id_by_connection_id(&connection_id)
+                    .await
+                {
+                    self.dial_manager.remove_queue(id).await;
+                    self.dial_manager.remove_connid(&connection_id).await;
+                    info!(peer_id = %peer_id, "connected to peerx");
+                }
+                Ok(())
+            }
+            SwarmEvent::OutgoingConnectionError { connection_id, .. } => {
+                if let Some(id) = self
+                    .dial_manager
+                    .get_dial_sequence_id_by_connection_id(&connection_id)
+                    .await
+                {
+                    self.dial_manager.remove_connid(&connection_id).await;
+                    if let Some(next_addr) = self.dial_manager.pop_next_addr(id).await {
+                        self.dial_and_map(next_addr, id).await;
+                    } else {
+                        self.dial_manager.remove_queue(id).await;
+                    }
+                }
+                Ok(())
+            }
             _ => Ok(()),
         }
     }
@@ -602,35 +650,9 @@ impl<S: ApplicationSigner> P2P<S> {
                     connect_to_peer_command.peer_addr.clone(),
                 );
 
-                let dialing_opts: DialOpts = DialOpts::peer_id(connect_to_peer_command.peer_id)
-                    .condition(PeerCondition::DisconnectedAndNotDialing)
-                    .addresses(sorted_addrs)
-                    .extend_addresses_through_behaviour()
-                    // Only dial one address at a time for this peer to avoid parallel connection
-                    // attempts. This preserves the order of address dialing.
-                    .override_dial_concurrency_factor(NonZeroU8::new(1).unwrap())
-                    .build();
+                self.dial_manager.insert_queue(id, prioritized).await;
+                self.dial_and_map(addr, id).await;
 
-                // Connect to peer
-                let _ = self.swarm.dial(dialing_opts).inspect_err(|err| {
-                    error!(
-                        peer_addrs = ?connect_to_peer_command.peer_addrs,
-                        error = %err,
-                        "Failed to connect to peer at peer_addrs"
-                    )
-                });
-
-                Ok(())
-            }
-            Command::ConnectToAddress(addr) => {
-                let dialing_opts = DialOpts::unknown_peer_id().address(addr.clone()).build();
-                let _ = self.swarm.dial(dialing_opts).inspect_err(|err| {
-                    error!(
-                        address = %addr,
-                        error = %err,
-                        "Failed to connect to address"
-                    )
-                });
                 Ok(())
             }
             Command::QueryP2PState(query) => match query {

@@ -8,7 +8,7 @@ use tracing::{debug, info};
 
 use super::common::Setup;
 use crate::{
-    commands::{Command, ConnectToPeerCommand, QueryP2PStateCommand},
+    commands::{Command, QueryP2PStateCommand},
     events::GossipEvent,
     tests::common::{MockApplicationSigner, User, init_tracing},
 };
@@ -85,12 +85,17 @@ async fn gossip_new_user() -> anyhow::Result<()> {
     sleep(Duration::from_millis(5000)).await;
 
     // Connect the old users to the new one
-    for user in user_handles.iter().take(connect_addrs.len()) {
-        user.command
-            .send_command(Command::ConnectToPeer(ConnectToPeerCommand {
-                peer_id: new_user.kp.public().to_peer_id(),
-                peer_addrs: vec![local_addr.clone()],
-            }))
+    for (index, addr) in connect_addrs.iter().enumerate() {
+        info!(
+            index,
+            addr = %addr,
+            old_peer = %user_handles[index].peer_id,
+            new_peer = %new_user.kp.public().to_peer_id(),
+            "Old user connecting to new user"
+        );
+        user_handles[index]
+            .command
+            .send_command(Command::ConnectToAddresses(vec![local_addr.clone()]))
             .await;
     }
 

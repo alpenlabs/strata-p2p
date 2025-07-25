@@ -3,10 +3,7 @@
 use std::{sync::Once, time::Duration};
 
 use futures::future::join_all;
-use libp2p::{
-    Multiaddr, PeerId, build_multiaddr,
-    identity::{Keypair, PublicKey},
-};
+use libp2p::{Multiaddr, PeerId, build_multiaddr, identity::Keypair, swarm::Swarm};
 use rand::Rng;
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use tracing::debug;
