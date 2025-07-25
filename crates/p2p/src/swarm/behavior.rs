@@ -1,6 +1,6 @@
 //! Request-Response [`Behaviour`] and [`NetworkBehaviour`] for the P2P protocol.
 
-use std::{collections::HashSet, time::Duration};
+use std::collections::HashSet;
 
 use libp2p::{
     allow_block_list::{AllowedPeers, Behaviour as AllowListBehaviour},
@@ -9,7 +9,7 @@ use libp2p::{
         PeerScoreThresholds, TopicScoreParams, WhitelistSubscriptionFilter,
     },
     identify::{Behaviour as Identify, Config},
-    identity::Keypair,
+    identity::{Keypair, PublicKey},
     request_response::{
         Behaviour as RequestResponse, Config as RequestResponseConfig, ProtocolSupport,
     },

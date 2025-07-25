@@ -1,6 +1,8 @@
-use std::{collections::HashMap, time::Duration};
+use std::{
+    collections::HashMap,
+    time::{Duration, SystemTime},
+};
 
-use chrono::{DateTime, Utc};
 use libp2p::PeerId;
 
 pub const DEFAULT_BAN_PERIOD: Duration = Duration::from_secs(60 * 60 * 24 * 30);
@@ -23,16 +25,16 @@ pub enum PenaltyType {
 
 #[derive(Debug)]
 pub struct PenaltyInfo {
-    mute_gossip_until: Option<DateTime<Utc>>, // None if not muted for Gossipsub
-    mute_req_resp_until: Option<DateTime<Utc>>, // None if not muted for RequestResponse
-    ban_until: Option<DateTime<Utc>>,         // None if not banned
+    mute_gossip_until: Option<SystemTime>, // None if not muted for Gossipsub
+    mute_req_resp_until: Option<SystemTime>, // None if not muted for RequestResponse
+    ban_until: Option<SystemTime>,         // None if not banned
 }
 
 impl PenaltyInfo {
     fn new(
-        mute_gossip_until: Option<DateTime<Utc>>,
-        mute_req_resp_until: Option<DateTime<Utc>>,
-        ban_until: Option<DateTime<Utc>>,
+        mute_gossip_until: Option<SystemTime>,
+        mute_req_resp_until: Option<SystemTime>,
+        ban_until: Option<SystemTime>,
     ) -> Self {
         Self {
             mute_gossip_until,
@@ -64,15 +66,15 @@ pub trait Validator {
 pub struct DefaultP2PValidator;
 
 impl Validator for DefaultP2PValidator {
-    fn validate_msg(msg: &Message, old_app_score: f64) -> f64 {
+    fn validate_msg(_msg: &Message, _old_app_score: f64) -> f64 {
         0.0
     }
 
     fn get_penalty(
-        msg: &Message,
-        gossip_internal_score: f64,
-        gossip_app_score: f64,
-        reqresp_app_score: f64,
+        _msg: &Message,
+        _gossip_internal_score: f64,
+        _gossip_app_score: f64,
+        _reqresp_app_score: f64,
     ) -> Option<PenaltyType> {
         None
     }
@@ -88,27 +90,27 @@ impl PenaltyPeerStorage {
         self.penalties
             .get(peer_id)
             .and_then(|penalty| penalty.mute_gossip_until)
-            .map_or(false, |timestamp| timestamp > Utc::now())
+            .map_or(false, |timestamp| timestamp > SystemTime::now())
     }
 
     pub fn is_req_resp_muted(&self, peer_id: &PeerId) -> bool {
         self.penalties
             .get(peer_id)
             .and_then(|penalty| penalty.mute_req_resp_until)
-            .map_or(false, |timestamp| timestamp > Utc::now())
+            .map_or(false, |timestamp| timestamp > SystemTime::now())
     }
 
     pub fn is_banned(&self, peer_id: &PeerId) -> bool {
         self.penalties
             .get(peer_id)
             .and_then(|penalty| penalty.ban_until)
-            .map_or(false, |timestamp| timestamp > Utc::now())
+            .map_or(false, |timestamp| timestamp > SystemTime::now())
     }
 
     pub fn mute_peer_gossip(
         &mut self,
         peer_id: &PeerId,
-        until: DateTime<Utc>,
+        until: SystemTime,
     ) -> Result<(), &'static str> {
         let penalty = self
             .penalties
@@ -116,7 +118,7 @@ impl PenaltyPeerStorage {
             .or_insert_with(|| PenaltyInfo::new(None, None, None));
 
         if let Some(mute_until) = penalty.mute_gossip_until {
-            if mute_until > Utc::now() {
+            if mute_until > SystemTime::now() {
                 return Err("Peer is already muted for gossip");
             }
         }
@@ -128,7 +130,7 @@ impl PenaltyPeerStorage {
     pub fn mute_peer_req_resp(
         &mut self,
         peer_id: &PeerId,
-        until: DateTime<Utc>,
+        until: SystemTime,
     ) -> Result<(), &'static str> {
         let penalty = self
             .penalties
@@ -136,7 +138,7 @@ impl PenaltyPeerStorage {
             .or_insert_with(|| PenaltyInfo::new(None, None, None));
 
         if let Some(mute_until) = penalty.mute_req_resp_until {
-            if mute_until > Utc::now() {
+            if mute_until > SystemTime::now() {
                 return Err("Peer is already muted for request/response");
             }
         }
@@ -145,14 +147,14 @@ impl PenaltyPeerStorage {
         Ok(())
     }
 
-    pub fn ban_peer(&mut self, peer_id: &PeerId, until: DateTime<Utc>) -> Result<(), &'static str> {
+    pub fn ban_peer(&mut self, peer_id: &PeerId, until: SystemTime) -> Result<(), &'static str> {
         let penalty = self
             .penalties
             .entry(peer_id.clone())
             .or_insert_with(|| PenaltyInfo::new(None, None, None));
 
         if let Some(ban_until) = penalty.ban_until {
-            if ban_until > Utc::now() {
+            if ban_until > SystemTime::now() {
                 return Err("Peer is already banned");
             }
         }
