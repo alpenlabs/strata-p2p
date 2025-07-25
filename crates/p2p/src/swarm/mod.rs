@@ -514,7 +514,7 @@ impl<S: ApplicationSigner> P2P<S> {
     async fn dial_and_map(&mut self, addr: Multiaddr, app_public_key: PublicKey) {
         let dial_opts = DialOpts::unknown_peer_id().address(addr.clone()).build();
         let conn_id = dial_opts.connection_id();
-        self.dial_manager.map_connid(conn_id, app_public_key).await;
+        self.dial_manager.map_connid(conn_id, app_public_key);
         match self.swarm.dial(dial_opts) {
             Ok(()) => info!(address = %addr, "Dialing libp2p peer"),
             Err(err) => error!(address = %addr, error = %err, "Could not connect to peer"),
@@ -601,10 +601,9 @@ impl<S: ApplicationSigner> P2P<S> {
                 if let Some(app_public_key) = self
                     .dial_manager
                     .get_app_public_key_by_connection_id(&connection_id)
-                    .await
                 {
-                    self.dial_manager.remove_queue(&app_public_key).await;
-                    self.dial_manager.remove_connid(&connection_id).await;
+                    self.dial_manager.remove_queue(&app_public_key);
+                    self.dial_manager.remove_connid(&connection_id);
                     info!(peer_id = %peer_id, "connected to peer");
                 }
                 Ok(())
@@ -617,17 +616,15 @@ impl<S: ApplicationSigner> P2P<S> {
                 if let Some(app_public_key) = self
                     .dial_manager
                     .get_app_public_key_by_connection_id(&connection_id)
-                    .await
                 {
                     warn!(app_public_key = ?app_public_key, error = %error, "connection failed");
-                    self.dial_manager.remove_connid(&connection_id).await;
-                    if let Some(next_addr) = self.dial_manager.pop_next_addr(&app_public_key).await
-                    {
+                    self.dial_manager.remove_connid(&connection_id);
+                    if let Some(next_addr) = self.dial_manager.pop_next_addr(&app_public_key) {
                         info!(next_addr = %next_addr, app_public_key = ?app_public_key, "retrying with next address");
                         self.dial_and_map(next_addr, app_public_key).await;
                     } else {
                         warn!(app_public_key = ?app_public_key, "no more addresses to try, removing queue");
-                        self.dial_manager.remove_queue(&app_public_key).await;
+                        self.dial_manager.remove_queue(&app_public_key);
                     }
                 }
                 Ok(())
@@ -723,7 +720,7 @@ impl<S: ApplicationSigner> P2P<S> {
                     return Ok(());
                 }
 
-                if self.dial_manager.has_app_public_key(&app_public_key).await {
+                if self.dial_manager.has_app_public_key(&app_public_key) {
                     error!(
                         "Already dialing peer with app_public_key: {:?}",
                         app_public_key
@@ -740,8 +737,7 @@ impl<S: ApplicationSigner> P2P<S> {
 
                 self.config.connect_to.push(first_addr.clone());
                 self.dial_manager
-                    .insert_queue(app_public_key.clone(), queue)
-                    .await;
+                    .insert_queue(app_public_key.clone(), queue);
                 self.dial_and_map(first_addr, app_public_key).await;
 
                 Ok(())
