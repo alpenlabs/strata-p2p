@@ -3,7 +3,7 @@
 use std::{sync::Once, time::Duration};
 
 use futures::future::join_all;
-use libp2p::{Multiaddr, PeerId, build_multiaddr, identity::Keypair, swarm::Swarm};
+use libp2p::{Multiaddr, PeerId, build_multiaddr, identity::Keypair};
 use rand::Rng;
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use tracing::debug;
@@ -101,7 +101,18 @@ impl<S: ApplicationSigner> User<S> {
             channel_timeout: None,
         };
 
-        let swarm = swarm::with_inmemory_transport::<S>(&config, signer.clone())?;
+        // Determine transport type based on the first listening address
+        let use_inmemory = config
+            .listening_addrs
+            .first()
+            .map(|addr| addr.to_string().starts_with("/memory/"))
+            .unwrap_or(true);
+
+        let swarm = if use_inmemory {
+            swarm::with_inmemory_transport(&config)?
+        } else {
+            swarm::with_default_transport(&config)?
+        };
 
         #[cfg(feature = "request-response")]
         let (p2p, reqresp) = P2P::from_config(config, cancel, swarm, allowlist, None, signer)?;

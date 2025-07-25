@@ -2,18 +2,13 @@
 
 use std::time::Duration;
 
-use futures::StreamExt;
-use libp2p::{
-    Multiaddr,
-    identity::Keypair,
-    swarm::{Swarm, SwarmEvent, dial_opts::DialOpts},
-};
-use tokio::time::timeout;
+use libp2p::{Multiaddr, identity::Keypair};
+use tokio_util::sync::CancellationToken;
 use tracing::info;
 
 use crate::{
-    swarm::behavior::Behaviour,
-    tests::common::{DISCONNECT_TIMEOUT, GENERAL_TIMEOUT, WAIT_CONNECTION_TIMEOUT, make_swarm},
+    commands::{Command, QueryP2PStateCommand},
+    tests::common::User,
 };
 
 #[tokio::test]
@@ -28,117 +23,109 @@ async fn test_quic_and_tcp_connectivity_ipv4_ipv6() {
     let peer_id_a = keypair_a.public().to_peer_id();
     let peer_id_b = keypair_b.public().to_peer_id();
 
-    let mut swarm_a = make_swarm(&keypair_a, vec![peer_id_b], vec![tcp4_base.clone()]);
-    swarm_a.listen_on(tcp4_base.clone()).unwrap();
-    swarm_a.listen_on(quic4_base.clone()).unwrap();
-    swarm_a.listen_on(tcp6_base.clone()).unwrap();
-    swarm_a.listen_on(quic6_base.clone()).unwrap();
+    let cancel = CancellationToken::new();
 
-    let mut swarm_b = make_swarm(&keypair_b, vec![peer_id_a], vec![tcp4_base.clone()]);
+    let user_a = User::new(
+        keypair_a.clone(),
+        vec![peer_id_b],
+        vec![],
+        vec![
+            tcp4_base.clone(),
+            quic4_base.clone(),
+            tcp6_base.clone(),
+            quic6_base.clone(),
+        ],
+        cancel.clone(),
+    )
+    .expect("Failed to create listening node A");
 
-    let (tcp4_addr, quic4_addr, tcp6_addr, quic6_addr) = {
-        let mut tcp4_addr = None;
-        let mut quic4_addr = None;
-        let mut tcp6_addr = None;
-        let mut quic6_addr = None;
-        let deadline = tokio::time::Instant::now() + GENERAL_TIMEOUT;
-        while tokio::time::Instant::now() < deadline {
-            if let Ok(Some(SwarmEvent::NewListenAddr { address, .. })) =
-                timeout(deadline - tokio::time::Instant::now(), swarm_a.next()).await
-            {
-                let s = address.to_string();
-                if s.contains("/ip4/") && s.contains("/tcp/") {
-                    tcp4_addr = Some(address.clone());
-                }
-                if s.contains("/ip4/") && s.contains("/quic-v1") {
-                    quic4_addr = Some(address.clone());
-                }
-                if s.contains("/ip6/") && s.contains("/tcp/") {
-                    tcp6_addr = Some(address.clone());
-                }
-                if s.contains("/ip6/") && s.contains("/quic-v1") {
-                    quic6_addr = Some(address.clone());
-                }
-                if tcp4_addr.is_some()
-                    && quic4_addr.is_some()
-                    && tcp6_addr.is_some()
-                    && quic6_addr.is_some()
-                {
-                    break;
-                }
-            }
-        }
-        let tcp4_addr = tcp4_addr.expect("listener did not report a TCP/IPv4 address");
-        let quic4_addr = quic4_addr.expect("listener did not report a QUIC/IPv4 address");
-        let tcp6_addr = tcp6_addr.expect("listener did not report a TCP/IPv6 address");
-        let quic6_addr = quic6_addr.expect("listener did not report a QUIC/IPv6 address");
-        info!(%tcp4_addr, %quic4_addr, %tcp6_addr, %quic6_addr, "Listener addresses ready");
-        (tcp4_addr, quic4_addr, tcp6_addr, quic6_addr)
+    let user_b = User::new(keypair_b, vec![peer_id_a], vec![], vec![], cancel.clone())
+        .expect("Failed to create connecting node B");
+
+    let command_a = user_a.command.clone();
+    let command_b = user_b.command.clone();
+
+    // Spawn P2P listen tasks
+    let task_a = tokio::spawn(async move { user_a.p2p.listen().await });
+    let task_b = tokio::spawn(async move { user_b.p2p.listen().await });
+
+    tokio::time::sleep(Duration::from_millis(1000)).await;
+
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    let query = QueryP2PStateCommand::GetMyListeningAddresses {
+        response_sender: tx,
     };
+    command_a.send_command(Command::QueryP2PState(query)).await;
+    let listening_addresses = rx.await.expect("Failed to get listening addresses");
 
-    async fn wait_connection(
-        swarm1: &mut Swarm<Behaviour>,
-        swarm2: &mut Swarm<Behaviour>,
-        timeout_dur: Duration,
-    ) {
-        let mut got_event1 = false;
-        let mut got_event2 = false;
+    info!("Node A listening addresses: {:?}", listening_addresses);
+    assert!(
+        listening_addresses.len() >= 4,
+        "Should have at least 4 protocol listeners"
+    );
 
-        timeout(timeout_dur, async {
-            loop {
-                tokio::select! {
-                    event = swarm1.next() => {
-                        if let Some(ev) = event {
-                            info!(event = ?ev, "swarm1 event");
-                            if let SwarmEvent::ConnectionEstablished { peer_id, endpoint, .. } = ev {
-                                let addr = endpoint.get_remote_address();
-                                info!(%peer_id, %addr, "Connection established on swarm1");
-                                got_event1 = true;
-                            }
-                        }
-                    }
-                    event = swarm2.next() => {
-                        if let Some(ev) = event {
-                            info!(event = ?ev, "swarm2 event");
-                            if let SwarmEvent::ConnectionEstablished { peer_id, endpoint, .. } = ev {
-                                let addr = endpoint.get_remote_address();
-                                info!(%peer_id, %addr, "Connection established on swarm2");
-                                got_event2 = true;
-                            }
-                        }
-                    }
-                }
-                if got_event1 && got_event2 {
-                    break;
-                }
-            }
-        })
-        .await
-        .expect("timed out waiting for connection");
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    command_a
+        .send_command(Command::QueryP2PState(
+            QueryP2PStateCommand::GetMyListeningAddresses {
+                response_sender: tx,
+            },
+        ))
+        .await;
+    let listening_addresses = rx.await.expect("Failed to get listening addresses");
+    info!(?listening_addresses, "Node A listening addresses");
+    assert!(
+        listening_addresses.len() == 4,
+        "Should have 4 listening addresses"
+    );
+
+    for addr in listening_addresses {
+        info!(%addr, "Testing connection");
+
+        let connect_cmd = Command::ConnectToPeer {
+            app_public_key: keypair_a.public(),
+            addresses: vec![addr.clone()],
+        };
+        command_b.send_command(connect_cmd).await;
+
+        tokio::time::sleep(Duration::from_millis(200)).await;
+
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        let is_connected_query = QueryP2PStateCommand::IsConnected {
+            peer_id: peer_id_a,
+            response_sender: tx,
+        };
+        command_b
+            .send_command(Command::QueryP2PState(is_connected_query))
+            .await;
+        let is_connected = rx.await.expect("Failed to check connection status");
+
+        assert!(is_connected, "Failed to establish {addr} connection");
+
+        command_b
+            .send_command(Command::DisconnectFromPeer { peer_id: peer_id_a })
+            .await;
+        info!(%addr, "Disconnect requested");
+
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        let is_connected_query = QueryP2PStateCommand::IsConnected {
+            peer_id: peer_id_a,
+            response_sender: tx,
+        };
+        command_b
+            .send_command(Command::QueryP2PState(is_connected_query))
+            .await;
+        let is_connected = rx
+            .await
+            .expect("Failed to check connection status after disconnect");
+        assert!(
+            !is_connected,
+            "{addr} connection was not properly disconnected"
+        );
     }
 
-    for (label, addr) in [
-        ("TCP/IPv4", tcp4_addr.clone()),
-        ("QUIC/IPv4", quic4_addr.clone()),
-        ("TCP/IPv6", tcp6_addr.clone()),
-        ("QUIC/IPv6", quic6_addr.clone()),
-    ] {
-        info!(%label, %addr, "Dialing");
-        let dial_opts = DialOpts::unknown_peer_id().address(addr.clone()).build();
-        swarm_b
-            .dial(dial_opts)
-            .unwrap_or_else(|_| panic!("dial {label}"));
-        wait_connection(&mut swarm_a, &mut swarm_b, WAIT_CONNECTION_TIMEOUT).await;
-        let peer_id = *swarm_a.local_peer_id();
-        let _ = swarm_b.disconnect_peer_id(peer_id);
-        tracing::info!(%label, "Disconnect requested");
-
-        let disconnect_deadline = tokio::time::Instant::now() + DISCONNECT_TIMEOUT;
-        while swarm_b.is_connected(&peer_id) && tokio::time::Instant::now() < disconnect_deadline {
-            swarm_b.next().await;
-        }
-        info!(connected = swarm_b.is_connected(&peer_id), %label, "Connection state after disconnect");
-    }
-
-    info!("All QUIC and TCP connections (IPv4 and IPv6) succeeded");
+    info!("All QUIC and TCP connections (IPv4 and IPv6) succeeded!");
+    cancel.cancel();
+    let _ = tokio::join!(task_a, task_b);
 }

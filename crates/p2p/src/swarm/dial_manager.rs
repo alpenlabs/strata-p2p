@@ -11,7 +11,7 @@ use tokio::sync::Mutex;
 /// Manages the state for multi-address dial attempts, including address queues and connection ID
 /// mappings. Used to coordinate retries and track which connection corresponds to which dial
 /// sequence.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct DialManager {
     /// Maps an app_public_key to the queue of remaining addresses to try.
     pub dial_queues: Arc<Mutex<HashMap<PublicKey, VecDeque<Multiaddr>>>>,
@@ -75,11 +75,5 @@ impl DialManager {
     pub async fn has_app_public_key(&self, app_public_key: &PublicKey) -> bool {
         let queues = self.dial_queues.lock().await;
         queues.contains_key(app_public_key)
-    }
-}
-
-impl Default for DialManager {
-    fn default() -> Self {
-        Self::new()
     }
 }

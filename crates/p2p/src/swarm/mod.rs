@@ -701,6 +701,13 @@ impl<S: ApplicationSigner> P2P<S> {
 
                 Ok(())
             }
+            Command::DisconnectFromPeer { peer_id } => {
+                match self.swarm.disconnect_peer_id(peer_id) {
+                    Ok(_) => info!(%peer_id, "Disconnect initiated"),
+                    Err(_) => warn!(%peer_id, "Failed to disconnect"),
+                }
+                Ok(())
+            }
             Command::QueryP2PState(query) => match query {
                 QueryP2PStateCommand::IsConnected {
                     app_public_key,

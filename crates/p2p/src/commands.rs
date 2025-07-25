@@ -32,6 +32,12 @@ pub enum Command {
         addresses: Vec<Multiaddr>,
     },
 
+    /// Disconnects from a peer.
+    DisconnectFromPeer {
+        /// Libp2p [`PeerId`] of target peer.
+        peer_id: PeerId,
+    },
+
     /// Directly queries P2P state (doesn't produce events).
     QueryP2PState(QueryP2PStateCommand),
 }
