@@ -31,7 +31,7 @@ pub enum ValidationError {
     NotInSignersAllowlist,
 }
 
-/// Errors from libp2p
+/// Protocol errors.
 #[derive(Debug, Error)]
 pub enum ProtocolError {
     /// Transport error, multiple reasons and OS-dependent.
