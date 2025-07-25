@@ -136,12 +136,23 @@ pub(crate) struct Setup {
     pub(crate) tasks: TaskTracker,
 }
 
+pub(crate) struct SetupInitialData {
+    pub(crate) app_keypairs: Vec<Keypair>,
+    pub(crate) transport_keypairs: Vec<Keypair>,
+    pub(crate) peer_ids: Vec<PeerId>,
+    pub(crate) multiaddresses: Vec<libp2p::Multiaddr>,
+}
+
 impl Setup {
     /// Spawn `n` users that are connected "all-to-all" with handles to them, task tracker
     /// to stop control async tasks they are spawned in.
     pub(crate) async fn all_to_all(n: usize) -> anyhow::Result<Self> {
-        let (app_keypairs, transport_keypairs, peer_ids, multiaddresses) =
-            Self::setup_keys_ids_addrs_of_n_users(n);
+        let SetupInitialData {
+            app_keypairs,
+            transport_keypairs,
+            peer_ids,
+            multiaddresses,
+        } = Self::setup_keys_ids_addrs_of_n_users(n);
 
         let cancel = CancellationToken::new();
         let mut users = Vec::new();
@@ -188,14 +199,7 @@ impl Setup {
 
     /// Create `n` random keypairs, transport ids from them and sequential in-memory
     /// addresses.
-    fn setup_keys_ids_addrs_of_n_users(
-        n: usize,
-    ) -> (
-        Vec<Keypair>,
-        Vec<Keypair>,
-        Vec<PeerId>,
-        Vec<libp2p::Multiaddr>,
-    ) {
+    fn setup_keys_ids_addrs_of_n_users(n: usize) -> SetupInitialData {
         let app_keypairs = (0..n)
             .map(|_| Keypair::generate_ed25519())
             .collect::<Vec<_>>();
@@ -231,7 +235,13 @@ impl Setup {
             ..(multiaddr_base + u64::try_from(transport_keypairs.len()).unwrap()))
             .map(|idx| build_multiaddr!(Memory(idx)))
             .collect::<Vec<_>>();
-        (app_keypairs, transport_keypairs, peer_ids, multiaddresses)
+
+        SetupInitialData {
+            app_keypairs,
+            transport_keypairs,
+            peer_ids,
+            multiaddresses,
+        }
     }
 
     /// Wait until all users established connections with other users,
