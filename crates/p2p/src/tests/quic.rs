@@ -21,32 +21,32 @@ async fn test_quic_and_tcp_connectivity_ipv4_ipv6() {
     let keypair_a = Keypair::generate_ed25519();
     let keypair_b = Keypair::generate_ed25519();
     let peer_id_a = keypair_a.public().to_peer_id();
-    let peer_id_b = keypair_b.public().to_peer_id();
+    let _peer_id_b = keypair_b.public().to_peer_id();
 
     let cancel = CancellationToken::new();
 
     let user_a = User::new(
-        keypair_a.clone(),        // app_keypair
-        keypair_a.clone(),        // transport_keypair
-        vec![],                   // connect_to
-        vec![keypair_b.public()], // allowlist
+        keypair_a.clone(),
+        keypair_a.clone(),
+        vec![],
+        vec![keypair_b.public()],
         vec![
             tcp4_base.clone(),
             quic4_base.clone(),
             tcp6_base.clone(),
             quic6_base.clone(),
-        ], // listening_addrs
+        ],
         cancel.clone(),
         MockApplicationSigner::new(keypair_a.clone()),
     )
     .expect("Failed to create listening node A");
 
     let user_b = User::new(
-        keypair_b.clone(),        // app_keypair
-        keypair_b.clone(),        // transport_keypair
-        vec![],                   // connect_to
-        vec![keypair_a.public()], // allowlist
-        vec![],                   // listening_addrs
+        keypair_b.clone(),
+        keypair_b.clone(),
+        vec![],
+        vec![keypair_a.public()],
+        vec![],
         cancel.clone(),
         MockApplicationSigner::new(keypair_b.clone()),
     )

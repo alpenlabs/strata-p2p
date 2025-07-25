@@ -5,7 +5,7 @@
 use std::time::Duration;
 
 use futures::SinkExt;
-use libp2p::{Multiaddr, PeerId, build_multiaddr, identity::Keypair};
+use libp2p::{Multiaddr, build_multiaddr, identity::Keypair};
 use tokio::{sync::oneshot::channel, time::sleep};
 use tracing::{debug, info};
 

@@ -144,7 +144,6 @@ pub(crate) struct UserHandle {
     pub(crate) reqresp: ReqRespHandle,
     pub(crate) command: CommandHandle,
     pub(crate) app_keypair: Keypair,
-    pub(crate) transport_keypair: Keypair,
 }
 
 pub(crate) struct Setup {
@@ -286,7 +285,6 @@ impl Setup {
                 command: user.command,
                 peer_id,
                 app_keypair: user.app_keypair,
-                transport_keypair: user.transport_keypair,
             });
         }
 
