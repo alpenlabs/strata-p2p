@@ -9,7 +9,7 @@ use std::{
 };
 
 use futures::{FutureExt, Stream};
-use libp2p::PeerId;
+use libp2p::{PeerId, identity::PublicKey};
 use thiserror::Error;
 use tokio::{
     sync::{
@@ -104,56 +104,53 @@ impl CommandHandle {
         let _ = self.commands.send(command.into()).await;
     }
 
-    /// Checks if the P2P node is connected to the specified peer.
+    /// Checks if the P2P node is connected to the specified peer by app public key.
+    /// If timeout is None, uses the default timeout of 1 second.
     /// Returns true if connected, false otherwise.
-    pub async fn is_connected(&self, peer_id: PeerId) -> bool {
+    pub async fn is_connected(
+        &self,
+        app_public_key: &PublicKey,
+        timeout_duration: Option<Duration>,
+    ) -> bool {
         let (sender, receiver) = oneshot::channel();
 
-        // Send the command to check connection.
         let cmd = Command::QueryP2PState(QueryP2PStateCommand::IsConnected {
-            peer_id,
+            app_public_key: app_public_key.clone(),
             response_sender: sender,
         });
 
-        // Use a cloned sender to avoid borrow issues.
+        let duration = timeout_duration.unwrap_or(Duration::from_secs(1));
         let cmd_sender = self.commands.clone();
 
-        // Send the command
         if cmd_sender.send(cmd).await.is_err() {
-            // If the command channel is closed, assume not connected.
             return false;
         }
 
-        // Wait for response with timeout.
-        // TODO: make this configurable
-        match timeout(Duration::from_secs(1), receiver).await {
+        match timeout(duration, receiver).await {
             Ok(Ok(is_connected)) => is_connected,
-            _ => false, // Timeout or channel closed
+            _ => false,
         }
     }
 
     /// Gets the list of all currently connected peers.
-    pub async fn get_connected_peers(&self) -> Vec<PeerId> {
+    /// If timeout is None, uses the default timeout of 1 second.
+    pub async fn get_connected_peers(&self, timeout_duration: Option<Duration>) -> Vec<PeerId> {
         let (sender, receiver) = oneshot::channel();
 
-        // Send the command.
         let cmd = Command::QueryP2PState(QueryP2PStateCommand::GetConnectedPeers {
             response_sender: sender,
         });
 
-        // Use a cloned sender to avoid borrow issues.
+        let duration = timeout_duration.unwrap_or(Duration::from_secs(1));
         let cmd_sender = self.commands.clone();
 
-        // If sending fails, return empty list.
         if cmd_sender.send(cmd).await.is_err() {
             return Vec::new();
         }
 
-        // Wait for response with timeout.
-        // TODO: make this configurable
-        match timeout(Duration::from_secs(1), receiver).await {
+        match timeout(duration, receiver).await {
             Ok(Ok(peers)) => peers,
-            _ => Vec::new(), // Timeout or channel closed
+            _ => Vec::new(),
         }
     }
 }

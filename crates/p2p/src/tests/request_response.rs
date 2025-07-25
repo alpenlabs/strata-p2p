@@ -1,24 +1,31 @@
 //! Request-response tests
 
+use std::time::Duration;
+
+use tokio::time::sleep;
 use tracing::info;
 
 use super::common::Setup;
-use crate::{commands::Command, events::ReqRespEvent};
+use crate::{commands::Command, events::ReqRespEvent, tests::common::init_tracing};
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn test_reqresp_basic() -> anyhow::Result<()> {
+    init_tracing();
+
     let Setup {
         cancel,
         mut user_handles,
         tasks,
     } = Setup::all_to_all(2).await?;
 
+    sleep(Duration::from_secs(2)).await;
+
     let req_msg = b"request from node1".to_vec();
     let resp_msg = b"response from node2".to_vec();
     user_handles[0]
         .command
         .send_command(Command::RequestMessage {
-            peer_id: user_handles[1].peer_id,
+            app_public_key: user_handles[1].app_keypair.public(),
             data: req_msg.clone(),
         })
         .await;

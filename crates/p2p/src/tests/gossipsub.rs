@@ -6,10 +6,12 @@ use anyhow::bail;
 use tokio::time::sleep;
 
 use super::common::Setup;
-use crate::{commands::Command, events::GossipEvent};
+use crate::{commands::Command, events::GossipEvent, tests::common::init_tracing};
+
 /// Tests the gossip protocol in an all to all connected network with multiple IDs.
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn gossip_basic() -> anyhow::Result<()> {
+    init_tracing();
     const USERS_NUM: usize = 2;
 
     let Setup {

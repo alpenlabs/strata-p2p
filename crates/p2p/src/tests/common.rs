@@ -1,57 +1,109 @@
 //! Helper functions for the P2P tests.
 
-use std::time::Duration;
+use std::{sync::Once, time::Duration};
 
 use futures::future::join_all;
-use libp2p::{Multiaddr, PeerId, build_multiaddr, identity::Keypair};
+use libp2p::{
+    Multiaddr, PeerId, build_multiaddr,
+    identity::{Keypair, PublicKey},
+};
 use rand::Rng;
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use tracing::debug;
+use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, util::SubscriberInitExt};
 
 #[cfg(feature = "request-response")]
 use crate::swarm::handle::ReqRespHandle;
-use crate::swarm::{
-    self, P2P, P2PConfig,
-    handle::{CommandHandle, GossipHandle},
+use crate::{
+    signer::ApplicationSigner,
+    swarm::{
+        self, P2P, P2PConfig,
+        handle::{CommandHandle, GossipHandle},
+    },
 };
 
-pub(crate) struct User {
-    pub(crate) p2p: P2P,
+/// Only attempt to start tracing once
+///
+/// it is needed for supporting plain `cargo test`
+pub(crate) fn init_tracing() {
+    static INIT: Once = Once::new();
+
+    INIT.call_once(|| {
+        tracing_subscriber::registry()
+            .with(EnvFilter::from_default_env())
+            .with(fmt::layer().with_file(true).with_line_number(true))
+            .init();
+    });
+}
+
+/// Mock ApplicationSigner for testing that stores the actual keypair
+#[derive(Debug, Clone)]
+pub(crate) struct MockApplicationSigner {
+    // Store the actual keypair that corresponds to the app public key
+    app_keypair: Keypair,
+}
+
+impl MockApplicationSigner {
+    pub(crate) const fn new(app_keypair: Keypair) -> Self {
+        Self { app_keypair }
+    }
+}
+
+impl ApplicationSigner for MockApplicationSigner {
+    fn sign(
+        &self,
+        message: &[u8],
+        _app_public_key: PublicKey,
+    ) -> Result<[u8; 64], Box<dyn std::error::Error + Send + Sync>> {
+        // Sign with the stored keypair
+        let signature = self.app_keypair.sign(message)?;
+        let sign_array: [u8; 64] = signature.try_into().unwrap();
+        Ok(sign_array)
+    }
+}
+
+pub(crate) struct User<S: ApplicationSigner = MockApplicationSigner> {
+    pub(crate) p2p: P2P<S>,
     pub(crate) gossip: GossipHandle,
     #[cfg(feature = "request-response")]
     pub(crate) reqresp: ReqRespHandle,
     pub(crate) command: CommandHandle,
-    pub(crate) kp: Keypair,
+    pub(crate) app_keypair: Keypair,
+    pub(crate) transport_keypair: Keypair,
 }
 
-impl User {
+impl<S: ApplicationSigner> User<S> {
     pub(crate) fn new(
-        keypair: Keypair,
-        allowlist: Vec<PeerId>,
+        app_keypair: Keypair,
+        transport_keypair: Keypair,
         connect_to: Vec<Multiaddr>,
         local_addr: Multiaddr,
+        allowlist: Vec<PublicKey>,
         cancel: CancellationToken,
+        signer: S,
     ) -> anyhow::Result<Self> {
         debug!(%local_addr, "Creating new user with local address");
 
         let config = P2PConfig {
-            keypair: keypair.clone(),
+            app_public_key: app_keypair.public(),
+            transport_keypair: transport_keypair.clone(),
             idle_connection_timeout: Duration::from_secs(30),
             max_retries: None,
             dial_timeout: None,
             general_timeout: None,
             connection_check_interval: None,
             listening_addr: local_addr,
-            allowlist,
             connect_to,
+            #[cfg(feature = "request-response")]
             channel_timeout: None,
         };
 
-        let swarm = swarm::with_inmemory_transport(&config)?;
+        let swarm = swarm::with_inmemory_transport::<S>(&config, signer.clone())?;
+
         #[cfg(feature = "request-response")]
-        let (p2p, reqresp) = P2P::from_config(config, cancel, swarm, None)?;
+        let (p2p, reqresp) = P2P::from_config(config, cancel, swarm, allowlist, None, signer)?;
         #[cfg(not(feature = "request-response"))]
-        let p2p = P2P::from_config(config, cancel, swarm, None)?;
+        let p2p = P2P::from_config(config, cancel, swarm, allowlist, None, signer)?;
         let gossip = p2p.new_gossip_handle();
         let command = p2p.new_command_handle();
 
@@ -61,7 +113,8 @@ impl User {
             #[cfg(feature = "request-response")]
             reqresp,
             command,
-            kp: keypair,
+            app_keypair,
+            transport_keypair,
         })
     }
 }
@@ -74,7 +127,8 @@ pub(crate) struct UserHandle {
     pub(crate) reqresp: ReqRespHandle,
     pub(crate) command: CommandHandle,
     pub(crate) peer_id: PeerId,
-    pub(crate) kp: Keypair,
+    pub(crate) app_keypair: Keypair,
+    pub(crate) transport_keypair: Keypair,
 }
 
 pub(crate) struct Setup {
@@ -83,27 +137,53 @@ pub(crate) struct Setup {
     pub(crate) tasks: TaskTracker,
 }
 
+pub(crate) struct SetupInitialData {
+    pub(crate) app_keypairs: Vec<Keypair>,
+    pub(crate) transport_keypairs: Vec<Keypair>,
+    pub(crate) peer_ids: Vec<PeerId>,
+    pub(crate) multiaddresses: Vec<libp2p::Multiaddr>,
+}
+
 impl Setup {
     /// Spawn `n` users that are connected "all-to-all" with handles to them, task tracker
     /// to stop control async tasks they are spawned in.
     pub(crate) async fn all_to_all(n: usize) -> anyhow::Result<Self> {
-        let (keypairs, peer_ids, multiaddresses) = Self::setup_keys_ids_addrs_of_n_users(n);
+        let SetupInitialData {
+            app_keypairs,
+            transport_keypairs,
+            peer_ids,
+            multiaddresses,
+        } = Self::setup_keys_ids_addrs_of_n_users(n);
 
         let cancel = CancellationToken::new();
         let mut users = Vec::new();
 
-        for (idx, (keypair, addr)) in keypairs.iter().zip(&multiaddresses).enumerate() {
+        for (idx, ((app_keypair, transport_keypair), addr)) in app_keypairs
+            .iter()
+            .zip(&transport_keypairs)
+            .zip(&multiaddresses)
+            .enumerate()
+        {
             let mut other_addrs = multiaddresses.clone();
             other_addrs.remove(idx);
             let mut other_peerids = peer_ids.clone();
             other_peerids.remove(idx);
+            let mut other_app_pk = app_keypairs
+                .iter()
+                .map(|kp| kp.public())
+                .collect::<Vec<_>>();
+            other_app_pk.remove(idx);
 
             let user = User::new(
-                keypair.clone(),
-                other_peerids,
+                app_keypair.clone(),
+                transport_keypair.clone(),
                 other_addrs,
                 addr.clone(),
+                other_app_pk,
                 cancel.child_token(),
+                MockApplicationSigner {
+                    app_keypair: app_keypair.clone(),
+                },
             )?;
 
             users.push(user);
@@ -118,18 +198,24 @@ impl Setup {
         })
     }
 
-    /// Create `n` random keypairs, peer ids from them and sequential in-memory
+    /// Create `n` random keypairs, transport ids from them and sequential in-memory
     /// addresses.
-    fn setup_keys_ids_addrs_of_n_users(
-        n: usize,
-    ) -> (Vec<Keypair>, Vec<PeerId>, Vec<libp2p::Multiaddr>) {
-        let keypairs = (0..n)
+    fn setup_keys_ids_addrs_of_n_users(n: usize) -> SetupInitialData {
+        let app_keypairs = (0..n)
             .map(|_| Keypair::generate_ed25519())
             .collect::<Vec<_>>();
 
-        debug!(len = %keypairs.len(), "Generated keypairs for test setup");
+        let transport_keypairs = (0..n)
+            .map(|_| Keypair::generate_ed25519())
+            .collect::<Vec<_>>();
 
-        let peer_ids = keypairs
+        debug!(
+            "len(app_keypairs):{}, len(transport_keypairs):{}",
+            app_keypairs.len(),
+            transport_keypairs.len()
+        );
+
+        let peer_ids = transport_keypairs
             .iter()
             .map(|key| PeerId::from_public_key(&key.clone().public()))
             .collect::<Vec<_>>();
@@ -147,15 +233,22 @@ impl Setup {
         }
 
         let multiaddresses = (multiaddr_base
-            ..(multiaddr_base + u64::try_from(keypairs.len()).unwrap()))
+            ..(multiaddr_base + u64::try_from(transport_keypairs.len()).unwrap()))
             .map(|idx| build_multiaddr!(Memory(idx)))
             .collect::<Vec<_>>();
-        (keypairs, peer_ids, multiaddresses)
+
+        SetupInitialData {
+            app_keypairs,
+            transport_keypairs,
+            peer_ids,
+            multiaddresses,
+        }
     }
 
     /// Wait until all users established connections with other users,
     /// and then spawn [`P2P::listen`]s in separate tasks using [`TaskTracker`].
     async fn start_users(mut users: Vec<User>) -> (Vec<UserHandle>, TaskTracker) {
+        // wait until all of them established connections and subscriptions
         join_all(
             users
                 .iter_mut()
@@ -175,7 +268,8 @@ impl Setup {
                 reqresp: user.reqresp,
                 command: user.command,
                 peer_id,
-                kp: user.kp,
+                app_keypair: user.app_keypair,
+                transport_keypair: user.transport_keypair,
             });
         }
 
