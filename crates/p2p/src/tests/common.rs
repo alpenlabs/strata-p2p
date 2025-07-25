@@ -26,7 +26,7 @@ use crate::swarm::{
     P2PConfig, P2P,
 =======
 use crate::{
-    commands::{Command},
+    commands::Command,
     events::Event,
     swarm::{self, handle::P2PHandle, P2PConfig, P2P},
 >>>>>>> 3536945 (run single gossipsub test)
@@ -62,6 +62,7 @@ impl User {
             allowlist,
             connect_to,
             channel_timeout: None,
+            decay_factor: None,
         };
 
         let swarm = swarm::with_inmemory_transport(&config)?;

@@ -44,6 +44,8 @@ use crate::events::ReqRespEvent;
 use crate::{
     commands::{Command, QueryP2PStateCommand},
     events::GossipEvent,
+    score_manager::{ScoreManager, DEFAULT_DECAY_FACTOR},
+    validator::{PenaltyPeerStorage, Validator},
 };
 mod behavior;
 mod codec_raw;
@@ -117,6 +119,12 @@ pub struct P2PConfig {
     /// Timeout for channel operations (e.g., sending/receiving on channels).
     #[cfg(feature = "request-response")]
     pub channel_timeout: Option<Duration>,
+
+    /// Fields for [`ScoreManager`]s.
+    ///
+    /// This parameter is used to decay the score.
+    /// Default value is [`DEFAULT_DECAY_FACTOR`].
+    pub decay_factor: Option<f64>,
 }
 
 /// Implementation of P2P protocol data exchange.
@@ -148,6 +156,12 @@ pub struct P2P {
 
     /// Underlying configuration.
     config: P2PConfig,
+
+    /// Score manager.
+    score_manager: ScoreManager,
+
+    /// Storage with penalty for peer's penalty
+    peer_penalty_storage: PenaltyPeerStorage,
 }
 
 /// Alias for [`P2P`] and [`ReqRespHandle`] tuple.
@@ -171,6 +185,8 @@ impl P2P {
         let (gossip_events_tx, _gossip_events_rx) = broadcast::channel(channel_size);
         let (req_resp_event_tx, req_resp_event_rx) = mpsc::channel(64);
         let (cmds_tx, cmds_rx) = mpsc::channel(64);
+        let score_manager = ScoreManager::new(cfg.decay_factor.unwrap_or(DEFAULT_DECAY_FACTOR));
+        let peer_penalty_storage = PenaltyPeerStorage::new();
 
         Ok((
             Self {
@@ -181,6 +197,8 @@ impl P2P {
                 commands_sender: cmds_tx.clone(),
                 cancellation_token: cancel,
                 config: cfg,
+                score_manager,
+                peer_penalty_storage,
             },
             ReqRespHandle::new(req_resp_event_rx),
         ))

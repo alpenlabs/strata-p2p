@@ -27,6 +27,7 @@ libp2p = { workspace = true, features = [
   "identify",
 ] }
 
+chrono.workspace = true
 async-trait.workspace = true
 bitcoin = { workspace = true, features = ["serde"] }
 futures.workspace = true
