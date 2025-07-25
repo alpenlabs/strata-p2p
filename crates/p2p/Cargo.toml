@@ -10,6 +10,10 @@ request-response = []
 [lints]
 workspace = true
 
+[features]
+default = ["quic"]
+quic = []
+
 [dependencies]
 asynchronous-codec.workspace = true
 libp2p = { workspace = true, features = [
@@ -22,6 +26,7 @@ libp2p = { workspace = true, features = [
   "macros",
   "yamux",
   "identify",
+  "quic",
 ] }
 futures.workspace = true
 thiserror.workspace = true

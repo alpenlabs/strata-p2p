@@ -2,6 +2,7 @@
 
 use std::{
     collections::HashSet,
+    num::NonZeroU8,
     sync::LazyLock,
     time::{Duration, Instant},
 };
@@ -53,6 +54,8 @@ pub mod errors;
 pub mod handle;
 mod message;
 pub mod setup;
+
+use libp2p::tcp;
 
 /// Global topic name for gossipsub messages.
 static TOPIC: LazyLock<Sha256Topic> = LazyLock::new(|| Sha256Topic::new("bitvm2"));
@@ -602,22 +605,33 @@ impl<S: ApplicationSigner> P2P<S> {
 
                 let dialing_opts: DialOpts = DialOpts::peer_id(connect_to_peer_command.peer_id)
                     .condition(PeerCondition::DisconnectedAndNotDialing)
-                    .addresses(Vec::<Multiaddr>::from([connect_to_peer_command
-                        .peer_addr
-                        .clone()]))
+                    .addresses(sorted_addrs)
                     .extend_addresses_through_behaviour()
+                    // Only dial one address at a time for this peer to avoid parallel connection
+                    // attempts. This preserves the order of address dialing.
+                    .override_dial_concurrency_factor(NonZeroU8::new(1).unwrap())
                     .build();
 
                 // Connect to peer
                 let _ = self.swarm.dial(dialing_opts).inspect_err(|err| {
                     error!(
-                        "Failed to connect to peer at peer_addr '{}' : {} {:?}",
-                        connect_to_peer_command.peer_addr.to_string(),
-                        err,
-                        err
+                        peer_addrs = ?connect_to_peer_command.peer_addrs,
+                        error = %err,
+                        "Failed to connect to peer at peer_addrs"
                     )
                 });
 
+                Ok(())
+            }
+            Command::ConnectToAddress(addr) => {
+                let dialing_opts = DialOpts::unknown_peer_id().address(addr.clone()).build();
+                let _ = self.swarm.dial(dialing_opts).inspect_err(|err| {
+                    error!(
+                        address = %addr,
+                        error = %err,
+                        "Failed to connect to address"
+                    )
+                });
                 Ok(())
             }
             Command::QueryP2PState(query) => match query {
@@ -882,13 +896,27 @@ pub fn with_inmemory_transport<S: ApplicationSigner>(
     Ok(swarm)
 }
 
-/// Constructs swarm from P2P config with TCP transport. Uses
-/// `/ip4/{addr}/tcp/{port}` addresses.
-pub fn with_tcp_transport<S: ApplicationSigner>(
+/// Constructs a `Swarm<Behaviour>` from `P2PConfig` using QUIC with TCP fallback when available, or
+/// TCP only otherwise.
+pub fn with_default_transport(
     config: &P2PConfig,
-    signer: S,
+    signer: impl ApplicationSigner,
 ) -> P2PResult<Swarm<Behaviour<S>>> {
     let builder = init_swarm!(config);
+    #[cfg(feature = "quic")]
+    let swarm = builder
+        .with_tcp(
+            tcp::Config::default(),
+            noise::Config::new,
+            yamux::Config::default,
+        )
+        .unwrap()
+        .with_quic()
+        .with_behaviour(|_| Behaviour::new(PROTOCOL_NAME, &config.keypair, &config.allowlist))
+        .map_err(|e| ProtocolError::BehaviourInitialization(e.into()))?
+        .with_swarm_config(|c| c.with_idle_connection_timeout(Duration::from_secs(60)))
+        .build();
+    #[cfg(not(feature = "quic"))]
     let swarm = finish_swarm!(
         builder.with_tcp(
             Default::default(),
@@ -898,6 +926,5 @@ pub fn with_tcp_transport<S: ApplicationSigner>(
         config,
         signer
     );
-
     Ok(swarm)
 }

@@ -88,8 +88,8 @@ async fn gossip_new_user() -> anyhow::Result<()> {
     for user in user_handles.iter().take(connect_addrs.len()) {
         user.command
             .send_command(Command::ConnectToPeer(ConnectToPeerCommand {
-                peer_id: new_user.transport_keypair.public().to_peer_id(),
-                peer_addr: local_addr.clone(),
+                peer_id: new_user.kp.public().to_peer_id(),
+                peer_addrs: vec![local_addr.clone()],
             }))
             .await;
     }

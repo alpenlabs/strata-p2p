@@ -27,6 +27,9 @@ pub enum Command {
     /// Connects to a peer, whitelists peer, and adds peer to the gossip sub network.
     ConnectToPeer(ConnectToPeerCommand),
 
+    /// Dials a set of address directly (without peer id).
+    ConnectToAddress(Multiaddr),
+
     /// Directly queries P2P state (doesn't produce events).
     QueryP2PState(QueryP2PStateCommand),
 }
@@ -37,8 +40,8 @@ pub struct ConnectToPeerCommand {
     /// Transport ID.
     pub peer_id: PeerId,
 
-    /// Peer address.
-    pub peer_addr: Multiaddr,
+    /// Peer addresses.
+    pub peer_addrs: Vec<Multiaddr>,
 }
 
 impl From<ConnectToPeerCommand> for Command {
