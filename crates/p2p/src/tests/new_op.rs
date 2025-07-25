@@ -1,14 +1,17 @@
-//! Connect to Peer Command tests.
+//! Tests for new operator functionality.
+
+#![cfg(feature = "gossipsub")]
 
 use std::time::Duration;
 
-use libp2p::{Multiaddr, build_multiaddr, identity::Keypair};
+use futures::SinkExt;
+use libp2p::{Multiaddr, PeerId, build_multiaddr, identity::Keypair};
 use tokio::{sync::oneshot::channel, time::sleep};
 use tracing::{debug, info};
 
 use super::common::Setup;
 use crate::{
-    commands::{Command, QueryP2PStateCommand},
+    commands::{Command, GossipCommand, QueryP2PStateCommand},
     events::GossipEvent,
     tests::common::{MockApplicationSigner, User, init_tracing},
 };
@@ -94,7 +97,7 @@ async fn gossip_new_user() -> anyhow::Result<()> {
             new_peer = %new_user.kp.public().to_peer_id(),
             "Old user connecting to new user"
         );
-        let app_public_key = user_handles[index].kp.public();
+        let app_public_key = user_handles[index]._kp.public();
         user_handles[index]
             .command
             .send_command(Command::ConnectToPeer {
@@ -112,22 +115,24 @@ async fn gossip_new_user() -> anyhow::Result<()> {
 
     info!("Regular user sending test message");
     user_handles[0]
-        .command
-        .send_command(Command::PublishMessage {
+        .gossip
+        .send(GossipCommand {
             data: message_from_inside.clone(),
         })
-        .await;
+        .await
+        .expect("Failed to send gossip message");
 
     // Wait for message propagation and verify
     sleep(Duration::from_secs(2)).await;
 
     info!("New user sending test message");
     new_user
-        .command
-        .send_command(Command::PublishMessage {
+        .gossip
+        .send(GossipCommand {
             data: message_from_outsider.clone(),
         })
-        .await;
+        .await
+        .expect("Failed to send gossip message");
 
     // Wait for message propagation
     sleep(Duration::from_secs(2)).await;

@@ -5,6 +5,7 @@
 use tokio::sync::oneshot::Sender;
 
 /// Events emitted from the gossipsub protocol.
+#[cfg(feature = "gossipsub")]
 #[derive(Debug, Clone)]
 pub enum GossipEvent {
     /// Received message from other peer.

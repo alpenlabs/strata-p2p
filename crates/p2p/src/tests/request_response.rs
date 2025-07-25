@@ -1,5 +1,6 @@
-//! Request-response tests
+//! Request-response protocol tests.
 
+<<<<<<< HEAD
 use std::time::Duration;
 
 use tokio::time::sleep;
@@ -7,6 +8,13 @@ use tracing::info;
 
 use super::common::Setup;
 use crate::{commands::Command, events::ReqRespEvent, tests::common::init_tracing};
+=======
+use futures::SinkExt;
+use tracing::info;
+
+use super::common::Setup;
+use crate::{commands::RequestResponseCommand, events::ReqRespEvent};
+>>>>>>> 52bb331 (add sink trait and feature gate all neccessary places)
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn test_reqresp_basic() -> anyhow::Result<()> {
@@ -22,13 +30,21 @@ async fn test_reqresp_basic() -> anyhow::Result<()> {
 
     let req_msg = b"request from node1".to_vec();
     let resp_msg = b"response from node2".to_vec();
+    let peer_id = user_handles[1].peer_id;
     user_handles[0]
+<<<<<<< HEAD
         .command
         .send_command(Command::RequestMessage {
             app_public_key: user_handles[1].app_keypair.public(),
+=======
+        .reqresp
+        .send(RequestResponseCommand {
+            peer_id,
+>>>>>>> 52bb331 (add sink trait and feature gate all neccessary places)
             data: req_msg.clone(),
         })
-        .await;
+        .await
+        .expect("Failed to send request message");
     info!("Node 1 sent request to Node 2");
 
     match user_handles[1].reqresp.next_event().await.unwrap() {

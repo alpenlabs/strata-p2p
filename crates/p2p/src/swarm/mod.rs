@@ -9,9 +9,11 @@ use std::{
 use behavior::{Behaviour, BehaviourEvent};
 use errors::{P2PResult, ProtocolError};
 use futures::StreamExt as _;
+use handle::CommandHandle;
+#[cfg(feature = "gossipsub")]
+use handle::GossipHandle;
 #[cfg(feature = "request-response")]
 use handle::ReqRespHandle;
-use handle::{CommandHandle, GossipHandle};
 #[cfg(feature = "request-response")]
 use libp2p::request_response::{self, Event as RequestResponseEvent};
 use libp2p::{
@@ -39,7 +41,11 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, instrument, trace, warn};
 
 #[cfg(feature = "request-response")]
+use crate::commands::RequestResponseCommand;
+#[cfg(feature = "request-response")]
 use crate::events::ReqRespEvent;
+#[cfg(feature = "gossipsub")]
+use crate::{commands::GossipCommand, events::GossipEvent};
 use crate::{
     commands::{Command, QueryP2PStateCommand},
     events::GossipEvent,
@@ -132,6 +138,7 @@ pub struct P2P<S: ApplicationSigner> {
     swarm: Swarm<Behaviour<S>>,
 
     /// Event channel for the gossip.
+    #[cfg(feature = "gossipsub")]
     gossip_events: broadcast::Sender<GossipEvent>,
 
     /// Event channel for request/response.
@@ -141,6 +148,14 @@ pub struct P2P<S: ApplicationSigner> {
     /// Command channel for the swarm.
     commands: mpsc::Receiver<Command>,
 
+    /// Gossip command channel for handles.
+    #[cfg(feature = "gossipsub")]
+    gossip_commands: mpsc::Receiver<GossipCommand>,
+
+    /// Request-response command channel for handles.
+    #[cfg(feature = "request-response")]
+    request_response_commands: mpsc::Receiver<RequestResponseCommand>,
+
     /// ([`Clone`]able) Command channel for the swarm.
     ///
     /// # Implementation details
@@ -148,6 +163,10 @@ pub struct P2P<S: ApplicationSigner> {
     /// This is needed because we can't create new handles from the receiver, as
     /// only sender is [`Clone`]able.
     commands_sender: mpsc::Sender<Command>,
+
+    /// Gossip command sender for creating handles.
+    #[cfg(feature = "gossipsub")]
+    gossip_commands_sender: mpsc::Sender<GossipCommand>,
 
     /// Cancellation token for the swarm.
     cancellation_token: CancellationToken,
@@ -224,20 +243,88 @@ impl<S: ApplicationSigner> P2P<S> {
         }
 
         let channel_size = channel_size.unwrap_or(256);
-        let (gossip_events_tx, _gossip_events_rx) = broadcast::channel(channel_size);
         let (cmds_tx, cmds_rx) = mpsc::channel(64);
+
+        // Conditionally setup gossipsub channels
+        #[cfg(feature = "gossipsub")]
+        let (gossip_events_tx, _gossip_events_rx) = broadcast::channel(channel_size);
+        #[cfg(feature = "gossipsub")]
+        let (gossip_cmds_tx, gossip_cmds_rx) = mpsc::channel(64);
 
         Ok(Self {
             swarm,
-            gossip_events: gossip_events_tx,
             commands: cmds_rx,
             commands_sender: cmds_tx.clone(),
+
+            // Conditional gossipsub fields
+            #[cfg(feature = "gossipsub")]
+            gossip_events: gossip_events_tx,
+            #[cfg(feature = "gossipsub")]
+            gossip_commands: gossip_cmds_rx,
+            #[cfg(feature = "gossipsub")]
+            gossip_commands_sender: gossip_cmds_tx.clone(),
+
             cancellation_token: cancel,
             config: cfg,
             allowlist: HashSet::from_iter(allowlist),
             signer,
             addr_store: SharedAddrStore(Arc::new(Mutex::new(HashMap::new()))),
+            dial_manager: DialManager::new(),
         })
+    }
+
+    /// Creates a new P2P instance from the given configuration.
+    /// Returns P2P instance with ReqResp handle.
+    #[cfg(feature = "request-response")]
+    pub fn from_config(
+        cfg: P2PConfig,
+        cancel: CancellationToken,
+        mut swarm: Swarm<Behaviour>,
+        channel_size: Option<usize>,
+    ) -> P2PResult<(P2P, ReqRespHandle)> {
+        for addr in &cfg.listening_addrs {
+            swarm
+                .listen_on(addr.clone())
+                .map_err(ProtocolError::Listen)?;
+        }
+
+        let channel_size = channel_size.unwrap_or(256);
+        let (cmds_tx, cmds_rx) = mpsc::channel(64);
+
+        // Request-response setup
+        let (req_resp_event_tx, req_resp_event_rx) = mpsc::channel(64);
+        let (req_resp_cmds_tx, req_resp_cmds_rx) = mpsc::channel(64);
+
+        // Conditionally setup gossipsub channels
+        #[cfg(feature = "gossipsub")]
+        let (gossip_events_tx, _gossip_events_rx) = broadcast::channel(channel_size);
+        #[cfg(feature = "gossipsub")]
+        let (gossip_cmds_tx, gossip_cmds_rx) = mpsc::channel(64);
+
+        Ok((
+            Self {
+                swarm,
+                commands: cmds_rx,
+                commands_sender: cmds_tx.clone(),
+
+                // Request-response fields
+                req_resp_events: req_resp_event_tx,
+                request_response_commands: req_resp_cmds_rx,
+
+                // Conditional gossipsub fields
+                #[cfg(feature = "gossipsub")]
+                gossip_events: gossip_events_tx,
+                #[cfg(feature = "gossipsub")]
+                gossip_commands: gossip_cmds_rx,
+                #[cfg(feature = "gossipsub")]
+                gossip_commands_sender: gossip_cmds_tx.clone(),
+
+                cancellation_token: cancel,
+                config: cfg,
+                dial_manager: DialManager::new(),
+            },
+            ReqRespHandle::new(req_resp_event_rx, req_resp_cmds_tx),
+        ))
     }
 
     /// Returns the [`PeerId`] of the local node.
@@ -246,8 +333,12 @@ impl<S: ApplicationSigner> P2P<S> {
     }
 
     /// Creates new handle for gossip.
+    #[cfg(feature = "gossipsub")]
     pub fn new_gossip_handle(&self) -> GossipHandle {
-        GossipHandle::new(self.gossip_events.subscribe())
+        GossipHandle::new(
+            self.gossip_events.subscribe(),
+            self.gossip_commands_sender.clone(),
+        )
     }
 
     /// Creates new handle for commands.
@@ -440,17 +531,39 @@ impl<S: ApplicationSigner> P2P<S> {
     /// to advance handling of new messages, event or commands.
     pub async fn listen(mut self) {
         loop {
-            let result = select! {
-                _ = self.cancellation_token.cancelled() => {
+            // Prepare futures for each branch; disabled features use a pending future
+            let cancel_fut = self.cancellation_token.cancelled();
+            let swarm_fut = self.swarm.select_next_some();
+            let cmd_fut = self.commands.recv();
+
+            #[cfg(feature = "gossipsub")]
+            let gossip_fut = self.gossip_commands.recv();
+            #[cfg(not(feature = "gossipsub"))]
+            let gossip_fut = pending::<Option<GossipCommand>>();
+
+            #[cfg(feature = "request-response")]
+            let reqresp_fut = self.request_response_commands.recv();
+            #[cfg(not(feature = "request-response"))]
+            let reqresp_fut = pending::<Option<RequestResponseCommand>>();
+
+            // Select over all branches; disabled futures never complete
+            let result = tokio::select! {
+                _ = cancel_fut => {
                     debug!("Received cancellation, stopping listening");
                     return;
-                },
-                event = self.swarm.select_next_some() => {
+                }
+                event = swarm_fut => {
                     self.handle_swarm_event(event).await
                 }
-                Some(cmd) = self.commands.recv() => {
+                Some(cmd) = cmd_fut => {
                     self.handle_command(cmd).await
-                },
+                }
+                Some(gossip_cmd) = gossip_fut => {
+                    self.handle_gossip_command(gossip_cmd).await
+                }
+                Some(req_cmd) = reqresp_fut => {
+                    self.handle_request_response_command(req_cmd).await
+                }
             };
 
             if let Err(err) = result {
@@ -530,6 +643,7 @@ impl<S: ApplicationSigner> P2P<S> {
         event: <Behaviour<S> as NetworkBehaviour>::ToSwarm,
     ) -> P2PResult<()> {
         match event {
+            #[cfg(feature = "gossipsub")]
             BehaviourEvent::Gossipsub(event) => self.handle_gossip_event(event).await,
             #[cfg(feature = "request-response")]
             BehaviourEvent::RequestResponse(event) => {
@@ -541,6 +655,7 @@ impl<S: ApplicationSigner> P2P<S> {
     }
 
     /// Handles a [`GossipsubEvent`] from the swarm.
+    #[cfg(feature = "gossipsub")]
     async fn handle_gossip_event(&mut self, event: GossipsubEvent) -> P2PResult<()> {
         match event {
             GossipsubEvent::Message {
@@ -560,6 +675,7 @@ impl<S: ApplicationSigner> P2P<S> {
     /// If message is not [`GossipsubMsg`] or is not signed, the message will
     /// be rejected without propagation, otherwise if wasn't handled before, send an [`Event`] to
     /// handles, store it and reset timeout.
+    #[cfg(feature = "gossipsub")]
     #[instrument(skip(self, message), fields(sender = %message.source.unwrap()))]
     async fn handle_gossip_msg(
         &mut self,
@@ -599,76 +715,6 @@ impl<S: ApplicationSigner> P2P<S> {
     /// Handles command sent through channel by P2P implementation user.
     async fn handle_command(&mut self, cmd: Command) -> P2PResult<()> {
         match cmd {
-            Command::PublishMessage { data } => {
-                debug!("Publishing message");
-                trace!("Publishing message {:?}", &data);
-
-                let message_id = self
-                    .swarm
-                    .behaviour_mut()
-                    .gossipsub
-                    .publish(TOPIC.hash(), data)
-                    .inspect_err(|err| {
-                        match err {
-                            PublishError::Duplicate => {
-                                warn!(%err, "Failed to publish msg through gossipsub, message already exists");
-                            }
-                            PublishError::SigningError(signing_error) => {
-                                error!(%signing_error, "Failed to sign message");
-                            }
-                            PublishError::InsufficientPeers => {
-                                error!("Insufficient peers to publish message");
-                            }
-                            PublishError::MessageTooLarge => {
-                                error!("Message too large to publish");
-                            }
-                            PublishError::TransformFailed(error) => {
-                                error!(%error, "Failed to transform message");
-                            }
-                            PublishError::AllQueuesFull(num_peers_attempted) => {
-                                error!(%num_peers_attempted, "All queues full, dropping message");
-                            }
-                        }
-                    });
-
-                if message_id.is_ok() {
-                    debug!(message_id=%message_id.unwrap(), "Message published");
-                }
-
-                Ok(())
-            }
-            Command::RequestMessage {
-                app_public_key: app_pk,
-                data,
-            } => {
-                debug!(?app_pk, "Got request message");
-                trace!(?data, "Got request message");
-
-                let option_request_target_peer_id = self
-                    .swarm
-                    .behaviour()
-                    .setup
-                    .get_transport_id_by_application_key(&app_pk);
-
-                match option_request_target_peer_id {
-                    Some(request_target_peer_id) => {
-                        if self.swarm.is_connected(&request_target_peer_id) {
-                            self.swarm
-                                .behaviour_mut()
-                                .request_response
-                                .send_request(&request_target_peer_id, data);
-                            return Ok(());
-                        }
-                    }
-                    None => {
-                        error!(
-                            "Logic error: Request response is attempted on a peer we haven't done Setup yet."
-                        )
-                    }
-                }
-
-                Ok(())
-            }
             Command::ConnectToPeer {
                 app_public_key,
                 mut addresses,
@@ -702,10 +748,15 @@ impl<S: ApplicationSigner> P2P<S> {
                 Ok(())
             }
             Command::DisconnectFromPeer { peer_id } => {
-                match self.swarm.disconnect_peer_id(peer_id) {
-                    Ok(_) => info!(%peer_id, "Disconnect initiated"),
-                    Err(_) => warn!(%peer_id, "Failed to disconnect"),
+                debug!(%peer_id, "Got DisconnectFromPeer command");
+
+                if self.swarm.is_connected(&peer_id) {
+                    let _ = self.swarm.disconnect_peer_id(peer_id);
+                    debug!(%peer_id, "Initiated disconnect");
+                } else {
+                    debug!(%peer_id, "Peer not connected, nothing to disconnect");
                 }
+
                 Ok(())
             }
             Command::QueryP2PState(query) => match query {
@@ -757,6 +808,76 @@ impl<S: ApplicationSigner> P2P<S> {
                 }
             },
         }
+    }
+
+    /// Handles gossip command sent through GossipHandle.
+    #[cfg(feature = "gossipsub")]
+    async fn handle_gossip_command(&mut self, cmd: GossipCommand) -> P2PResult<()> {
+        debug!("Publishing message");
+        trace!("Publishing message {:?}", &cmd.data);
+
+        let message_id = self
+            .swarm
+            .behaviour_mut()
+            .gossipsub
+            .publish(TOPIC.hash(), cmd.data)
+            .inspect_err(|err| match err {
+                PublishError::Duplicate => {
+                    warn!(%err, "Failed to publish msg through gossipsub, message already exists");
+                }
+                PublishError::SigningError(signing_error) => {
+                    error!(%signing_error, "Failed to sign message");
+                }
+                PublishError::InsufficientPeers => {
+                    error!("Insufficient peers to publish message");
+                }
+                PublishError::MessageTooLarge => {
+                    error!("Message too large to publish");
+                }
+                PublishError::TransformFailed(error) => {
+                    error!(%error, "Failed to transform message");
+                }
+                PublishError::AllQueuesFull(num_peers_attempted) => {
+                    error!(%num_peers_attempted, "All queues full, dropping message");
+                }
+            });
+
+        if message_id.is_ok() {
+            debug!(message_id=%message_id.unwrap(), "Message published");
+        }
+
+        Ok(())
+    }
+
+    /// Handles request-response command sent through ReqRespHandle.
+    #[cfg(feature = "request-response")]
+    async fn handle_request_response_command(
+        &mut self,
+        cmd: RequestResponseCommand,
+    ) -> P2PResult<()> {
+        let request_target_peer_id = &cmd.peer_id;
+        debug!(%request_target_peer_id, "Got request message");
+        trace!(?cmd.data, "Got request message");
+
+        if self.swarm.is_connected(request_target_peer_id) {
+            self.swarm
+                .behaviour_mut()
+                .request_response
+                .send_request(request_target_peer_id, cmd.data);
+            return Ok(());
+        }
+
+        // TODO(Arniiiii) : rewrite this part so it sends to gossipsub instead of the
+        // manual floodsub via manual request-response to everyone.
+        let connected_peers = self.swarm.connected_peers().cloned().collect::<Vec<_>>();
+        for peer in connected_peers {
+            self.swarm
+                .behaviour_mut()
+                .request_response
+                .send_request(&peer, cmd.data.clone());
+        }
+
+        Ok(())
     }
 
     /// Handles [`RequestResponseEvent`] from the swarm.

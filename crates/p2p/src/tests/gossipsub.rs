@@ -3,6 +3,7 @@
 use std::time::Duration;
 
 use anyhow::bail;
+use futures::SinkExt;
 use tokio::time::sleep;
 
 use super::common::Setup;
@@ -23,11 +24,12 @@ async fn gossip_basic() -> anyhow::Result<()> {
     let _ = sleep(Duration::from_secs(1)).await;
 
     user_handles[0]
-        .command
-        .send_command(Command::PublishMessage {
+        .gossip
+        .send(GossipCommand {
             data: ("hello").into(),
         })
-        .await;
+        .await
+        .expect("Failed to send gossip message");
 
     match user_handles[1].gossip.next_event().await {
         Ok(event) => match event {

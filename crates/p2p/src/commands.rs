@@ -6,24 +6,6 @@ use tokio::sync::oneshot;
 /// Commands that users can send to the P2P node.
 #[derive(Debug)]
 pub enum Command {
-    /// Publishes message through gossip sub network of peers.
-    PublishMessage {
-        /// Message payload in raw bytes.
-        ///
-        /// The user is responsible for properly serializing/deserializing the data.
-        data: Vec<u8>,
-    },
-
-    /// Requests some message directly from other operator by public Key.
-    RequestMessage {
-        /// Libp2p application [`PublicKey`] of target peer.
-        app_public_key: PublicKey,
-        /// Message payload in raw bytes.
-        ///
-        /// The user is responsible for properly serializing/deserializing the data.
-        data: Vec<u8>,
-    },
-
     /// Dials a set of address directly.
     ConnectToPeer {
         /// Application public key to associate with the dial sequence.
@@ -40,6 +22,31 @@ pub enum Command {
 
     /// Directly queries P2P state (doesn't produce events).
     QueryP2PState(QueryP2PStateCommand),
+}
+
+/// Command to publish a message through gossipsub.
+#[cfg(feature = "gossipsub")]
+#[derive(Debug)]
+pub struct GossipCommand {
+    /// Message payload in raw bytes.
+    ///
+    /// The user is responsible for properly serializing/deserializing the data.
+    pub data: Vec<u8>,
+}
+
+/// Command to request a message from a specific peer.
+#[cfg(feature = "request-response")]
+#[derive(Debug)]
+pub struct RequestResponseCommand {
+    /// Libp2p [`PeerId`] of target peer.
+    ///
+    /// Note: [`PeerId`] can be created from public key of corresponding peer via
+    /// `the_pubkey.to_peer_id()`.
+    pub peer_id: PeerId,
+    /// Message payload in raw bytes.
+    ///
+    /// The user is responsible for properly serializing/deserializing the data.
+    pub data: Vec<u8>,
 }
 
 /// Commands to directly query P2P state information.
