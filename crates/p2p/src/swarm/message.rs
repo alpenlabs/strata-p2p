@@ -81,9 +81,7 @@ impl SignedMessage {
             serde_json::to_vec(&message).map_err(|e| SetupUpgradeError::JsonCodec(e.into()))?;
         let signature = signer
             .sign(&message_bytes, app_public_key)
-            .map_err(SetupUpgradeError::SignedMessageCreation)?
-            .try_into()
-            .map_err(|e: Vec<u8>| SetupUpgradeError::InvalidSignatureSize { actual: e.len() })?;
+            .map_err(SetupUpgradeError::SignedMessageCreation)?;
 
         Ok(Self {
             message: message_bytes,

@@ -30,8 +30,8 @@ impl ApplicationSigner for BadApplicationSigner {
         &self,
         _message: &[u8],
         _app_public_key: PublicKey,
-    ) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
-        let signature = Vec::from([0x02; 32]);
+    ) -> Result<[u8; 64], Box<dyn std::error::Error + Send + Sync>> {
+        let signature = [0x02; 64];
         Ok(signature)
     }
 }

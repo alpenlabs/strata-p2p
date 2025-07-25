@@ -54,10 +54,11 @@ impl ApplicationSigner for MockApplicationSigner {
         &self,
         message: &[u8],
         _app_public_key: PublicKey,
-    ) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<[u8; 64], Box<dyn std::error::Error + Send + Sync>> {
         // Sign with the stored keypair
         let signature = self.app_keypair.sign(message)?;
-        Ok(signature)
+        let sign_array: [u8; 64] = signature.try_into().unwrap();
+        Ok(sign_array)
     }
 }
 

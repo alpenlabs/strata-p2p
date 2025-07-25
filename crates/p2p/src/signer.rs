@@ -18,5 +18,5 @@ pub trait ApplicationSigner: Debug + Send + Sync + Clone + 'static {
         &self,
         message: &[u8],
         app_public_key: PublicKey,
-    ) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>>;
+    ) -> Result<[u8; 64], Box<dyn std::error::Error + Send + Sync>>;
 }
