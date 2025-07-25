@@ -1,7 +1,7 @@
 //! Swarm implementation for P2P.
 
 use std::{
-    collections::HashSet,
+    collections::{HashSet, VecDeque},
     sync::LazyLock,
     time::{Duration, Instant},
 };
@@ -114,8 +114,8 @@ pub struct P2PConfig {
     /// The default is [`DEFAULT_CONNECTION_CHECK_INTERVAL`].
     pub connection_check_interval: Option<Duration>,
 
-    /// The node's address.
-    pub listening_addr: Multiaddr,
+    /// The node's listening addresses.
+    pub listening_addrs: Vec<Multiaddr>,
 
     /// Initial list of nodes to connect to at startup.
     pub connect_to: Vec<Multiaddr>,
@@ -179,9 +179,11 @@ impl<S: ApplicationSigner> P2P<S> {
         channel_size: Option<usize>,
         signer: S,
     ) -> P2PResult<P2PWithReqRespHandle<S>> {
-        swarm
-            .listen_on(cfg.listening_addr.clone())
-            .map_err(ProtocolError::Listen)?;
+        for addr in &cfg.listening_addrs {
+            swarm
+                .listen_on(addr.clone())
+                .map_err(ProtocolError::Listen)?;
+        }
 
         let channel_size = channel_size.unwrap_or(256);
         let (gossip_events_tx, _gossip_events_rx) = broadcast::channel(channel_size);
@@ -214,10 +216,12 @@ impl<S: ApplicationSigner> P2P<S> {
         allowlist: Vec<PublicKey>,
         channel_size: Option<usize>,
         signer: S,
-    ) -> P2PResult<P2P<S>> {
-        swarm
-            .listen_on(cfg.listening_addr.clone())
-            .map_err(ProtocolError::Listen)?;
+    ) -> P2PResult<P2P> {
+        for addr in &cfg.listening_addrs {
+            swarm
+                .listen_on(addr.clone())
+                .map_err(ProtocolError::Listen)?;
+        }
 
         let channel_size = channel_size.unwrap_or(256);
         let (gossip_events_tx, _gossip_events_rx) = broadcast::channel(channel_size);
@@ -417,10 +421,10 @@ impl<S: ApplicationSigner> P2P<S> {
 
     /// Dials the given address and maps the resulting connection ID to the dial sequence ID.
     /// Used for both initial and retry dial attempts.
-    async fn dial_and_map(&mut self, addr: Multiaddr, app_pk: PublicKey) {
+    async fn dial_and_map(&mut self, addr: Multiaddr, app_public_key: PublicKey) {
         let dial_opts = DialOpts::unknown_peer_id().address(addr.clone()).build();
         let conn_id = dial_opts.connection_id();
-        self.dial_manager.map_connid(conn_id, app_pk).await;
+        self.dial_manager.map_connid(conn_id, app_public_key).await;
         match self.swarm.dial(dial_opts) {
             Ok(()) => info!(address = %addr, "Dialing libp2p peer"),
             Err(err) => error!(address = %addr, error = %err, "Could not connect to peer"),
@@ -463,33 +467,55 @@ impl<S: ApplicationSigner> P2P<S> {
     ) -> P2PResult<()> {
         match event {
             SwarmEvent::Behaviour(event) => self.handle_behaviour_event(event).await,
+            SwarmEvent::ConnectionEstablished { .. }
+            | SwarmEvent::OutgoingConnectionError { .. } => {
+                self.handle_connection_event(event).await
+            }
+            _ => Ok(()),
+        }
+    }
+
+    /// Handles connection-related events (both successful and failed connections).
+    async fn handle_connection_event(
+        &mut self,
+        event: SwarmEvent<BehaviourEvent>,
+    ) -> P2PResult<()> {
+        match event {
             SwarmEvent::ConnectionEstablished {
                 peer_id,
                 connection_id,
                 ..
             } => {
-                if let Some(app_pk) = self
+                if let Some(app_public_key) = self
                     .dial_manager
-                    .get_app_pk_by_connection_id(&connection_id)
+                    .get_app_public_key_by_connection_id(&connection_id)
                     .await
                 {
-                    self.dial_manager.remove_queue(&app_pk).await;
+                    self.dial_manager.remove_queue(&app_public_key).await;
                     self.dial_manager.remove_connid(&connection_id).await;
-                    info!(peer_id = %peer_id, "connected to peerx");
+                    info!(peer_id = %peer_id, "connected to peer");
                 }
                 Ok(())
             }
-            SwarmEvent::OutgoingConnectionError { connection_id, .. } => {
-                if let Some(app_pk) = self
+            SwarmEvent::OutgoingConnectionError {
+                connection_id,
+                error,
+                ..
+            } => {
+                if let Some(app_public_key) = self
                     .dial_manager
-                    .get_app_pk_by_connection_id(&connection_id)
+                    .get_app_public_key_by_connection_id(&connection_id)
                     .await
                 {
+                    warn!(app_public_key = ?app_public_key, error = %error, "connection failed");
                     self.dial_manager.remove_connid(&connection_id).await;
-                    if let Some(next_addr) = self.dial_manager.pop_next_addr(&app_pk).await {
-                        self.dial_and_map(next_addr, app_pk).await;
+                    if let Some(next_addr) = self.dial_manager.pop_next_addr(&app_public_key).await
+                    {
+                        info!(next_addr = %next_addr, app_public_key = ?app_public_key, "retrying with next address");
+                        self.dial_and_map(next_addr, app_public_key).await;
                     } else {
-                        self.dial_manager.remove_queue(&app_pk).await;
+                        warn!(app_public_key = ?app_public_key, "no more addresses to try, removing queue");
+                        self.dial_manager.remove_queue(&app_public_key).await;
                     }
                 }
                 Ok(())
@@ -643,26 +669,35 @@ impl<S: ApplicationSigner> P2P<S> {
 
                 Ok(())
             }
-            Command::ConnectToAddresses { app_pk, addresses } => {
+            Command::ConnectToPeer {
+                app_public_key,
+                mut addresses,
+            } => {
                 if addresses.is_empty() {
-                    info!("No addresses provided to dial");
+                    warn!("No addresses provided to dial");
                     return Ok(());
                 }
-                let addr = addresses[0].clone();
-                // whitelist the peer
-                self.config.connect_to.push(addr.clone());
-                let (quic_addrs, other_addrs): (Vec<_>, Vec<_>) = addresses[1..]
-                    .iter()
-                    .cloned()
-                    .partition(|addr| addr.protocol_stack().any(|proto| proto.contains("quic")));
 
-                let mut prioritized = quic_addrs;
-                prioritized.extend(other_addrs);
+                if self.dial_manager.has_app_public_key(&app_public_key).await {
+                    error!(
+                        "Already dialing peer with app_public_key: {:?}",
+                        app_public_key
+                    );
+                    return Ok(());
+                }
 
+                addresses
+                    .sort_by_key(|addr| !addr.protocol_stack().any(|proto| proto.contains("quic")));
+
+                let mut queue = VecDeque::from(addresses);
+
+                let first_addr = queue.pop_front().unwrap(); // can use unwrap() here thus we have at least one element
+
+                self.config.connect_to.push(first_addr.clone());
                 self.dial_manager
-                    .insert_queue(app_pk.clone(), prioritized)
+                    .insert_queue(app_public_key.clone(), queue)
                     .await;
-                self.dial_and_map(addr, app_pk).await;
+                self.dial_and_map(first_addr, app_public_key).await;
 
                 Ok(())
             }

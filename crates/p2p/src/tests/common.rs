@@ -76,10 +76,14 @@ impl<S: ApplicationSigner> User<S> {
         connect_to: Vec<Multiaddr>,
         local_addr: Multiaddr,
         allowlist: Vec<PublicKey>,
+        listening_addrs: Vec<Multiaddr>,
         cancel: CancellationToken,
         signer: S,
     ) -> anyhow::Result<Self> {
-        debug!(%local_addr, "Creating new user with local address");
+        debug!(
+            ?listening_addrs,
+            "Creating new user with listening addresses"
+        );
 
         let config = P2PConfig {
             app_public_key: app_keypair.public(),
@@ -90,6 +94,8 @@ impl<S: ApplicationSigner> User<S> {
             general_timeout: None,
             connection_check_interval: None,
             listening_addr: local_addr,
+            listening_addrs,
+            allowlist,
             connect_to,
             #[cfg(feature = "request-response")]
             channel_timeout: None,
@@ -176,6 +182,7 @@ impl Setup {
                 other_addrs,
                 addr.clone(),
                 other_app_pk,
+                vec![addr.clone()],
                 cancel.child_token(),
                 MockApplicationSigner {
                     app_keypair: app_keypair.clone(),

@@ -28,13 +28,13 @@ async fn test_quic_and_tcp_connectivity_ipv4_ipv6() {
     let peer_id_a = keypair_a.public().to_peer_id();
     let peer_id_b = keypair_b.public().to_peer_id();
 
-    let mut swarm_a = make_swarm(&keypair_a, vec![peer_id_b], tcp4_base.clone());
+    let mut swarm_a = make_swarm(&keypair_a, vec![peer_id_b], vec![tcp4_base.clone()]);
     swarm_a.listen_on(tcp4_base.clone()).unwrap();
     swarm_a.listen_on(quic4_base.clone()).unwrap();
     swarm_a.listen_on(tcp6_base.clone()).unwrap();
     swarm_a.listen_on(quic6_base.clone()).unwrap();
 
-    let mut swarm_b = make_swarm(&keypair_b, vec![peer_id_a], tcp4_base.clone());
+    let mut swarm_b = make_swarm(&keypair_b, vec![peer_id_a], vec![tcp4_base.clone()]);
 
     let (tcp4_addr, quic4_addr, tcp6_addr, quic6_addr) = {
         let mut tcp4_addr = None;

@@ -25,9 +25,9 @@ pub enum Command {
     },
 
     /// Dials a set of address directly.
-    ConnectToAddresses {
+    ConnectToPeer {
         /// Application public key to associate with the dial sequence.
-        app_pk: PublicKey,
+        app_public_key: PublicKey,
         /// List of multiaddresses to try dialing.
         addresses: Vec<Multiaddr>,
     },
