@@ -3,7 +3,10 @@
 use std::{sync::Once, time::Duration};
 
 use futures::future::join_all;
-use libp2p::{Multiaddr, PeerId, build_multiaddr, identity::Keypair};
+use libp2p::{
+    Multiaddr, PeerId, build_multiaddr,
+    identity::{Keypair, PublicKey},
+};
 use rand::Rng;
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use tracing::debug;
@@ -15,10 +18,7 @@ use crate::swarm::handle::GossipHandle;
 use crate::swarm::handle::ReqRespHandle;
 use crate::{
     signer::ApplicationSigner,
-    swarm::{
-        self, P2P, P2PConfig,
-        handle::{CommandHandle, GossipHandle},
-    },
+    swarm::{self, P2P, P2PConfig, handle::CommandHandle},
 };
 
 /// Only attempt to start tracing once
@@ -76,7 +76,6 @@ impl<S: ApplicationSigner> User<S> {
         app_keypair: Keypair,
         transport_keypair: Keypair,
         connect_to: Vec<Multiaddr>,
-        local_addr: Multiaddr,
         allowlist: Vec<PublicKey>,
         listening_addrs: Vec<Multiaddr>,
         cancel: CancellationToken,
@@ -95,9 +94,7 @@ impl<S: ApplicationSigner> User<S> {
             dial_timeout: None,
             general_timeout: None,
             connection_check_interval: None,
-            listening_addr: local_addr,
             listening_addrs,
-            allowlist,
             connect_to,
             #[cfg(feature = "request-response")]
             channel_timeout: None,
@@ -111,15 +108,16 @@ impl<S: ApplicationSigner> User<S> {
             .unwrap_or(false);
 
         let swarm = if use_inmemory {
-            swarm::with_inmemory_transport(&config)?
+            swarm::with_inmemory_transport(&config, signer.clone())?
         } else {
-            swarm::with_default_transport(&config)?
+            swarm::with_default_transport(&config, signer.clone())?
         };
 
         #[cfg(feature = "request-response")]
-        let (p2p, reqresp) = P2P::from_config(config, cancel, swarm, allowlist, None, signer)?;
+        let (p2p, reqresp) =
+            P2P::from_config(config, cancel, swarm, allowlist, None, signer.clone())?;
         #[cfg(not(feature = "request-response"))]
-        let p2p = P2P::from_config(config, cancel, swarm, None, None, signer)?;
+        let p2p = P2P::from_config(config, cancel, swarm, None, None, signer.clone())?;
         #[cfg(feature = "gossipsub")]
         let gossip = p2p.new_gossip_handle();
         let command = p2p.new_command_handle();
@@ -145,13 +143,8 @@ pub(crate) struct UserHandle {
     #[cfg(feature = "request-response")]
     pub(crate) reqresp: ReqRespHandle,
     pub(crate) command: CommandHandle,
-<<<<<<< HEAD
-    pub(crate) peer_id: PeerId,
     pub(crate) app_keypair: Keypair,
     pub(crate) transport_keypair: Keypair,
-=======
-    pub(crate) _kp: Keypair,
->>>>>>> 52bb331 (add sink trait and feature gate all neccessary places)
 }
 
 pub(crate) struct Setup {
@@ -201,7 +194,6 @@ impl Setup {
                 app_keypair.clone(),
                 transport_keypair.clone(),
                 other_addrs,
-                addr.clone(),
                 other_app_pk,
                 vec![addr.clone()],
                 cancel.child_token(),
@@ -293,12 +285,8 @@ impl Setup {
                 reqresp: user.reqresp,
                 command: user.command,
                 peer_id,
-<<<<<<< HEAD
                 app_keypair: user.app_keypair,
                 transport_keypair: user.transport_keypair,
-=======
-                _kp: user.kp,
->>>>>>> 52bb331 (add sink trait and feature gate all neccessary places)
             });
         }
 

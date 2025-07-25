@@ -33,7 +33,7 @@ libp2p = { version = "0.55.0", features = [
   "ping",
   "yamux",
   "identify",
-  "serde"
+  "serde",
   "quic",
 ] }
 thiserror = "2.0.11"

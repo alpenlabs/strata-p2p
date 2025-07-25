@@ -8,7 +8,7 @@ use tracing::info;
 
 use crate::{
     commands::{Command, QueryP2PStateCommand},
-    tests::common::User,
+    tests::common::{MockApplicationSigner, User},
 };
 
 #[tokio::test]
@@ -26,21 +26,31 @@ async fn test_quic_and_tcp_connectivity_ipv4_ipv6() {
     let cancel = CancellationToken::new();
 
     let user_a = User::new(
-        keypair_a.clone(),
-        vec![peer_id_b],
-        vec![],
+        keypair_a.clone(),        // app_keypair
+        keypair_a.clone(),        // transport_keypair
+        vec![],                   // connect_to
+        vec![keypair_b.public()], // allowlist
         vec![
             tcp4_base.clone(),
             quic4_base.clone(),
             tcp6_base.clone(),
             quic6_base.clone(),
-        ],
+        ], // listening_addrs
         cancel.clone(),
+        MockApplicationSigner::new(keypair_a.clone()),
     )
     .expect("Failed to create listening node A");
 
-    let user_b = User::new(keypair_b, vec![peer_id_a], vec![], vec![], cancel.clone())
-        .expect("Failed to create connecting node B");
+    let user_b = User::new(
+        keypair_b.clone(),        // app_keypair
+        keypair_b.clone(),        // transport_keypair
+        vec![],                   // connect_to
+        vec![keypair_a.public()], // allowlist
+        vec![],                   // listening_addrs
+        cancel.clone(),
+        MockApplicationSigner::new(keypair_b.clone()),
+    )
+    .expect("Failed to create connecting node B");
 
     let command_a = user_a.command.clone();
     let command_b = user_b.command.clone();
@@ -92,7 +102,7 @@ async fn test_quic_and_tcp_connectivity_ipv4_ipv6() {
 
         let (tx, rx) = tokio::sync::oneshot::channel();
         let is_connected_query = QueryP2PStateCommand::IsConnected {
-            peer_id: peer_id_a,
+            app_public_key: keypair_a.public(),
             response_sender: tx,
         };
         command_b
@@ -110,7 +120,7 @@ async fn test_quic_and_tcp_connectivity_ipv4_ipv6() {
         tokio::time::sleep(Duration::from_millis(200)).await;
         let (tx, rx) = tokio::sync::oneshot::channel();
         let is_connected_query = QueryP2PStateCommand::IsConnected {
-            peer_id: peer_id_a,
+            app_public_key: keypair_a.public(),
             response_sender: tx,
         };
         command_b

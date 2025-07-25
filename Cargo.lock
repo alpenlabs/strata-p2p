@@ -2839,6 +2839,7 @@ name = "strata-p2p"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "asynchronous-codec",
  "crossbeam-deque",
  "dashmap",
  "futures",

@@ -22,11 +22,14 @@ use tracing::warn;
 
 #[cfg(feature = "request-response")]
 use crate::commands::RequestResponseCommand;
-use crate::commands::{Command, QueryP2PStateCommand};
 #[cfg(feature = "request-response")]
 use crate::events::ReqRespEvent;
 #[cfg(feature = "gossipsub")]
 use crate::{commands::GossipCommand, events::GossipEvent};
+use crate::{
+    commands::{Command, QueryP2PStateCommand},
+    swarm::PublicKey,
+};
 
 /// The receiver lagged too far behind. Attempting to receive again will
 /// return the oldest message still retained by the channel.

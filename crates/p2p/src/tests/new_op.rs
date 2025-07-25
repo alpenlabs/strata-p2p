@@ -63,7 +63,6 @@ async fn gossip_new_user() -> anyhow::Result<()> {
         new_user_app_keypair.clone(),
         new_user_transport_keypair.clone(),
         connect_addrs.clone(), // Connect directly to existing users
-        local_addr.clone(),
         Vec::new(),
         vec![local_addr.clone()],
         cancel.child_token(),
@@ -94,10 +93,10 @@ async fn gossip_new_user() -> anyhow::Result<()> {
             index,
             addr = %addr,
             old_peer = %user_handles[index].peer_id,
-            new_peer = %new_user.kp.public().to_peer_id(),
+            new_peer = %new_user.app_keypair.public().to_peer_id(),
             "Old user connecting to new user"
         );
-        let app_public_key = user_handles[index]._kp.public();
+        let app_public_key = user_handles[index].app_keypair.public();
         user_handles[index]
             .command
             .send_command(Command::ConnectToPeer {

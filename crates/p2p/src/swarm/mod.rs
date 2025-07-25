@@ -24,10 +24,7 @@ use libp2p::{
     },
     identity::{Keypair, PublicKey},
     noise,
-    swarm::{
-        NetworkBehaviour, SwarmEvent,
-        dial_opts::{DialOpts, PeerCondition},
-    },
+    swarm::{NetworkBehaviour, SwarmEvent, dial_opts::DialOpts},
     yamux,
 };
 #[cfg(feature = "request-response")]
@@ -47,7 +44,6 @@ use crate::events::ReqRespEvent;
 use crate::{commands::GossipCommand, events::GossipEvent};
 use crate::{
     commands::{Command, QueryP2PStateCommand},
-    events::GossipEvent,
     signer::ApplicationSigner,
     swarm::{dial_manager::DialManager, setup::events::SetupBehaviourEvent},
 };
@@ -204,15 +200,33 @@ impl<S: ApplicationSigner> P2P<S> {
         }
 
         let channel_size = channel_size.unwrap_or(256);
-        let (gossip_events_tx, _gossip_events_rx) = broadcast::channel(channel_size);
-        let (req_resp_event_tx, req_resp_event_rx) = mpsc::channel(64);
         let (cmds_tx, cmds_rx) = mpsc::channel(64);
+
+        // Request-response setup
+        let (req_resp_event_tx, req_resp_event_rx) = mpsc::channel(64);
+        let (req_resp_cmds_tx, req_resp_cmds_rx) = mpsc::channel(64);
+
+        // Conditionally setup gossipsub channels
+        #[cfg(feature = "gossipsub")]
+        let (gossip_events_tx, _gossip_events_rx) = broadcast::channel(channel_size);
+        #[cfg(feature = "gossipsub")]
+        let (gossip_cmds_tx, gossip_cmds_rx) = mpsc::channel(64);
 
         Ok((
             Self {
                 swarm,
-                gossip_events: gossip_events_tx,
+
+                // Request-response fields
                 req_resp_events: req_resp_event_tx,
+                request_response_commands: req_resp_cmds_rx,
+                // Conditional gossipsub fields
+                #[cfg(feature = "gossipsub")]
+                gossip_events: gossip_events_tx,
+                #[cfg(feature = "gossipsub")]
+                gossip_commands: gossip_cmds_rx,
+                #[cfg(feature = "gossipsub")]
+                gossip_commands_sender: gossip_cmds_tx.clone(),
+
                 commands: cmds_rx,
                 commands_sender: cmds_tx.clone(),
                 cancellation_token: cancel,
@@ -221,7 +235,7 @@ impl<S: ApplicationSigner> P2P<S> {
                 signer,
                 dial_manager: DialManager::new(),
             },
-            ReqRespHandle::new(req_resp_event_rx),
+            ReqRespHandle::new(req_resp_event_rx, req_resp_cmds_tx),
         ))
     }
 
@@ -270,60 +284,6 @@ impl<S: ApplicationSigner> P2P<S> {
             addr_store: SharedAddrStore(Arc::new(Mutex::new(HashMap::new()))),
             dial_manager: DialManager::new(),
         })
-    }
-
-    /// Creates a new P2P instance from the given configuration.
-    /// Returns P2P instance with ReqResp handle.
-    #[cfg(feature = "request-response")]
-    pub fn from_config(
-        cfg: P2PConfig,
-        cancel: CancellationToken,
-        mut swarm: Swarm<Behaviour>,
-        channel_size: Option<usize>,
-    ) -> P2PResult<(P2P, ReqRespHandle)> {
-        for addr in &cfg.listening_addrs {
-            swarm
-                .listen_on(addr.clone())
-                .map_err(ProtocolError::Listen)?;
-        }
-
-        let channel_size = channel_size.unwrap_or(256);
-        let (cmds_tx, cmds_rx) = mpsc::channel(64);
-
-        // Request-response setup
-        let (req_resp_event_tx, req_resp_event_rx) = mpsc::channel(64);
-        let (req_resp_cmds_tx, req_resp_cmds_rx) = mpsc::channel(64);
-
-        // Conditionally setup gossipsub channels
-        #[cfg(feature = "gossipsub")]
-        let (gossip_events_tx, _gossip_events_rx) = broadcast::channel(channel_size);
-        #[cfg(feature = "gossipsub")]
-        let (gossip_cmds_tx, gossip_cmds_rx) = mpsc::channel(64);
-
-        Ok((
-            Self {
-                swarm,
-                commands: cmds_rx,
-                commands_sender: cmds_tx.clone(),
-
-                // Request-response fields
-                req_resp_events: req_resp_event_tx,
-                request_response_commands: req_resp_cmds_rx,
-
-                // Conditional gossipsub fields
-                #[cfg(feature = "gossipsub")]
-                gossip_events: gossip_events_tx,
-                #[cfg(feature = "gossipsub")]
-                gossip_commands: gossip_cmds_rx,
-                #[cfg(feature = "gossipsub")]
-                gossip_commands_sender: gossip_cmds_tx.clone(),
-
-                cancellation_token: cancel,
-                config: cfg,
-                dial_manager: DialManager::new(),
-            },
-            ReqRespHandle::new(req_resp_event_rx, req_resp_cmds_tx),
-        ))
     }
 
     /// Returns the [`PeerId`] of the local node.
@@ -590,7 +550,7 @@ impl<S: ApplicationSigner> P2P<S> {
     /// Handles connection-related events (both successful and failed connections).
     async fn handle_connection_event(
         &mut self,
-        event: SwarmEvent<BehaviourEvent>,
+        event: SwarmEvent<BehaviourEvent<S>>,
     ) -> P2PResult<()> {
         match event {
             SwarmEvent::ConnectionEstablished {
@@ -1088,9 +1048,9 @@ pub fn with_inmemory_transport<S: ApplicationSigner>(
 
 /// Constructs a `Swarm<Behaviour>` from `P2PConfig` using QUIC with TCP fallback when available, or
 /// TCP only otherwise.
-pub fn with_default_transport(
+pub fn with_default_transport<S: ApplicationSigner>(
     config: &P2PConfig,
-    signer: impl ApplicationSigner,
+    signer: S,
 ) -> P2PResult<Swarm<Behaviour<S>>> {
     let builder = init_swarm!(config);
     #[cfg(feature = "quic")]
@@ -1102,7 +1062,14 @@ pub fn with_default_transport(
         )
         .unwrap()
         .with_quic()
-        .with_behaviour(|_| Behaviour::new(PROTOCOL_NAME, &config.keypair, &config.allowlist))
+        .with_behaviour(|_| {
+            Behaviour::new(
+                PROTOCOL_NAME,
+                &config.transport_keypair,
+                &config.app_public_key,
+                signer,
+            )
+        })
         .map_err(|e| ProtocolError::BehaviourInitialization(e.into()))?
         .with_swarm_config(|c| c.with_idle_connection_timeout(Duration::from_secs(60)))
         .build();
