@@ -53,7 +53,10 @@ use crate::{
 };
 
 mod behavior;
+
+#[cfg(feature = "request-response")]
 mod codec_raw;
+
 pub mod errors;
 pub mod handle;
 mod message;
