@@ -15,6 +15,7 @@ pub enum Command {
     },
 
     /// Requests some message directly from other operator by public Key.
+    #[cfg(feature = "request-response")]
     RequestMessage {
         /// Libp2p application [`PublicKey`] of target peer.
         app_public_key: PublicKey,

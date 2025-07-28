@@ -876,6 +876,7 @@ libp2p::kad::InboundRequest::GetRecord
 
                 Ok(())
             }
+            #[cfg(feature = "request-response")]
             Command::RequestMessage {
                 app_public_key: app_pk,
                 data,

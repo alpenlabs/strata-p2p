@@ -2,6 +2,10 @@
 
 use std::collections::HashSet;
 
+#[cfg(feature = "request-response")]
+use libp2p::request_response::{
+    Behaviour as RequestResponse, Config as RequestResponseConfig, ProtocolSupport,
+};
 use libp2p::{
     PeerId, StreamProtocol,
     gossipsub::{
@@ -11,17 +15,17 @@ use libp2p::{
     identify::{Behaviour as Identify, Config},
     identity::Keypair,
     kad,
-    request_response::{
-        Behaviour as RequestResponse, Config as RequestResponseConfig, ProtocolSupport,
-    },
     swarm::NetworkBehaviour,
 };
 
-use super::{MAX_TRANSMIT_SIZE, TOPIC, codec_raw};
+#[cfg(feature = "request-response")]
+use super::codec_raw;
+use super::{MAX_TRANSMIT_SIZE, TOPIC};
 use crate::{signer::ApplicationSigner, swarm::setup::behavior::SetupBehaviour};
 
 /// Alias for request-response behaviour with messages serialized by using
 /// homebrewed codec implementation.
+#[cfg(feature = "request-response")]
 pub(crate) type RequestResponseRawBehaviour = RequestResponse<codec_raw::Codec>;
 
 /// Composite behaviour which consists of other ones used by swarm in P2P
@@ -36,6 +40,7 @@ pub struct Behaviour<S: ApplicationSigner> {
     pub identify: Identify,
 
     /// Request-response model for recursive discovery of lost or skipped info.
+    #[cfg(feature = "request-response")]
     pub request_response: RequestResponseRawBehaviour,
 
     /// Gossipsub - pub/sub model for messages distribution.
@@ -97,6 +102,7 @@ impl<S: ApplicationSigner> Behaviour<S> {
                 WhitelistSubscriptionFilter(filter),
             )
             .unwrap(),
+            #[cfg(feature = "request-response")]
             request_response: RequestResponseRawBehaviour::new(
                 [(StreamProtocol::new(protocol_name), ProtocolSupport::Full)],
                 RequestResponseConfig::default(),
