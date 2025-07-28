@@ -702,9 +702,11 @@ impl<S: ApplicationSigner> P2P<S> {
 
                 Ok(())
             }
-            Command::DisconnectFromPeer { peer_public_key } => {
-                debug!(?peer_public_key, "Got DisconnectFromPeer command");
-                let peer_id = peer_public_key.to_peer_id();
+            Command::DisconnectFromPeer {
+                target_app_public_key,
+            } => {
+                debug!(?target_app_public_key, "Got DisconnectFromPeer command");
+                let peer_id = target_app_public_key.to_peer_id();
                 if self.swarm.is_connected(&peer_id) {
                     let _ = self.swarm.disconnect_peer_id(peer_id);
                     debug!(%peer_id, "Initiated disconnect");
@@ -821,7 +823,7 @@ impl<S: ApplicationSigner> P2P<S> {
         &mut self,
         cmd: RequestResponseCommand,
     ) -> P2PResult<()> {
-        let request_target_peer_id = cmd.peer_public_key.to_peer_id();
+        let request_target_peer_id = cmd.target_app_public_key.to_peer_id();
         debug!(%request_target_peer_id, "Got request message");
         trace!(?cmd.data, "Got request message");
 

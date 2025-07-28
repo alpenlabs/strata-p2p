@@ -112,7 +112,7 @@ async fn test_quic_and_tcp_connectivity_ipv4_ipv6() {
 
         command_b
             .send_command(Command::DisconnectFromPeer {
-                peer_public_key: keypair_a.public(),
+                target_app_public_key: keypair_a.public(),
             })
             .await;
         info!(%addr, "Disconnect requested");

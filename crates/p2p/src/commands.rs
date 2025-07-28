@@ -17,7 +17,7 @@ pub enum Command {
     /// Disconnects from a peer.
     DisconnectFromPeer {
         /// Libp2p [`PublicKey`] of target peer.
-        peer_public_key: PublicKey,
+        target_app_public_key: PublicKey,
     },
 
     /// Directly queries P2P state (doesn't produce events).
@@ -39,7 +39,7 @@ pub struct GossipCommand {
 #[derive(Debug)]
 pub struct RequestResponseCommand {
     /// Libp2p [`PublicKey`] of target peer.
-    pub peer_public_key: PublicKey,
+    pub target_app_public_key: PublicKey,
     /// Message payload in raw bytes.
     ///
     /// The user is responsible for properly serializing/deserializing the data.

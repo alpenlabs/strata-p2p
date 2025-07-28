@@ -27,7 +27,7 @@ async fn test_reqresp_basic() -> anyhow::Result<()> {
     user_handles[0]
         .reqresp
         .send(RequestResponseCommand {
-            peer_public_key,
+            target_app_public_key: peer_public_key,
             data: req_msg.clone(),
         })
         .await
