@@ -637,7 +637,7 @@ where
         }
     }
 
-    async fn get_all_scores(&self, peer_id: &PeerId) -> (f64, f64, f64) {
+    fn get_all_scores(&self, peer_id: &PeerId) -> (f64, f64, f64) {
         let gossip_internal_score = self
             .swarm
             .behaviour()
