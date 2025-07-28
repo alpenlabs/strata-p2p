@@ -8,7 +8,7 @@ use std::{
 };
 
 use behavior::{Behaviour, BehaviourEvent};
-use errors::{P2PResult, ProtocolError};
+use errors::{P2PResult, ProtocolError, SwarmError};
 use futures::StreamExt as _;
 use handle::CommandHandle;
 #[cfg(feature = "gossipsub")]
@@ -159,11 +159,11 @@ pub struct P2PConfig {
 }
 
 /// Implementation of P2P protocol data exchange.
-#[expect(missing_debug_implementations)]
-pub struct P2P<V = DefaultP2PValidator, S>
+#[expect(missing_debug_implementations, dead_code)]
+pub struct P2P<S, V = DefaultP2PValidator>
 where
-    V: Validator + Send + Sync + 'static,
     S: ApplicationSigner,
+    V: Validator + Send + Sync + 'static,
 {
     /// The swarm that handles the networking.
     swarm: Swarm<Behaviour<S>>,
@@ -225,12 +225,12 @@ where
 
 /// Alias for [`P2P`] and [`ReqRespHandle`] tuple.
 #[cfg(feature = "request-response")]
-pub type P2PWithReqRespHandle<V, S> = (P2P<V, S>, ReqRespHandle);
+pub type P2PWithReqRespHandle<S, V> = (P2P<S, V>, ReqRespHandle);
 
-impl<V, S> P2P<V, S>
+impl<S, V> P2P<S, V>
 where
-    V: Validator + Send + Sync + 'static,
     S: ApplicationSigner,
+    V: Validator + Send + Sync + 'static,
 {
     /// Creates a new P2P instance from the given configuration.
     #[cfg(feature = "request-response")]
@@ -241,7 +241,7 @@ where
         allowlist: Vec<PublicKey>,
         channel_size: Option<usize>,
         signer: S,
-    ) -> P2PResult<P2PWithReqRespHandle<V, S>> {
+    ) -> P2PResult<P2PWithReqRespHandle<S, V>> {
         swarm
             .listen_on(cfg.listening_addr.clone())
             .map_err(ProtocolError::Listen)?;
@@ -1098,9 +1098,9 @@ where
                 match send_result {
                     Ok(Ok(())) => {}
                     Ok(Err(e)) => {
-                        return Err(Error::Protocol(ProtocolError::ReqRespEventChannelClosed(
-                            e.into(),
-                        )));
+                        return Err(SwarmError::Protocol(
+                            ProtocolError::ReqRespEventChannelClosed(e.into()),
+                        ));
                     }
                     Err(_) => {
                         error!("Timeout while sending ReceivedRequest event");
@@ -1166,9 +1166,9 @@ where
                 match send_result {
                     Ok(Ok(())) => {}
                     Ok(Err(e)) => {
-                        return Err(Error::Protocol(ProtocolError::ReqRespEventChannelClosed(
-                            e.into(),
-                        )));
+                        return Err(SwarmError::Protocol(
+                            ProtocolError::ReqRespEventChannelClosed(e.into()),
+                        ));
                     }
                     Err(_) => {
                         error!("Timeout while sending ReceivedResponse event");
@@ -1178,10 +1178,35 @@ where
                 Ok(())
             }
         }
-<<<<<<< HEAD
+    }
+
+    /// Handles a [`SetupEvent`] from the swarm.
+    async fn handle_setup_event(&mut self, event: SetupBehaviourEvent) -> P2PResult<()> {
+        match event {
+            SetupBehaviourEvent::AppKeyReceived {
+                transport_id: peer_id,
+                app_public_key,
+            } => {
+                if self.allowlist.contains(&app_public_key) {
+                    info!(%peer_id, "Received app public key from peer");
+                    trace!(%peer_id, ?app_public_key, "App public key details");
+                } else {
+                    info!(%peer_id, "Received app public key from a peer with not application public key not in allowlist. Disconnecting.");
+                    let _ = self.swarm.disconnect_peer_id(peer_id);
+                }
+            }
+            SetupBehaviourEvent::ErrorDuringSetupHandshake {
+                transport_id: peer_id,
+                error,
+            } => {
+                warn!(%peer_id, ?error, "Error during SetupBehaviour's handshake, disconnecting peer");
+                // Drop the connection
+                if let Err(e) = self.swarm.disconnect_peer_id(peer_id) {
+                    warn!(%peer_id, ?e, "Failed to disconnect peer after SetupBehaviour's handshake failure");
+                }
+            }
+        }
         Ok(())
-=======
->>>>>>> 7678c2e (fix clippy)
     }
 }
 

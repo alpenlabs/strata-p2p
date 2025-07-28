@@ -2,13 +2,13 @@
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use libp2p::{PeerId, identity::PublicKey};
+use libp2p::{identity::PublicKey, PeerId};
 use serde::{Deserialize, Serialize};
 
 use super::errors::{SetupError, SetupUpgradeError};
 
 pub(super) mod pubkey_serializer {
-    use serde::{self, Deserializer, Serializer, de};
+    use serde::{self, de, Deserializer, Serializer};
 
     use super::PublicKey;
 
@@ -30,7 +30,7 @@ pub(super) mod pubkey_serializer {
 }
 
 pub(super) mod signature_serializer {
-    use serde::{self, Deserializer, Serializer, de};
+    use serde::{self, de, Deserializer, Serializer};
 
     pub(super) fn serialize<S>(data: &[u8; 64], serializer: S) -> Result<S::Ok, S::Error>
     where

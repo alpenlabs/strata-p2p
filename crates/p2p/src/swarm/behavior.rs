@@ -8,7 +8,6 @@
 use std::{collections::HashSet, time::Duration};
 
 use libp2p::{
-    allow_block_list::{AllowedPeers, Behaviour as AllowListBehaviour},
     gossipsub::{
         self, Behaviour as Gossipsub, IdentityTransform, MessageAuthenticity, PeerScoreParams,
         PeerScoreThresholds, TopicScoreParams, WhitelistSubscriptionFilter,

@@ -9,7 +9,7 @@ use std::{future::Future, iter, pin::Pin};
 use asynchronous_codec::{Framed, JsonCodec};
 use futures::{SinkExt, StreamExt};
 use libp2p::{
-    InboundUpgrade, OutboundUpgrade, PeerId, Stream, core::UpgradeInfo, identity::PublicKey,
+    core::UpgradeInfo, identity::PublicKey, InboundUpgrade, OutboundUpgrade, PeerId, Stream,
 };
 
 use crate::{

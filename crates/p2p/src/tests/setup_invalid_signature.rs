@@ -5,6 +5,7 @@ use std::time::Duration;
 use libp2p::{
     build_multiaddr,
     identity::{Keypair, PublicKey},
+    PeerId,
 };
 use tokio::{sync::oneshot::channel, time::sleep};
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
@@ -13,7 +14,7 @@ use tracing::info;
 use crate::{
     commands::{Command, QueryP2PStateCommand},
     signer::ApplicationSigner,
-    tests::common::{MockApplicationSigner, User, init_tracing},
+    tests::common::{init_tracing, MockApplicationSigner, User},
 };
 
 #[derive(Debug, Clone)]

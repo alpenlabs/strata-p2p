@@ -9,13 +9,13 @@ use std::{
 };
 
 use libp2p::{
-    PeerId,
     core::transport::PortUse,
     identity::PublicKey,
     swarm::{
         ConnectionDenied, ConnectionId, FromSwarm, NetworkBehaviour, THandler, THandlerInEvent,
         THandlerOutEvent, ToSwarm,
     },
+    PeerId,
 };
 
 use crate::{
