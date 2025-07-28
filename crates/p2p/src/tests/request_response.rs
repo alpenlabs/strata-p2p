@@ -9,13 +9,13 @@ use tracing_test::traced_test;
 use super::common::Setup;
 use crate::{
     commands::Command, events::ReqRespEvent,
-    tests::common::MULTIADDR_MEMORY_ID_OFFSET_REQUEST_RESPONSE_BASIC,
+    tests::common::{MULTIADDR_MEMORY_ID_OFFSET_REQUEST_RESPONSE_BASIC,init_tracing},
 };
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
-#[traced_test]
 async fn test_reqresp_basic() -> anyhow::Result<()> {
     const USERS_NUM: usize = 2;
+    init_tracing();
 
     let Setup {
         cancel,
@@ -25,12 +25,14 @@ async fn test_reqresp_basic() -> anyhow::Result<()> {
 
     let _ = sleep(Duration::from_secs(1)).await;
 
+    sleep(Duration::from_secs(2)).await;
+
     let req_msg = b"request from node1".to_vec();
     let resp_msg = b"response from node2".to_vec();
     user_handles[0]
         .command
         .send_command(Command::RequestMessage {
-            peer_id: user_handles[1].peer_id,
+            app_public_key: user_handles[1].app_keypair.public(),
             data: req_msg.clone(),
         })
         .await;

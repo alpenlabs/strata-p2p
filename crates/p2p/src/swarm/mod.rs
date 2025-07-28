@@ -7,8 +7,6 @@ use std::{
 };
 
 use behavior::{Behaviour, BehaviourEvent};
-#[cfg(feature = "request-response")]
-use errors::Error;
 use errors::{P2PResult, ProtocolError};
 use futures::StreamExt as _;
 #[cfg(feature = "request-response")]
@@ -23,14 +21,14 @@ use libp2p::{
         Event as GossipsubEvent, Message, MessageAcceptance, MessageId, PublishError, Sha256Topic,
     },
     identify,
-    identity::Keypair,
+    identity::{Keypair, PublicKey},
     kad::{
         AddProviderError, AddProviderOk, BootstrapOk, Event as KademliaEvent, GetClosestPeersError,
         GetClosestPeersOk, GetProvidersError, PutRecordError, PutRecordOk, QueryResult,
     },
     noise,
     swarm::{
-        SwarmEvent,
+        NetworkBehaviour, SwarmEvent,
         dial_opts::{DialOpts, PeerCondition},
     },
     yamux,
@@ -50,14 +48,18 @@ use crate::events::ReqRespEvent;
 use crate::{
     commands::{Command, QueryP2PStateCommand},
     events::GossipEvent,
+    signer::ApplicationSigner,
+    swarm::setup::events::SetupBehaviourEvent,
 };
+
 mod behavior;
 mod codec_raw;
 pub mod errors;
 pub mod handle;
+mod message;
+pub mod setup;
 
 /// Global topic name for gossipsub messages.
-// TODO(Velnbur): make this configurable later
 static TOPIC: LazyLock<Sha256Topic> = LazyLock::new(|| Sha256Topic::new("bitvm2"));
 
 /// Global MAX_TRANSMIT_SIZE for gossipsub messages.
@@ -85,8 +87,11 @@ pub const DEFAULT_CHANNEL_TIMEOUT: Duration = Duration::from_secs(5);
 /// Configuration options for [`P2P`].
 #[derive(Debug, Clone)]
 pub struct P2PConfig {
-    /// [`Keypair`] used as [`PeerId`].
-    pub keypair: Keypair,
+    /// Long-term application public key.
+    pub app_public_key: PublicKey,
+
+    /// Ephemeral transport keypair.
+    pub transport_keypair: Keypair,
 
     /// Idle connection timeout.
     pub idle_connection_timeout: Duration,
@@ -125,10 +130,10 @@ pub struct P2PConfig {
 }
 
 /// Implementation of P2P protocol data exchange.
-#[expect(missing_debug_implementations)]
-pub struct P2P {
+#[expect(missing_debug_implementations, dead_code)]
+pub struct P2P<S: ApplicationSigner> {
     /// The swarm that handles the networking.
-    swarm: Swarm<Behaviour>,
+    swarm: Swarm<Behaviour<S>>,
 
     /// Event channel for the gossip.
     gossip_events: broadcast::Sender<GossipEvent>,
@@ -153,21 +158,29 @@ pub struct P2P {
 
     /// Underlying configuration.
     config: P2PConfig,
+
+    /// Allow list.
+    allowlist: HashSet<PublicKey>,
+
+    /// Application signer for signing setup messages.
+    signer: S,
 }
 
 /// Alias for [`P2P`] and [`ReqRespHandle`] tuple.
 #[cfg(feature = "request-response")]
-pub type P2PWithReqRespHandle = (P2P, ReqRespHandle);
+pub type P2PWithReqRespHandle<S> = (P2P<S>, ReqRespHandle);
 
-impl P2P {
+impl<S: ApplicationSigner> P2P<S> {
     /// Creates a new P2P instance from the given configuration.
     #[cfg(feature = "request-response")]
     pub fn from_config(
         cfg: P2PConfig,
         cancel: CancellationToken,
-        mut swarm: Swarm<Behaviour>,
+        mut swarm: Swarm<Behaviour<S>>,
+        allowlist: Vec<PublicKey>,
         channel_size: Option<usize>,
-    ) -> P2PResult<P2PWithReqRespHandle> {
+        signer: S,
+    ) -> P2PResult<P2PWithReqRespHandle<S>> {
         swarm
             .listen_on(cfg.listening_addr.clone())
             .map_err(ProtocolError::Listen)?;
@@ -185,7 +198,9 @@ impl P2P {
                 commands: cmds_rx,
                 commands_sender: cmds_tx.clone(),
                 cancellation_token: cancel,
+                allowlist: HashSet::from_iter(allowlist),
                 config: cfg,
+                signer,
             },
             ReqRespHandle::new(req_resp_event_rx),
         ))
@@ -196,9 +211,11 @@ impl P2P {
     pub fn from_config(
         cfg: P2PConfig,
         cancel: CancellationToken,
-        mut swarm: Swarm<Behaviour>,
+        mut swarm: Swarm<Behaviour<S>>,
+        allowlist: Vec<PublicKey>,
         channel_size: Option<usize>,
-    ) -> P2PResult<P2P> {
+        signer: S,
+    ) -> P2PResult<P2P<S>> {
         swarm
             .listen_on(cfg.listening_addr.clone())
             .map_err(ProtocolError::Listen)?;
@@ -214,6 +231,8 @@ impl P2P {
             commands_sender: cmds_tx.clone(),
             cancellation_token: cancel,
             config: cfg,
+            allowlist: HashSet::from_iter(allowlist),
+            signer,
         })
     }
 
@@ -333,8 +352,11 @@ impl P2P {
 
                 match event {
                     SwarmEvent::Behaviour(BehaviourEvent::Gossipsub(
-                        GossipsubEvent::Subscribed { peer_id: _, .. },
-                    )) => {}
+                        GossipsubEvent::Subscribed { peer_id, .. },
+                    )) => {
+                        subscriptions += 1;
+                        info!(%peer_id, %subscriptions, "got subscription");
+                    }
                     SwarmEvent::ConnectionEstablished {
                         peer_id, endpoint, ..
                     } => {
@@ -434,7 +456,10 @@ impl P2P {
     }
 
     /// Handles a [`SwarmEvent`] from the swarm.
-    async fn handle_swarm_event(&mut self, event: SwarmEvent<BehaviourEvent>) -> P2PResult<()> {
+    async fn handle_swarm_event(
+        &mut self,
+        event: SwarmEvent<<Behaviour<S> as NetworkBehaviour>::ToSwarm>,
+    ) -> P2PResult<()> {
         match event {
             SwarmEvent::Behaviour(event) => self.handle_behaviour_event(event).await,
             _ => Ok(()),
@@ -442,15 +467,20 @@ impl P2P {
     }
 
     /// Handles a [`BehaviourEvent`] from the swarm.
-    async fn handle_behaviour_event(&mut self, event: BehaviourEvent) -> P2PResult<()> {
+    async fn handle_behaviour_event(
+        &mut self,
+        event: <Behaviour<S> as NetworkBehaviour>::ToSwarm,
+    ) -> P2PResult<()> {
         match event {
             BehaviourEvent::Gossipsub(event) => self.handle_gossip_event(event).await,
             #[cfg(feature = "request-response")]
             BehaviourEvent::RequestResponse(event) => {
                 self.handle_request_response_event(event).await
             }
+            BehaviourEvent::Setup(event) => self.handle_setup_event(event).await,
             BehaviourEvent::Kademlia(event) => self.handle_kademlia_event(event).await,
             BehaviourEvent::Identify(event) => self.handle_identify_event(event).await,
+            _ => Ok(()),
         }
     }
 
@@ -850,46 +880,39 @@ libp2p::kad::InboundRequest::GetRecord
 
                 Ok(())
             }
-            Command::RequestMessage { peer_id, data } => {
-                let request_target_peer_id = &peer_id;
-                debug!(%request_target_peer_id, "Got request message");
+            Command::RequestMessage {
+                app_public_key: app_pk,
+                data,
+            } => {
+                debug!(?app_pk, "Got request message");
                 trace!(?data, "Got request message");
 
-                if self.swarm.is_connected(request_target_peer_id) {
-                    self.swarm
-                        .behaviour_mut()
-                        .request_response
-                        .send_request(request_target_peer_id, data);
-                    return Ok(());
-                }
+                let option_request_target_peer_id = self
+                    .swarm
+                    .behaviour()
+                    .setup
+                    .get_transport_id_by_application_key(&app_pk);
 
-                // TODO(Arniiiii) : rewrite this part so it sends to gossipsub instead of the
-                // manual floodsub via manual request-response to everyone.
-                let connected_peers = self.swarm.connected_peers().cloned().collect::<Vec<_>>();
-                for peer in connected_peers {
-                    self.swarm
-                        .behaviour_mut()
-                        .request_response
-                        .send_request(&peer, data.clone());
+                match option_request_target_peer_id {
+                    Some(request_target_peer_id) => {
+                        if self.swarm.is_connected(&request_target_peer_id) {
+                            self.swarm
+                                .behaviour_mut()
+                                .request_response
+                                .send_request(&request_target_peer_id, data);
+                            return Ok(());
+                        }
+                    }
+                    None => {
+                        error!(
+                            "Logic error: Request response is attempted on a peer we haven't done Setup yet."
+                        )
+                    }
                 }
 
                 Ok(())
             }
             Command::ConnectToPeer(connect_to_peer_command) => {
-                // Whitelist peer
-                trace!(
-                    "Unblock peer: remove from blacklist_behaviour {}",
-                    connect_to_peer_command.peer_id
-                );
-
-                trace!(
-                    "Add peer to connect_to list {}",
-                    connect_to_peer_command.peer_addr
-                );
-                self.config
-                    .connect_to
-                    .push(connect_to_peer_command.peer_addr.clone());
-
                 // Add peer to swarm
                 trace!(
                     "Ask swarm to tell other behaviours that there's a new peer {} {}",
@@ -948,11 +971,27 @@ libp2p::kad::InboundRequest::GetRecord
             }
             Command::QueryP2PState(query) => match query {
                 QueryP2PStateCommand::IsConnected {
-                    peer_id,
+                    app_public_key,
                     response_sender,
                 } => {
-                    info!(%peer_id, "Querying if peer is connected");
-                    let is_connected = self.swarm.is_connected(&peer_id);
+                    info!("Querying if app public key is connected");
+
+                    let is_connected = match self
+                        .swarm
+                        .behaviour()
+                        .setup
+                        .get_transport_id_by_application_key(&app_public_key)
+                    {
+                        Some(transport_id) => {
+                            info!(%transport_id, "Found transport ID for app public key");
+                            self.swarm.is_connected(&transport_id)
+                        }
+                        None => {
+                            info!("No transport ID found for app public key");
+                            false
+                        }
+                    };
+
                     let _ = response_sender.send(is_connected);
                     Ok(())
                 }
@@ -1007,11 +1046,9 @@ libp2p::kad::InboundRequest::GetRecord
                 peer,
                 request_id,
                 error,
-                ..
+                connection_id: _,
             } => {
                 warn!(%peer, %error, %request_id, "Inbound failure");
-                // retry mechanism
-                // get the addr from the peer
                 // dial the peer
                 let _ = self.swarm.dial(peer).inspect_err(|err| {
                     error!(%peer, %error, %request_id, "Inbound failure");
@@ -1052,9 +1089,9 @@ libp2p::kad::InboundRequest::GetRecord
                     match send_result {
                         Ok(Ok(())) => {}
                         Ok(Err(e)) => {
-                            return Err(Error::Protocol(ProtocolError::ReqRespEventChannelClosed(
-                                e.into(),
-                            )));
+                            return Err(errors::SwarmError::Protocol(
+                                ProtocolError::ReqRespEventChannelClosed(e.into()),
+                            ));
                         }
                         Err(_) => {
                             error!("Timeout while sending ReceivedRequest event");
@@ -1092,9 +1129,9 @@ libp2p::kad::InboundRequest::GetRecord
                     match send_result {
                         Ok(Ok(())) => {}
                         Ok(Err(e)) => {
-                            return Err(Error::Protocol(ProtocolError::ReqRespEventChannelClosed(
-                                e.into(),
-                            )));
+                            return Err(errors::SwarmError::Protocol(
+                                ProtocolError::ReqRespEventChannelClosed(e.into()),
+                            ));
                         }
                         Err(_) => {
                             error!("Timeout while sending ReceivedResponse event");
@@ -1106,6 +1143,35 @@ libp2p::kad::InboundRequest::GetRecord
             }
         }
     }
+
+    /// Handles a [`SetupEvent`] from the swarm.
+    async fn handle_setup_event(&mut self, event: SetupBehaviourEvent) -> P2PResult<()> {
+        match event {
+            SetupBehaviourEvent::AppKeyReceived {
+                transport_id: peer_id,
+                app_public_key,
+            } => {
+                if self.allowlist.contains(&app_public_key) {
+                    info!(%peer_id, "Received app public key from peer");
+                    trace!(%peer_id, ?app_public_key, "App public key details");
+                } else {
+                    info!(%peer_id, "Received app public key from a peer with not application public key not in allowlist. Disconnecting.");
+                    let _ = self.swarm.disconnect_peer_id(peer_id);
+                }
+            }
+            SetupBehaviourEvent::ErrorDuringSetupHandshake {
+                transport_id: peer_id,
+                error,
+            } => {
+                warn!(%peer_id, ?error, "Error during SetupBehaviour's handshake, disconnecting peer");
+                // Drop the connection
+                if let Err(e) = self.swarm.disconnect_peer_id(peer_id) {
+                    warn!(%peer_id, ?e, "Failed to disconnect peer after SetupBehaviour's handshake failure");
+                }
+            }
+        }
+        Ok(())
+    }
 }
 
 /// Constructs swarm builder with existing identity.
@@ -1116,7 +1182,7 @@ libp2p::kad::InboundRequest::GetRecord
 /// actually specify return type of function. So we use macro for now.
 macro_rules! init_swarm {
     ($cfg:expr) => {
-        SwarmBuilder::with_existing_identity($cfg.keypair.clone().into()).with_tokio()
+        SwarmBuilder::with_existing_identity($cfg.transport_keypair.clone().into()).with_tokio()
     };
 }
 
@@ -1127,13 +1193,15 @@ macro_rules! init_swarm {
 /// Macro is used as there is no way to specify this behaviour in function, because `with_tcp` and
 /// `with_other_transport` return completely different types that can't be generalized.
 macro_rules! finish_swarm {
-    ($builder:expr, $cfg:expr) => {
+    ($builder:expr, $cfg:expr, $signer:expr) => {
         $builder
             .map_err(|e| ProtocolError::TransportInitialization(e.into()))?
             .with_behaviour(|_| {
                 Behaviour::new(
                     PROTOCOL_NAME,
-                    &$cfg.keypair,
+                    &$cfg.transport_keypair,
+                    &$cfg.app_public_key,
+                    $signer.clone(),
                     $cfg.kad_protocol_name
                         .clone()
                         .unwrap_or(StreamProtocol::new("/ipfs/kad_strata-p2p/0.0.1")),
@@ -1147,7 +1215,10 @@ macro_rules! finish_swarm {
 
 /// Constructs swarm from P2P config with inmemory transport. Uses
 /// `/memory/{n}` addresses.
-pub fn with_inmemory_transport(config: &P2PConfig) -> P2PResult<Swarm<Behaviour>> {
+pub fn with_inmemory_transport<S: ApplicationSigner>(
+    config: &P2PConfig,
+    signer: S,
+) -> P2PResult<Swarm<Behaviour<S>>> {
     let builder = init_swarm!(config);
     let swarm = finish_swarm!(
         builder.with_other_transport(|our_keypair| {
@@ -1157,7 +1228,8 @@ pub fn with_inmemory_transport(config: &P2PConfig) -> P2PResult<Swarm<Behaviour>
                 .multiplex(yamux::Config::default())
                 .map(|(p, c), _| (p, StreamMuxerBox::new(c)))
         }),
-        config
+        config,
+        signer
     );
 
     Ok(swarm)
@@ -1165,7 +1237,10 @@ pub fn with_inmemory_transport(config: &P2PConfig) -> P2PResult<Swarm<Behaviour>
 
 /// Constructs swarm from P2P config with TCP transport. Uses
 /// `/ip4/{addr}/tcp/{port}` addresses.
-pub fn with_tcp_transport(config: &P2PConfig) -> P2PResult<Swarm<Behaviour>> {
+pub fn with_tcp_transport<S: ApplicationSigner>(
+    config: &P2PConfig,
+    signer: S,
+) -> P2PResult<Swarm<Behaviour<S>>> {
     let builder = init_swarm!(config);
     let swarm = finish_swarm!(
         builder.with_tcp(
@@ -1173,7 +1248,8 @@ pub fn with_tcp_transport(config: &P2PConfig) -> P2PResult<Swarm<Behaviour>> {
             noise::Config::new,
             yamux::Config::default,
         ),
-        config
+        config,
+        signer
     );
 
     Ok(swarm)

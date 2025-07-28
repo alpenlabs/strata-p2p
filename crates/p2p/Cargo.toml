@@ -11,6 +11,7 @@ request-response = []
 workspace = true
 
 [dependencies]
+asynchronous-codec.workspace = true
 libp2p = { workspace = true, features = [
   "noise",
   "gossipsub",
@@ -23,16 +24,16 @@ libp2p = { workspace = true, features = [
   "identify",
   "kad",
 ] }
-
 futures.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["macros", "time"] }
 tokio-util.workspace = true
 tracing.workspace = true
-
+serde.workspace = true
+serde_json.workspace = true
 
 [dev-dependencies]
+anyhow = "1.0.95"
 tokio = { workspace = true, features = ["rt", "rt-multi-thread"] }
 tokio-util.workspace = true
-anyhow = "1.0.95"
-tracing-test = "0.2.5"
+tracing-subscriber.workspace = true

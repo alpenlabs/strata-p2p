@@ -6,29 +6,64 @@ use libp2p::TransportError;
 use thiserror::Error;
 
 /// P2P result type.
-pub type P2PResult<T> = Result<T, Error>;
+pub type P2PResult<T> = Result<T, SwarmError>;
+
+/// Errors that can happen during a setup handshake.
+#[derive(Debug, Error)]
+pub enum SetupError {
+    /// Indicates that signature verification failed.
+    ///
+    /// This event is fired when the signature verification fails for a peer's
+    /// handshake message, indicating the connection should be dropped.
+    #[error("Signature verification failed")]
+    SignatureVerificationFailed,
+
+    /// Failed to deserialize something.
+    #[error("Deserialization failed: {0}")]
+    DeserializationFailed(Box<dyn error::Error + Send + Sync>),
+
+    /// In received message application public key is invalid.
+    #[error("Application public key invalid: {0}")]
+    AppPublicKeyInvalid(Box<dyn error::Error + Send + Sync>),
+
+    /// Error during sending to remote peer.
+    #[error("Outbound error: {0}")]
+    OutboundError(Box<dyn error::Error + Send + Sync>),
+
+    /// Error during receiving from remote peer.
+    #[error("Inbound error: {0}")]
+    InboundError(Box<dyn error::Error + Send + Sync>),
+}
 
 /// Swarm errors.
 #[derive(Debug, Error)]
-pub enum Error {
-    /// Validation errors.
-    #[error("Validation error {0}")]
-    Validation(#[from] ValidationError),
-
+pub enum SwarmError {
     /// Protocol errors.
     #[error("Protocol error {0}")]
     Protocol(#[from] ProtocolError),
 }
 
-/// Validation errors.
+/// Errors that can occur during the setup upgrade process.
 #[derive(Debug, Error)]
-pub enum ValidationError {
-    /// The signature is invalid.
-    #[error("Invalid signature")]
-    InvalidSignature,
-    /// The message signer is in the signer's blacklist.
-    #[error("In signer's blacklist")]
-    InSignersBlacklist,
+pub enum SetupUpgradeError {
+    /// Invalid signature size - expected 64 bytes.
+    #[error("Invalid signature size: expected 64 bytes, got {actual}")]
+    InvalidSignatureSize {
+        /// The actual size of the signature that was received.
+        actual: usize,
+    },
+
+    /// Failed to create a signed message.
+    #[error("Failed to create signed message: {0}")]
+    SignedMessageCreation(Box<dyn error::Error + Send + Sync>),
+
+    /// JSON encoding/decoding error during message serialization.
+    #[error("JSON codec error: {0}")]
+    JsonCodec(Box<dyn error::Error + Send + Sync>),
+
+    /// Stream was closed unexpectedly.
+    #[error("Stream closed unexpectedly")]
+    UnexpectedStreamClose,
 }
 
 /// Errors from libp2p

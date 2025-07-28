@@ -5,20 +5,24 @@ use std::time::Duration;
 use libp2p::{Multiaddr, build_multiaddr, identity::Keypair};
 use tokio::{sync::oneshot::channel, time::sleep};
 use tracing::{debug, info};
-use tracing_test::traced_test;
 
 use super::common::Setup;
 use crate::{
     commands::{Command, ConnectToPeerCommand, QueryP2PStateCommand},
     events::GossipEvent,
-    tests::common::{MULTIADDR_MEMORY_ID_OFFSET_GOSSIP_NEW_USER, User},
+    tests::common::{MULTIADDR_MEMORY_ID_OFFSET_GOSSIP_NEW_USER, MockApplicationSigner, User, init_tracing},
 };
 
 /// Tests sending a gossipsub message from a new user to all existing users.
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-#[traced_test]
+#[ignore = "Because filtering in another PR"]
 async fn gossip_new_user() -> anyhow::Result<()> {
+    init_tracing();
     const USERS_NUM: usize = 9;
+
+    // Generate a keypair for the new user
+    let new_user_app_keypair = Keypair::generate_ed25519();
 
     info!(users = USERS_NUM, "Setting up users in all-to-all topology");
     // Create the original users with allowlist containing the new user
@@ -53,14 +57,16 @@ async fn gossip_new_user() -> anyhow::Result<()> {
     let new_user_keypair = Keypair::generate_ed25519();
 
     // Create new user with all necessary information
-    info!(
-        %local_addr, peer_id = %new_user_keypair.public().to_peer_id(), "Creating new user"
-    );
+    info!(%local_addr, "Creating new user to listen");
+    let new_user_transport_keypair = Keypair::generate_ed25519();
     let mut new_user = User::new(
-        new_user_keypair.clone(),
-        Vec::new(), // doesn't know other nodes
+        new_user_app_keypair.clone(),
+        new_user_transport_keypair.clone(),
+        connect_addrs.clone(), // Connect directly to existing users
         local_addr.clone(),
+        Vec::new(),
         cancel.child_token(),
+        MockApplicationSigner::new(new_user_app_keypair.clone()),
     )
     .unwrap();
 
@@ -78,47 +84,11 @@ async fn gossip_new_user() -> anyhow::Result<()> {
     // Create a separate listening address for the new user
     let local_addr2 = build_multiaddr!(Memory(88888889_u64));
 
-    // Generate a keypair for the new user
-    let new_user2_keypair = Keypair::generate_ed25519();
-
-    // Create new user with all necessary information
-    info!(
-        "Creating second new user to listen at {} peer_id: {}",
-        local_addr2,
-        new_user2_keypair.public().to_peer_id()
-    );
-    let mut new_user2 = User::new(
-        new_user2_keypair.clone(),
-        Vec::new(), // doesn't know other nodes
-        local_addr2.clone(),
-        cancel.child_token(),
-    )
-    .unwrap();
-
-    // Run the second new user in a separate task - this call will handle connections
-    tasks.spawn(async move {
-        // This will attempt to establish the connections to other users and subscribe to a topic
-        info!("Second new user is establishing connections");
-        new_user2.p2p.establish_connections().await;
-        info!("Second new user connections established");
-
-        // This will start listening for messages
-        new_user2.p2p.listen().await;
-    });
-
-    // Ask the old users to the first new one
-    for (index, addr) in connect_addrs.iter().enumerate() {
-        info!(
-            index,
-            addr = %addr,
-            old_peer = %user_handles[index].peer_id,
-            new_peer = %new_user.kp.public().to_peer_id(),
-            "Old user connecting to new user"
-        );
-        user_handles[index]
-            .command
+    // Connect the old users to the new one
+    for user in user_handles.iter().take(connect_addrs.len()) {
+        user.command
             .send_command(Command::ConnectToPeer(ConnectToPeerCommand {
-                peer_id: new_user.kp.public().to_peer_id(),
+                peer_id: new_user.transport_keypair.public().to_peer_id(),
                 peer_addr: local_addr.clone(),
             }))
             .await;

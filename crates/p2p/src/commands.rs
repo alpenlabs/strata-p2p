@@ -1,6 +1,6 @@
 //! Commands for P2P implementation from operator implementation.
 
-use libp2p::{Multiaddr, PeerId};
+use libp2p::{Multiaddr, PeerId, identity::PublicKey};
 use tokio::sync::oneshot;
 
 /// Commands that users can send to the P2P node.
@@ -16,11 +16,8 @@ pub enum Command {
 
     /// Requests some message directly from other operator by public Key.
     RequestMessage {
-        /// Libp2p [`PeerId`] of target peer.
-        ///
-        /// Note: [`PeerId`] can be created from public key of corresponding peer via
-        /// `the_pubkey.to_peer_id()`.
-        peer_id: PeerId,
+        /// Libp2p application [`PublicKey`] of target peer.
+        app_public_key: PublicKey,
         /// Message payload in raw bytes.
         ///
         /// The user is responsible for properly serializing/deserializing the data.
@@ -37,7 +34,7 @@ pub enum Command {
 /// Connects to a peer, whitelists peer, and adds peer to the gossip sub network.
 #[derive(Debug, Clone)]
 pub struct ConnectToPeerCommand {
-    /// Peer ID.
+    /// Transport ID.
     pub peer_id: PeerId,
 
     /// Peer address.
@@ -55,8 +52,8 @@ impl From<ConnectToPeerCommand> for Command {
 pub enum QueryP2PStateCommand {
     /// Queries if we're connected to a specific peer
     IsConnected {
-        /// Peer ID to check.
-        peer_id: PeerId,
+        /// App public key to check.
+        app_public_key: PublicKey,
         /// Channel to send the response back.
         response_sender: oneshot::Sender<bool>,
     },

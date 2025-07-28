@@ -18,6 +18,7 @@ use libp2p::{
 };
 
 use super::{MAX_TRANSMIT_SIZE, TOPIC, codec_raw};
+use crate::{signer::ApplicationSigner, swarm::setup::behavior::SetupBehaviour};
 
 /// Alias for request-response behaviour with messages serialized by using
 /// homebrewed codec implementation.
@@ -27,9 +28,9 @@ pub(crate) type RequestResponseRawBehaviour = RequestResponse<codec_raw::Codec>;
 /// implementation.
 #[expect(missing_debug_implementations)]
 #[derive(NetworkBehaviour)]
-pub struct Behaviour {
-    /// Gossipsub - pub/sub model for messages distribution.
-    pub gossipsub: Gossipsub<IdentityTransform, WhitelistSubscriptionFilter>,
+pub struct Behaviour<S: ApplicationSigner> {
+    /// Exchange application public keys before establish the connection.
+    pub setup: SetupBehaviour<S>,
 
     /// Identification of peers, address to connect to, public keys, etc.
     pub identify: Identify,
@@ -37,17 +38,21 @@ pub struct Behaviour {
     /// Request-response model for recursive discovery of lost or skipped info.
     pub request_response: RequestResponseRawBehaviour,
 
+    /// Gossipsub - pub/sub model for messages distribution.
+    pub gossipsub: Gossipsub<IdentityTransform, WhitelistSubscriptionFilter>,
+
     /// Kademlia DHT
     pub kademlia: kad::Behaviour<kad::store::MemoryStore>,
 }
 
-impl Behaviour {
-    /// Creates a new [`Behaviour`] given a `protocol_name`, [`Keypair`], and a block list of
-    /// [`PeerId`]s.
+impl<S: ApplicationSigner> Behaviour<S> {
+    /// Creates a new [`Behaviour`] given a `protocol_name`, transport [`Keypair`], app
+    /// [`PublicKey`], signer, and an allow list of [`PeerId`]s.
     pub fn new(
         protocol_name: &'static str,
-        keypair: &Keypair,
-        kad_protocol_name: StreamProtocol,
+        transport_keypair: &Keypair,
+        app_public_key: &libp2p::identity::PublicKey,
+        signer: S,
     ) -> Self {
         let mut filter = HashSet::new();
         filter.insert(TOPIC.hash());
@@ -73,9 +78,12 @@ impl Behaviour {
         kademlia_behaviour.set_mode(Some(kad::Mode::Server));
 
         Self {
-            identify: Identify::new(Config::new(protocol_name.to_string(), keypair.public())),
+            identify: Identify::new(Config::new(
+                protocol_name.to_string(),
+                transport_keypair.public(),
+            )),
             gossipsub: Gossipsub::new_with_subscription_filter(
-                MessageAuthenticity::Author(PeerId::from_public_key(&keypair.public())),
+                MessageAuthenticity::Author(PeerId::from_public_key(&transport_keypair.public())),
                 gossipsub::ConfigBuilder::default()
                     .validation_mode(gossipsub::ValidationMode::Permissive)
                     .validate_messages()
@@ -93,6 +101,11 @@ impl Behaviour {
                 RequestResponseConfig::default(),
             ),
             kademlia: kademlia_behaviour,
+            setup: SetupBehaviour::new(
+                app_public_key.clone(),
+                transport_keypair.public().to_peer_id(),
+                signer,
+            ),
         }
     }
 }
