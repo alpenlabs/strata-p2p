@@ -7,27 +7,26 @@ use tokio::{
     time::{sleep, timeout},
 };
 use tracing::info;
-use tracing_test::traced_test;
 
 use super::common::Setup;
 use crate::{
     commands::{Command, QueryP2PStateCommand},
     tests::common::{
         MULTIADDR_MEMORY_ID_OFFSET_TEST_IS_CONNECTED,
-        MULTIADDR_MEMORY_ID_OFFSET_TEST_MANUALLY_GET_ALL_PEERS,
-init_tracing,
+        MULTIADDR_MEMORY_ID_OFFSET_TEST_MANUALLY_GET_ALL_PEERS, init_tracing,
     },
 };
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_is_connected() -> anyhow::Result<()> {
+    const USERS_NUM: usize = 2;
     init_tracing();
     // Set up two connected user_handles
     let Setup {
         user_handles,
         cancel,
         tasks,
-    } = Setup::all_to_all(2, MULTIADDR_MEMORY_ID_OFFSET_TEST_IS_CONNECTED).await?;
+    } = Setup::all_to_all(USERS_NUM, MULTIADDR_MEMORY_ID_OFFSET_TEST_IS_CONNECTED).await?;
 
     let _ = sleep(Duration::from_secs(1)).await;
 

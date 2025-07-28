@@ -4,15 +4,15 @@ use std::time::Duration;
 
 use tokio::time::sleep;
 use tracing::info;
-use tracing_test::traced_test;
 
 use super::common::Setup;
 use crate::{
-    commands::Command, events::ReqRespEvent,
-    tests::common::{MULTIADDR_MEMORY_ID_OFFSET_REQUEST_RESPONSE_BASIC,init_tracing},
+    commands::Command,
+    events::ReqRespEvent,
+    tests::common::{MULTIADDR_MEMORY_ID_OFFSET_REQUEST_RESPONSE_BASIC, init_tracing},
 };
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_reqresp_basic() -> anyhow::Result<()> {
     const USERS_NUM: usize = 2;
     init_tracing();

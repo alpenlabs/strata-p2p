@@ -53,6 +53,7 @@ impl<S: ApplicationSigner> Behaviour<S> {
         transport_keypair: &Keypair,
         app_public_key: &libp2p::identity::PublicKey,
         signer: S,
+        kad_protocol_name: StreamProtocol,
     ) -> Self {
         let mut filter = HashSet::new();
         filter.insert(TOPIC.hash());
@@ -69,10 +70,10 @@ impl<S: ApplicationSigner> Behaviour<S> {
         // maybe should be increased and give logic of quorum manually
         kad_cfg.set_caching(kad::Caching::Enabled { max_peers: 1 });
 
-        let store = kad::store::MemoryStore::new(keypair.public().to_peer_id());
+        let store = kad::store::MemoryStore::new(transport_keypair.public().to_peer_id());
 
         let mut kademlia_behaviour =
-            kad::Behaviour::with_config(keypair.public().to_peer_id(), store, kad_cfg);
+            kad::Behaviour::with_config(transport_keypair.public().to_peer_id(), store, kad_cfg);
 
         // Enable server mode for DHT
         kademlia_behaviour.set_mode(Some(kad::Mode::Server));

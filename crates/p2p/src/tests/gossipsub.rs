@@ -4,13 +4,12 @@ use std::time::Duration;
 
 use anyhow::bail;
 use tokio::time::sleep;
-use tracing_test::traced_test;
 
 use super::common::{MULTIADDR_MEMORY_ID_OFFSET_GOSSIP_BASIC, Setup};
 use crate::{commands::Command, events::GossipEvent, tests::common::init_tracing};
 
 /// Tests the gossip protocol in an all to all connected network with multiple IDs.
-#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn gossip_basic() -> anyhow::Result<()> {
     init_tracing();
     const USERS_NUM: usize = 2;

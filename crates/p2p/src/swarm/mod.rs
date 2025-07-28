@@ -352,11 +352,8 @@ impl<S: ApplicationSigner> P2P<S> {
 
                 match event {
                     SwarmEvent::Behaviour(BehaviourEvent::Gossipsub(
-                        GossipsubEvent::Subscribed { peer_id, .. },
-                    )) => {
-                        subscriptions += 1;
-                        info!(%peer_id, %subscriptions, "got subscription");
-                    }
+                        GossipsubEvent::Subscribed { peer_id: _, .. },
+                    )) => {}
                     SwarmEvent::ConnectionEstablished {
                         peer_id, endpoint, ..
                     } => {
@@ -480,7 +477,6 @@ impl<S: ApplicationSigner> P2P<S> {
             BehaviourEvent::Setup(event) => self.handle_setup_event(event).await,
             BehaviourEvent::Kademlia(event) => self.handle_kademlia_event(event).await,
             BehaviourEvent::Identify(event) => self.handle_identify_event(event).await,
-            _ => Ok(()),
         }
     }
 

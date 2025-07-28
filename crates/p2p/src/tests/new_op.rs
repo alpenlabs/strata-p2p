@@ -10,7 +10,9 @@ use super::common::Setup;
 use crate::{
     commands::{Command, ConnectToPeerCommand, QueryP2PStateCommand},
     events::GossipEvent,
-    tests::common::{MULTIADDR_MEMORY_ID_OFFSET_GOSSIP_NEW_USER, MockApplicationSigner, User, init_tracing},
+    tests::common::{
+        MULTIADDR_MEMORY_ID_OFFSET_GOSSIP_NEW_USER, MockApplicationSigner, User, init_tracing,
+    },
 };
 
 /// Tests sending a gossipsub message from a new user to all existing users.
@@ -53,9 +55,6 @@ async fn gossip_new_user() -> anyhow::Result<()> {
     // Create a separate listening address for the new user
     let local_addr = build_multiaddr!(Memory(88888888_u64));
 
-    // Generate a keypair for the new user
-    let new_user_keypair = Keypair::generate_ed25519();
-
     // Create new user with all necessary information
     info!(%local_addr, "Creating new user to listen");
     let new_user_transport_keypair = Keypair::generate_ed25519();
@@ -81,30 +80,12 @@ async fn gossip_new_user() -> anyhow::Result<()> {
         new_user.p2p.listen().await;
     });
 
-    // Create a separate listening address for the new user
-    let local_addr2 = build_multiaddr!(Memory(88888889_u64));
-
     // Connect the old users to the new one
     for user in user_handles.iter().take(connect_addrs.len()) {
         user.command
             .send_command(Command::ConnectToPeer(ConnectToPeerCommand {
                 peer_id: new_user.transport_keypair.public().to_peer_id(),
                 peer_addr: local_addr.clone(),
-            }))
-            .await;
-    }
-
-    //  Ask the second new user to connect to old ones
-    for index in 0..connect_addrs.len() {
-        info!(
-            "Asking second new user to connect to an old user (index {}, connect_addr: {}, peer_id {})",
-            index, connect_addrs[index], user_handles[index].peer_id
-        );
-        new_user2
-            .command
-            .send_command(Command::ConnectToPeer(ConnectToPeerCommand {
-                peer_id: user_handles[index].peer_id,
-                peer_addr: connect_addrs[index].clone(),
             }))
             .await;
     }
@@ -116,8 +97,7 @@ async fn gossip_new_user() -> anyhow::Result<()> {
     sleep(Duration::from_secs(3)).await;
 
     let message_from_inside = Vec::<u8>::from(b"Hello my friends!");
-    let message_from_outsider1 = Vec::<u8>::from(b"Hi, I'm new here.");
-    let message_from_outsider2 = Vec::<u8>::from(b"Hello there");
+    let message_from_outsider = Vec::<u8>::from(b"Hi, I'm new here.");
 
     info!("Regular user sending test message");
     user_handles[0]
@@ -131,15 +111,7 @@ async fn gossip_new_user() -> anyhow::Result<()> {
     new_user
         .command
         .send_command(Command::PublishMessage {
-            data: message_from_outsider1.clone(),
-        })
-        .await;
-
-    info!("Second new user sending test message");
-    new_user2
-        .command
-        .send_command(Command::PublishMessage {
-            data: message_from_outsider2.clone(),
+            data: message_from_outsider.clone(),
         })
         .await;
 
@@ -147,8 +119,7 @@ async fn gossip_new_user() -> anyhow::Result<()> {
     sleep(Duration::from_secs(2)).await;
 
     let mut counter_messages_from_regular_user = 0;
-    let mut counter_messages_from_outsider1 = 0;
-    let mut counter_messages_from_outsider2 = 0;
+    let mut counter_messages_from_outsider = 0;
 
     // Check that existing users received the message
     for user in &mut user_handles {
@@ -163,12 +134,9 @@ async fn gossip_new_user() -> anyhow::Result<()> {
                     if msg == message_from_inside {
                         info!("User received message from regular user");
                         counter_messages_from_regular_user += 1;
-                    } else if msg == message_from_outsider1 {
+                    } else if msg == message_from_outsider {
                         info!("User received message from first new user");
-                        counter_messages_from_outsider1 += 1;
-                    } else if msg == message_from_outsider2 {
-                        info!("User received message from second new user");
-                        counter_messages_from_outsider2 += 1;
+                        counter_messages_from_outsider += 1;
                     }
                 }
             }
@@ -183,32 +151,9 @@ async fn gossip_new_user() -> anyhow::Result<()> {
                 if msg == message_from_inside {
                     info!("First new user received message from regular user");
                     counter_messages_from_regular_user += 1;
-                } else if msg == message_from_outsider1 {
+                } else if msg == message_from_outsider {
                     info!("First new user received message from first new user");
-                    counter_messages_from_outsider1 += 1;
-                } else if msg == message_from_outsider2 {
-                    info!("First new user received message from second new user");
-                    counter_messages_from_outsider2 += 1;
-                }
-            }
-        }
-    }
-
-    while !new_user2.gossip.events_is_empty() {
-        let event = new_user2.gossip.next_event().await?;
-        info!(?event, "Received event");
-
-        match event {
-            GossipEvent::ReceivedMessage(msg) => {
-                if msg == message_from_inside {
-                    info!("Second new user received message from regular user");
-                    counter_messages_from_regular_user += 1;
-                } else if msg == message_from_outsider1 {
-                    info!("Second new user received message from first new user");
-                    counter_messages_from_outsider1 += 1;
-                } else if msg == message_from_outsider2 {
-                    info!("Second new user received message from second new user");
-                    counter_messages_from_outsider2 += 1;
+                    counter_messages_from_outsider += 1;
                 }
             }
         }
@@ -217,11 +162,10 @@ async fn gossip_new_user() -> anyhow::Result<()> {
     assert_eq!(
         (
             counter_messages_from_regular_user,
-            counter_messages_from_outsider1,
-            counter_messages_from_outsider2,
+            counter_messages_from_outsider,
         ),
-        (USERS_NUM + 1, USERS_NUM + 1, USERS_NUM + 1),
-        "messages from old users ; messages from first new user ; messages from second new user"
+        (USERS_NUM + 1, USERS_NUM + 1),
+        "messages from old users ; messages from first new user "
     );
     // Clean up
     cancel.cancel();

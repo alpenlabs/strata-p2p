@@ -4,7 +4,7 @@ use std::{sync::Once, time::Duration};
 
 use futures::future::join_all;
 use libp2p::{
-    Multiaddr, PeerId, build_multiaddr, StreamProtocol,
+    Multiaddr, PeerId, StreamProtocol, build_multiaddr,
     identity::{Keypair, PublicKey},
 };
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
@@ -26,6 +26,8 @@ pub(crate) const MULTIADDR_MEMORY_ID_OFFSET_TEST_IS_CONNECTED: u64 = 150;
 pub(crate) const MULTIADDR_MEMORY_ID_OFFSET_GOSSIP_NEW_USER: u64 = 200;
 pub(crate) const MULTIADDR_MEMORY_ID_OFFSET_REQUEST_RESPONSE_BASIC: u64 = 300;
 pub(crate) const MULTIADDR_MEMORY_ID_OFFSET_TEST_MANUALLY_GET_ALL_PEERS: u64 = 500;
+pub(crate) const MULTIADDR_MEMORY_ID_OFFSET_TEST_CONNECTION_BY_APP_PUBLIC_KEY: u64 = 600;
+pub(crate) const MULTIADDR_MEMORY_ID_OFFSET_TEST_SETUP_WITH_INVALID_SIGNATURE: u64 = 700;
 
 /// Only attempt to start tracing once
 ///
@@ -208,10 +210,7 @@ impl Setup {
     /// addresses.
     /// If offset is 1234567890, then addresses will be /memory/1234567890 for n=1, for n=2
     /// /memory/1234567890 and /memory/1234567891 and so on.
-    fn setup_keys_ids_addrs_of_n_users(
-        n: usize,
-        offset: u64,
-    )  -> SetupInitialData {
+    fn setup_keys_ids_addrs_of_n_users(n: usize, offset: u64) -> SetupInitialData {
         let app_keypairs = (0..n)
             .map(|_| Keypair::generate_ed25519())
             .collect::<Vec<_>>();
@@ -231,7 +230,7 @@ impl Setup {
             .map(|key| PeerId::from_public_key(&key.clone().public()))
             .collect::<Vec<_>>();
 
-        let multiaddresses = (offset..(offset + u64::try_from(keypairs.len()).unwrap()))
+        let multiaddresses = (offset..(offset + u64::try_from(n).unwrap()))
             .map(|idx| build_multiaddr!(Memory(idx)))
             .collect::<Vec<_>>();
 
