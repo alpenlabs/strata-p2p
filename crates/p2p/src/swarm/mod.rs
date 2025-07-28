@@ -745,12 +745,6 @@ where
     ) -> P2PResult<()> {
         trace!("Got message: {:?}", &message.data);
 
-        let _ = message
-            .source
-            .expect("Message must have author as ValidationMode set to Permissive");
-
-        let event = GossipEvent::ReceivedMessage(message.data);
-
         let propagation_result = self
             .swarm
             .behaviour_mut()
@@ -758,16 +752,16 @@ where
             .report_message_validation_result(
                 &message_id,
                 &propagation_source,
-                MessageAcceptance::Accept,
+                MessageAcceptance::Ignore,
             );
 
-        if !propagation_result {
-            warn!(?event, "failed to propagate accepted message further");
-        }
-
-        self.gossip_events
-            .send(event)
-            .map_err(|e| ProtocolError::GossipEventsChannelClosed(e.into()))?;
+        let _ = self
+            .process_message_event(
+                &propagation_source,
+                MessageType::Gossipsub(message.data.clone()),
+                Event::ReceivedMessage(message.data),
+            )
+            .await;
 
         Ok(())
     }
