@@ -1,6 +1,6 @@
 //! Commands for P2P implementation from operator implementation.
 
-use libp2p::{Multiaddr, PeerId, identity::PublicKey};
+use libp2p::{Multiaddr, identity::PublicKey};
 use tokio::sync::oneshot;
 
 /// Commands that users can send to the P2P node.
@@ -16,8 +16,8 @@ pub enum Command {
 
     /// Disconnects from a peer.
     DisconnectFromPeer {
-        /// Libp2p [`PeerId`] of target peer.
-        peer_id: PeerId,
+        /// Libp2p [`PublicKey`] of target peer.
+        peer_public_key: PublicKey,
     },
 
     /// Directly queries P2P state (doesn't produce events).
@@ -38,11 +38,8 @@ pub struct GossipCommand {
 #[cfg(feature = "request-response")]
 #[derive(Debug)]
 pub struct RequestResponseCommand {
-    /// Libp2p [`PeerId`] of target peer.
-    ///
-    /// Note: [`PeerId`] can be created from public key of corresponding peer via
-    /// `the_pubkey.to_peer_id()`.
-    pub peer_id: PeerId,
+    /// Libp2p [`PublicKey`] of target peer.
+    pub peer_public_key: PublicKey,
     /// Message payload in raw bytes.
     ///
     /// The user is responsible for properly serializing/deserializing the data.
@@ -63,7 +60,7 @@ pub enum QueryP2PStateCommand {
     /// Gets all connected peers.
     GetConnectedPeers {
         /// Channel to send the response back.
-        response_sender: oneshot::Sender<Vec<PeerId>>,
+        response_sender: oneshot::Sender<Vec<PublicKey>>,
     },
 
     /// Gets all listening addresses from swarm's point of view.

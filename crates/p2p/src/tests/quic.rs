@@ -20,8 +20,6 @@ async fn test_quic_and_tcp_connectivity_ipv4_ipv6() {
 
     let keypair_a = Keypair::generate_ed25519();
     let keypair_b = Keypair::generate_ed25519();
-    let peer_id_a = keypair_a.public().to_peer_id();
-    let _peer_id_b = keypair_b.public().to_peer_id();
 
     let cancel = CancellationToken::new();
 
@@ -113,7 +111,9 @@ async fn test_quic_and_tcp_connectivity_ipv4_ipv6() {
         assert!(is_connected, "Failed to establish {addr} connection");
 
         command_b
-            .send_command(Command::DisconnectFromPeer { peer_id: peer_id_a })
+            .send_command(Command::DisconnectFromPeer {
+                peer_public_key: keypair_a.public(),
+            })
             .await;
         info!(%addr, "Disconnect requested");
 

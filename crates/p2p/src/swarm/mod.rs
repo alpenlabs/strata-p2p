@@ -702,9 +702,9 @@ impl<S: ApplicationSigner> P2P<S> {
 
                 Ok(())
             }
-            Command::DisconnectFromPeer { peer_id } => {
-                debug!(%peer_id, "Got DisconnectFromPeer command");
-
+            Command::DisconnectFromPeer { peer_public_key } => {
+                debug!(?peer_public_key, "Got DisconnectFromPeer command");
+                let peer_id = peer_public_key.to_peer_id();
                 if self.swarm.is_connected(&peer_id) {
                     let _ = self.swarm.disconnect_peer_id(peer_id);
                     debug!(%peer_id, "Initiated disconnect");
@@ -742,8 +742,19 @@ impl<S: ApplicationSigner> P2P<S> {
                 }
                 QueryP2PStateCommand::GetConnectedPeers { response_sender } => {
                     info!("Querying connected peers");
-                    let peers = self.swarm.connected_peers().cloned().collect();
-                    let _ = response_sender.send(peers);
+                    let peer_ids = self.swarm.connected_peers().cloned().collect::<Vec<_>>();
+
+                    let public_keys: Vec<PublicKey> = peer_ids
+                        .into_iter()
+                        .filter_map(|peer_id| {
+                            self.swarm
+                                .behaviour()
+                                .setup
+                                .get_app_public_key_by_transport_id(&peer_id)
+                        })
+                        .collect();
+
+                    let _ = response_sender.send(public_keys);
                     Ok(())
                 }
                 QueryP2PStateCommand::GetMyListeningAddresses { response_sender } => {
@@ -810,15 +821,15 @@ impl<S: ApplicationSigner> P2P<S> {
         &mut self,
         cmd: RequestResponseCommand,
     ) -> P2PResult<()> {
-        let request_target_peer_id = &cmd.peer_id;
+        let request_target_peer_id = cmd.peer_public_key.to_peer_id();
         debug!(%request_target_peer_id, "Got request message");
         trace!(?cmd.data, "Got request message");
 
-        if self.swarm.is_connected(request_target_peer_id) {
+        if self.swarm.is_connected(&request_target_peer_id) {
             self.swarm
                 .behaviour_mut()
                 .request_response
-                .send_request(request_target_peer_id, cmd.data);
+                .send_request(&request_target_peer_id, cmd.data);
             return Ok(());
         }
 

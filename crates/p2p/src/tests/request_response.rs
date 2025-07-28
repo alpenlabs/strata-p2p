@@ -23,11 +23,11 @@ async fn test_reqresp_basic() -> anyhow::Result<()> {
 
     let req_msg = b"request from node1".to_vec();
     let resp_msg = b"response from node2".to_vec();
-    let peer_id = user_handles[1].peer_id;
+    let peer_public_key = user_handles[1].app_keypair.public();
     user_handles[0]
         .reqresp
         .send(RequestResponseCommand {
-            peer_id,
+            peer_public_key,
             data: req_msg.clone(),
         })
         .await

@@ -9,7 +9,6 @@ use std::{
 };
 
 use futures::{FutureExt, Sink, Stream};
-use libp2p::PeerId;
 use thiserror::Error;
 use tokio::{
     sync::{
@@ -150,7 +149,7 @@ impl CommandHandle {
 
     /// Gets the list of all currently connected peers.
     /// If timeout is None, uses the default timeout of 1 second.
-    pub async fn get_connected_peers(&self, timeout_duration: Option<Duration>) -> Vec<PeerId> {
+    pub async fn get_connected_peers(&self, timeout_duration: Option<Duration>) -> Vec<PublicKey> {
         let (sender, receiver) = oneshot::channel();
 
         let cmd = Command::QueryP2PState(QueryP2PStateCommand::GetConnectedPeers {
