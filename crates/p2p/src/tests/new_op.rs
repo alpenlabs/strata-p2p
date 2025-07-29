@@ -1,7 +1,5 @@
 //! Tests for new operator functionality.
 
-#![cfg(feature = "gossipsub")]
-
 use std::time::Duration;
 
 use futures::SinkExt;
