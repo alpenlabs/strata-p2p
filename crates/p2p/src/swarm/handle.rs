@@ -13,7 +13,8 @@ use thiserror::Error;
 use tokio::{
     sync::{
         broadcast::{self, error::RecvError},
-        mpsc, oneshot,
+        mpsc::{self, error::SendError},
+        oneshot,
     },
     time::timeout,
 };
@@ -148,7 +149,8 @@ impl CommandHandle {
     }
 
     /// Gets the list of all currently connected peers.
-    /// If timeout is None, uses the default timeout of 1 second.
+    ///
+    /// If timeout is [`None`], uses the default timeout of 1 second.
     pub async fn get_connected_peers(&self, timeout_duration: Option<Duration>) -> Vec<PublicKey> {
         let (sender, receiver) = oneshot::channel();
 
@@ -156,6 +158,7 @@ impl CommandHandle {
             response_sender: sender,
         });
 
+        // TODO: make this configurable.
         let duration = timeout_duration.unwrap_or(Duration::from_secs(1));
         let cmd_sender = self.commands.clone();
 
@@ -215,10 +218,9 @@ impl Stream for ReqRespHandle {
     }
 }
 
-// Sink implementation for GossipHandle to publish messages
 #[cfg(feature = "gossipsub")]
 impl Sink<GossipCommand> for GossipHandle {
-    type Error = mpsc::error::SendError<GossipCommand>;
+    type Error = SendError<GossipCommand>;
 
     fn poll_ready(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         Poll::Ready(Ok(()))
@@ -227,7 +229,7 @@ impl Sink<GossipCommand> for GossipHandle {
     fn start_send(self: Pin<&mut Self>, item: GossipCommand) -> Result<(), Self::Error> {
         self.commands
             .try_send(item)
-            .map_err(|e| mpsc::error::SendError(e.into_inner()))
+            .map_err(|e| SendError(e.into_inner()))
     }
 
     fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
@@ -239,10 +241,9 @@ impl Sink<GossipCommand> for GossipHandle {
     }
 }
 
-// Sink implementation for ReqRespHandle to send request messages
 #[cfg(feature = "request-response")]
 impl Sink<RequestResponseCommand> for ReqRespHandle {
-    type Error = mpsc::error::SendError<RequestResponseCommand>;
+    type Error = SendError<RequestResponseCommand>;
 
     fn poll_ready(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         Poll::Ready(Ok(()))
@@ -251,7 +252,7 @@ impl Sink<RequestResponseCommand> for ReqRespHandle {
     fn start_send(self: Pin<&mut Self>, item: RequestResponseCommand) -> Result<(), Self::Error> {
         self.commands
             .try_send(item)
-            .map_err(|e| mpsc::error::SendError(e.into_inner()))
+            .map_err(|e| SendError(e.into_inner()))
     }
 
     fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {

@@ -7,7 +7,7 @@ use libp2p::{
     identity::{Keypair, PublicKey},
 };
 use tokio::{sync::oneshot::channel, time::sleep};
-use tokio_util::sync::CancellationToken;
+use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use tracing::info;
 
 use crate::{
@@ -39,7 +39,7 @@ impl ApplicationSigner for BadApplicationSigner {
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_setup_with_invalid_signature() {
     init_tracing();
-    let tasks = tokio_util::task::TaskTracker::new();
+    let tasks = TaskTracker::new();
 
     let app_keypair_good1 = Keypair::generate_ed25519();
     let app_keypair_good2 = Keypair::generate_ed25519();
@@ -114,8 +114,7 @@ async fn test_setup_with_invalid_signature() {
     sleep(Duration::from_secs(1)).await;
 
     info!(
-        "Good user ({}) attempting to connect to bad user ({}) at {}",
-        good_peer_id1, bad_peer_id, local_addr_bad
+        "Good user ({good_peer_id1}) attempting to connect to bad user ({bad_peer_id}) at {local_addr_bad}"
     );
     good_command_handle1
         .send_command(Command::ConnectToPeer {
@@ -125,8 +124,7 @@ async fn test_setup_with_invalid_signature() {
         .await;
 
     info!(
-        "Bad user ({}) attempting to connect to good user ({}) at {}",
-        bad_peer_id, good_peer_id1, local_addr_good1
+        "Bad user ({bad_peer_id}) attempting to connect to good user ({good_peer_id1}) at {local_addr_good1}"
     );
     bad_command_handle
         .send_command(Command::ConnectToPeer {

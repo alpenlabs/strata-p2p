@@ -10,6 +10,7 @@ pub enum Command {
     ConnectToPeer {
         /// Application public key to associate with the dial sequence.
         app_public_key: PublicKey,
+
         /// List of multiaddresses to try dialing.
         addresses: Vec<Multiaddr>,
     },
@@ -40,6 +41,7 @@ pub struct GossipCommand {
 pub struct RequestResponseCommand {
     /// Libp2p [`PublicKey`] of target peer.
     pub target_app_public_key: PublicKey,
+
     /// Message payload in raw bytes.
     ///
     /// The user is responsible for properly serializing/deserializing the data.
@@ -53,6 +55,7 @@ pub enum QueryP2PStateCommand {
     IsConnected {
         /// App public key to check.
         app_public_key: PublicKey,
+
         /// Channel to send the response back.
         response_sender: oneshot::Sender<bool>,
     },

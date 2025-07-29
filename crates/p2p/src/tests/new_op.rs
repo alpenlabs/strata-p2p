@@ -52,7 +52,7 @@ async fn gossip_new_user() -> anyhow::Result<()> {
     }
 
     // Create a separate listening address for the new user
-    let local_addr = build_multiaddr!(Memory(88888888_u64));
+    let local_addr = build_multiaddr!(Memory(88_888_888_u64));
 
     // Create new user with all necessary information
     info!(%local_addr, "Creating new user to listen");
@@ -69,7 +69,7 @@ async fn gossip_new_user() -> anyhow::Result<()> {
     .unwrap();
 
     // Wait for existing users to fully initialize
-    sleep(Duration::from_millis(5000)).await;
+    sleep(Duration::from_millis(5_000)).await;
 
     // Run the new user in a separate task - this call will handle connections
     tasks.spawn(async move {
@@ -83,7 +83,7 @@ async fn gossip_new_user() -> anyhow::Result<()> {
     });
 
     // Wait for existing users to fully initialize
-    sleep(Duration::from_millis(5000)).await;
+    sleep(Duration::from_millis(5_000)).await;
 
     // Connect the old users to the new one
     for (index, addr) in connect_addrs.iter().enumerate() {

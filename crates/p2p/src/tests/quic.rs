@@ -3,6 +3,7 @@
 use std::time::Duration;
 
 use libp2p::{Multiaddr, identity::Keypair};
+use tokio::{join, spawn, sync::oneshot, time};
 use tokio_util::sync::CancellationToken;
 use tracing::info;
 
@@ -56,12 +57,12 @@ async fn test_quic_and_tcp_connectivity_ipv4_ipv6() {
     let command_b = user_b.command.clone();
 
     // Spawn P2P listen tasks
-    let task_a = tokio::spawn(async move { user_a.p2p.listen().await });
-    let task_b = tokio::spawn(async move { user_b.p2p.listen().await });
+    let task_a = spawn(async move { user_a.p2p.listen().await });
+    let task_b = spawn(async move { user_b.p2p.listen().await });
 
-    tokio::time::sleep(Duration::from_millis(1000)).await;
+    time::sleep(Duration::from_millis(1_000)).await;
 
-    let (tx, rx) = tokio::sync::oneshot::channel();
+    let (tx, rx) = oneshot::channel();
     let query = QueryP2PStateCommand::GetMyListeningAddresses {
         response_sender: tx,
     };
@@ -83,9 +84,9 @@ async fn test_quic_and_tcp_connectivity_ipv4_ipv6() {
         };
         command_b.send_command(connect_cmd).await;
 
-        tokio::time::sleep(Duration::from_millis(200)).await;
+        time::sleep(Duration::from_millis(200)).await;
 
-        let (tx, rx) = tokio::sync::oneshot::channel();
+        let (tx, rx) = oneshot::channel();
         let is_connected_query = QueryP2PStateCommand::IsConnected {
             app_public_key: keypair_a.public(),
             response_sender: tx,
@@ -104,8 +105,8 @@ async fn test_quic_and_tcp_connectivity_ipv4_ipv6() {
             .await;
         info!(%addr, "Disconnect requested");
 
-        tokio::time::sleep(Duration::from_millis(200)).await;
-        let (tx, rx) = tokio::sync::oneshot::channel();
+        time::sleep(Duration::from_millis(200)).await;
+        let (tx, rx) = oneshot::channel();
         let is_connected_query = QueryP2PStateCommand::IsConnected {
             app_public_key: keypair_a.public(),
             response_sender: tx,
@@ -124,7 +125,7 @@ async fn test_quic_and_tcp_connectivity_ipv4_ipv6() {
 
     info!("All QUIC and TCP connections (IPv4 and IPv6) succeeded!");
     cancel.cancel();
-    let _ = tokio::join!(task_a, task_b);
+    let _ = join!(task_a, task_b);
 }
 
 /// Test TCP fallback when QUIC connection fails.
@@ -164,12 +165,12 @@ async fn test_tcp_fallback_on_quic_failure() {
     let command_a = user_a.command.clone();
     let command_b = user_b.command.clone();
 
-    let task_a = tokio::spawn(async move { user_a.p2p.listen().await });
-    let task_b = tokio::spawn(async move { user_b.p2p.listen().await });
+    let task_a = spawn(async move { user_a.p2p.listen().await });
+    let task_b = spawn(async move { user_b.p2p.listen().await });
 
-    tokio::time::sleep(Duration::from_millis(1000)).await;
+    time::sleep(Duration::from_millis(1_000)).await;
 
-    let (tx, rx) = tokio::sync::oneshot::channel();
+    let (tx, rx) = oneshot::channel();
     let query = QueryP2PStateCommand::GetMyListeningAddresses {
         response_sender: tx,
     };
@@ -194,9 +195,9 @@ async fn test_tcp_fallback_on_quic_failure() {
     };
     command_b.send_command(connect_cmd).await;
 
-    tokio::time::sleep(Duration::from_secs(10)).await;
+    time::sleep(Duration::from_secs(10)).await;
 
-    let (tx, rx) = tokio::sync::oneshot::channel();
+    let (tx, rx) = oneshot::channel();
     let is_connected_query = QueryP2PStateCommand::IsConnected {
         app_public_key: keypair_a.public(),
         response_sender: tx,
@@ -214,5 +215,5 @@ async fn test_tcp_fallback_on_quic_failure() {
     info!("TCP fallback succeeded after QUIC connection failed");
 
     cancel.cancel();
-    let _ = tokio::join!(task_a, task_b);
+    let _ = join!(task_a, task_b);
 }
