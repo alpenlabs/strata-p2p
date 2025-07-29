@@ -1,7 +1,7 @@
 //! Swarm implementation for P2P.
 
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     sync::LazyLock,
     time::{Duration, Instant},
 };
@@ -24,7 +24,8 @@ use libp2p::{
     identity::{Keypair, PublicKey},
     kad::{
         AddProviderError, AddProviderOk, BootstrapOk, Event as KademliaEvent, GetClosestPeersError,
-        GetClosestPeersOk, GetProvidersError, PutRecordError, PutRecordOk, QueryResult,
+        GetClosestPeersOk, GetProvidersError, PutRecordError, PutRecordOk, QueryId, QueryResult,
+        Quorum, Record, RecordKey, store::RecordStore,
     },
     noise,
     swarm::{
@@ -49,7 +50,10 @@ use crate::{
     commands::{Command, QueryP2PStateCommand},
     events::GossipEvent,
     signer::ApplicationSigner,
-    swarm::setup::events::SetupBehaviourEvent,
+    swarm::{
+        message_dht::{RecordData, SignedRecordData},
+        setup::events::SetupBehaviourEvent,
+    },
 };
 
 mod behavior;
@@ -61,6 +65,9 @@ pub mod errors;
 pub mod handle;
 mod message;
 pub mod setup;
+
+#[cfg(feature = "kademlia")]
+mod message_dht;
 
 /// Global topic name for gossipsub messages.
 static TOPIC: LazyLock<Sha256Topic> = LazyLock::new(|| Sha256Topic::new("bitvm2"));
@@ -130,10 +137,14 @@ pub struct P2PConfig {
     /// Timeout for channel operations (e.g., sending/receiving on channels).
     #[cfg(feature = "request-response")]
     pub channel_timeout: Option<Duration>,
+
+    /// How many peers we should connect to before trying to put our [`SignedRecordData`] for app
+    /// public key
+    pub kademlia_threshold: usize,
 }
 
 /// Implementation of P2P protocol data exchange.
-#[expect(missing_debug_implementations, dead_code)]
+#[expect(missing_debug_implementations)]
 pub struct P2P<S: ApplicationSigner> {
     /// The swarm that handles the networking.
     swarm: Swarm<Behaviour<S>>,
@@ -167,6 +178,13 @@ pub struct P2P<S: ApplicationSigner> {
 
     /// Application signer for signing setup messages.
     signer: S,
+
+    /// It is used to put record only if we connected to at least
+    /// [`P2PConfig::kademlia_threshold`].
+    kademlia_is_initial_record_already_posted: bool,
+
+    /// Postponed action: a channel for a query to which send something back.
+    kademlia_postponed_get_action: HashMap<QueryId, tokio::sync::oneshot::Sender<Vec<u8>>>,
 }
 
 /// Alias for [`P2P`] and [`ReqRespHandle`] tuple.
@@ -204,6 +222,8 @@ impl<S: ApplicationSigner> P2P<S> {
                 allowlist: HashSet::from_iter(allowlist),
                 config: cfg,
                 signer,
+                kademlia_is_initial_record_already_posted: false,
+                kademlia_postponed_get_action: HashMap::new(),
             },
             ReqRespHandle::new(req_resp_event_rx),
         ))
@@ -236,6 +256,8 @@ impl<S: ApplicationSigner> P2P<S> {
             config: cfg,
             allowlist: HashSet::from_iter(allowlist),
             signer,
+            kademlia_is_initial_record_already_posted: false,
+            kademlia_postponed_get_action: HashMap::new(),
         })
     }
 
@@ -320,14 +342,14 @@ impl<S: ApplicationSigner> P2P<S> {
             .await
             {
                 Ok(Ok(_)) => {
-                    info!(topic=%TOPIC.to_string(), %num_retries, %max_retry_count, "subscribed to topic successfully");
+                    info!(topic=%TOPIC.to_string(), %num_retries, %max_retry_count, local_addr=%self.config.listening_addr, "subscribed to topic successfully");
                     break;
                 }
                 Ok(Err(err)) => {
-                    error!(topic=%TOPIC.to_string(), %err, %num_retries, %max_retry_count, "failed to subscribe to topic, retrying...");
+                    error!(topic=%TOPIC.to_string(), %err, %num_retries, %max_retry_count,local_addr=%self.config.listening_addr, "failed to subscribe to topic, retrying...");
                 }
                 Err(_) => {
-                    error!(topic=%TOPIC.to_string(), %num_retries, %max_retry_count, "failed to subscribe to topic, retrying...");
+                    error!(topic=%TOPIC.to_string(), %num_retries, %max_retry_count, local_addr=%self.config.listening_addr, "failed to subscribe to topic, retrying...");
                 }
             }
 
@@ -537,6 +559,16 @@ impl<S: ApplicationSigner> P2P<S> {
                         "{} {} {:?} InboundRequest::PutRecord",
                         source, connection, record
                     );
+                    // TODO(Arniiiii) : do filtering
+                    let res = self
+                        .swarm
+                        .behaviour_mut()
+                        .kademlia
+                        .store_mut()
+                        .put(record.unwrap());
+                    if res.is_err() {
+                        info!(err = %res.unwrap_err(),"Someone has asked as to put a record that is too big. Refusing to do so.")
+                    }
                     Ok(())
                 }
                 libp2p::kad::InboundRequest::GetRecord {
@@ -547,7 +579,6 @@ impl<S: ApplicationSigner> P2P<S> {
                         "
                     {num_closer_peers}
                     {present_locally}
-
 libp2p::kad::InboundRequest::GetRecord
                     "
                     );
@@ -596,6 +627,13 @@ libp2p::kad::InboundRequest::GetRecord
                     trace!(
                         "{id} {stats:?} {step:?} {peer_record:?} QueryResult::GetRecord(Ok(libp2p::kad::GetRecordOk::FoundRecord"
                     );
+                    if self.kademlia_postponed_get_action.contains_key(&id) {
+                        let _ = self
+                            .kademlia_postponed_get_action
+                            .remove(&id)
+                            .unwrap()
+                            .send(peer_record.record.value);
+                    }
                     Ok(())
                 }
                 QueryResult::GetRecord(Ok(
@@ -604,12 +642,26 @@ libp2p::kad::InboundRequest::GetRecord
                     trace!(
                         "{id} {stats:?} {step:?} {cache_candidates:?} QueryResult::GetRecord(Ok(libp2p::kad::GetRecordOk::FinishedWithNoAdditionalRecord"
                     );
+                    if self.kademlia_postponed_get_action.contains_key(&id) {
+                        let _ = self
+                            .kademlia_postponed_get_action
+                            .remove(&id)
+                            .unwrap()
+                            .closed().await;
+                    }
                     Ok(())
                 }
                 QueryResult::GetRecord(Err(libp2p::kad::GetRecordError::Timeout { key })) => {
                     trace!(
                         "{id} {stats:?} {step:?} {key:?} QueryResult::GetRecord(Err(libp2p::kad::GetRecordError::Timeout"
                     );
+                    if self.kademlia_postponed_get_action.contains_key(&id) {
+                        let _ = self
+                            .kademlia_postponed_get_action
+                            .remove(&id)
+                            .unwrap()
+                            .closed().await;
+                    }
                     Ok(())
                 }
                 QueryResult::GetRecord(Err(libp2p::kad::GetRecordError::NotFound {
@@ -619,6 +671,13 @@ libp2p::kad::InboundRequest::GetRecord
                     trace!(
                         "{id} {stats:?} {step:?} {key:?} {closest_peers:?} QueryResult::GetRecord(Err(libp2p::kad::GetRecordError::NotFound"
                     );
+                    if self.kademlia_postponed_get_action.contains_key(&id) {
+                        let _ = self
+                            .kademlia_postponed_get_action
+                            .remove(&id)
+                            .unwrap()
+                            .closed().await;
+                    }
                     Ok(())
                 }
                 QueryResult::GetRecord(Err(libp2p::kad::GetRecordError::QuorumFailed {
@@ -760,6 +819,38 @@ libp2p::kad::InboundRequest::GetRecord
                 trace!(
                     "{peer:?} {is_new_peer:?} {addresses:?} {bucket_range:?} {old_peer:?} KademliaEvent::RoutingUpdated"
                 );
+                if self.kademlia_is_initial_record_already_posted
+                    && self
+                        .swarm
+                        .behaviour_mut()
+                        .kademlia
+                        .store_mut()
+                        .records()
+                        .len()
+                        > self.config.kademlia_threshold
+                {
+                    let maybe_signed_record_data = SignedRecordData::new_signed_record(
+                        self.config.app_public_key.clone(),
+                        *self.swarm.local_peer_id(),
+                        self.swarm.external_addresses().cloned().collect::<Vec<_>>(),
+                        &self.signer,
+                    );
+
+                    match maybe_signed_record_data {
+                        Err(e) => {
+                            warn!(%e,app_pk = ?self.config.app_public_key,local_tid = %self.swarm.local_peer_id(),external_addresses = ?self.swarm.external_addresses().cloned().collect::<Vec<_>>(), "Failed to serialize our signed record.");
+                        }
+                        Ok(signed_record_data) => {
+                            let _ = self.swarm.behaviour_mut().kademlia.put_record(
+                                Record::new(
+                                    self.config.app_public_key.encode_protobuf(),
+                                    serde_json::to_vec(&signed_record_data).unwrap(),
+                                ),
+                                Quorum::Majority,
+                            );
+                        }
+                    };
+                }
                 Ok(())
             }
             KademliaEvent::RoutablePeer { peer, address } => {
@@ -884,29 +975,61 @@ libp2p::kad::InboundRequest::GetRecord
                 app_public_key: app_pk,
                 data,
             } => {
+                // Problem: in request response we take application public key.
+                // If we don't have peer id ( therefore libp2p's swarm doesn't have
+                // multiaddr of the peer ), we can't connect to peer with given application
+                // public key.
+                //
+                // Solution:
+                // 1. Check if Setup behaviour does have the app_pk -> peer_id.
+                // 2. If no, if kad feature is enabled, try get the app_pk -> multiaddr and
+                // tell swarm to dial the multiaddr.
+                // 3. if nothing has successfully finished, now just log error. Should it
+                // return error somehow?
+
                 debug!(?app_pk, "Got request message");
                 trace!(?data, "Got request message");
 
-                let option_request_target_peer_id = self
+                let mut option_request_target_peer_id = self
                     .swarm
                     .behaviour()
                     .setup
                     .get_transport_id_by_application_key(&app_pk);
 
+                if option_request_target_peer_id.is_none() {
+                    // // TODO(Arniiiii): feature gate if not kademlia
+                    // error!(
+                    //     "Logic error: Request response is attempted on a peer we haven't done
+                    // Setup yet." )
+                    match self.get_tid_via_kademlia(&app_pk).await {
+                        Some(record) => {
+                            option_request_target_peer_id = Some(record.transport_id);
+
+                            for multiaddr in record.multiaddresses {
+                                self.swarm.add_peer_address(record.transport_id, multiaddr);
+                            }
+                        }
+                        None => {
+                            debug!(
+                                "Attempt to find the peerid in DHT has failed: no known peers with the application public key."
+                            );
+                        }
+                    }
+                }
+
                 match option_request_target_peer_id {
                     Some(request_target_peer_id) => {
-                        if self.swarm.is_connected(&request_target_peer_id) {
-                            self.swarm
-                                .behaviour_mut()
-                                .request_response
-                                .send_request(&request_target_peer_id, data);
-                            return Ok(());
-                        }
+                        info!("Sent some data via request response.");
+                        trace!(%request_target_peer_id, ?app_pk, ?data, "Sent some data via request response.");
+                        self.swarm
+                            .behaviour_mut()
+                            .request_response
+                            .send_request(&request_target_peer_id, data);
                     }
                     None => {
                         error!(
-                            "Logic error: Request response is attempted on a peer we haven't done Setup yet."
-                        )
+                            "Request response has failed: no known peers with the application public key."
+                        );
                     }
                 }
 
@@ -924,7 +1047,7 @@ libp2p::kad::InboundRequest::GetRecord
                 );
 
                 trace!(
-                    "Ask explicitly kademlia behaviour to add a new peer {} {}",
+                    "Ask explicitly Kademlia behaviour to add a new peer {} {}",
                     connect_to_peer_command.peer_id, connect_to_peer_command.peer_addr
                 );
                 self.swarm.behaviour_mut().kademlia.add_address(
@@ -1019,6 +1142,57 @@ libp2p::kad::InboundRequest::GetRecord
                 }
             },
         }
+    }
+
+    async fn get_tid_via_kademlia(&mut self, app_pk: &PublicKey) -> Option<RecordData> {
+        let queryid = self
+            .swarm
+            .behaviour_mut()
+            .kademlia
+            .get_record(RecordKey::new(&app_pk.encode_protobuf()));
+
+        let (tx, rx) = oneshot::channel();
+
+        self.kademlia_postponed_get_action.insert(queryid, tx);
+
+        let Ok(Ok(data)) = timeout(Duration::from_secs(50), rx).await else {
+            // This handles timeout or a channel error. We now simply stop processing this
+            // event.
+            return None;
+        };
+
+        let str = match String::from_utf8(data.clone()) {
+            Ok(s) => s,
+            Err(e) => {
+                warn!(%e, record = %String::from_utf8_lossy(&data), "Tried to get record from DHT, but it seems to have a string for multiaddress to be invalid UTF-8.");
+                return None;
+            }
+        };
+
+        trace!(%str, "We got a record.");
+
+        let signed_data: SignedRecordData = match serde_json::from_str(&str) {
+            Ok(data) => data,
+            Err(e) => {
+                warn!(%e, "Tried to get record from DHT, but we failed deserializing its signature.");
+                return None;
+            }
+        };
+
+        let record: RecordData = match serde_json::from_str(&str) {
+            Ok(data) => data,
+            Err(e) => {
+                warn!(%e, "Tried to get record from DHT, but we failed deserializing its data.");
+                return None;
+            }
+        };
+
+        if !signed_data.verify_signature(&record.app_public_key) {
+            warn!("Tried to get record from DHT, but it has bad signature.");
+            return None;
+        }
+
+        Some(record)
     }
 
     /// Handles [`RequestResponseEvent`] from the swarm.

@@ -7,48 +7,12 @@ use serde::{Deserialize, Serialize};
 
 use super::errors::{SetupError, SetupUpgradeError};
 
-pub(super) mod pubkey_serializer {
-    use serde::{self, Deserializer, Serializer, de};
+pub(crate) mod pubkey_serialization;
+pub(crate) mod signature_serialization;
 
-    use super::PublicKey;
+use crate::swarm::message::signature_serialization::signature_serializer;
+use crate::swarm::message::pubkey_serialization::pubkey_serializer;
 
-    pub(super) fn serialize<S>(data: &PublicKey, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_bytes(&data.encode_protobuf())
-    }
-
-    pub(super) fn deserialize<'de, D>(deserializer: D) -> Result<PublicKey, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let bytes: Vec<u8> = serde::Deserialize::deserialize(deserializer)?;
-        PublicKey::try_decode_protobuf(&bytes)
-            .map_err(|_| de::Error::custom("Failed to deserialize pubkey"))
-    }
-}
-
-pub(super) mod signature_serializer {
-    use serde::{self, Deserializer, Serializer, de};
-
-    pub(super) fn serialize<S>(data: &[u8; 64], serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_bytes(data)
-    }
-
-    pub(super) fn deserialize<'de, D>(deserializer: D) -> Result<[u8; 64], D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let bytes: Vec<u8> = serde::Deserialize::deserialize(deserializer)?;
-        bytes
-            .try_into()
-            .map_err(|_| de::Error::custom("Signature must be exactly 64 bytes"))
-    }
-}
 
 /// Protocol version for all messages.
 pub(crate) const PROTOCOL_VERSION: u8 = 2;

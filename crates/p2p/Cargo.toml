@@ -4,8 +4,9 @@ version.workspace = true
 edition.workspace = true
 
 [features]
-default = ["request-response"]
+default = ["request-response", "kademlia"]
 request-response = []
+kademlia = []
 
 [lints]
 workspace = true

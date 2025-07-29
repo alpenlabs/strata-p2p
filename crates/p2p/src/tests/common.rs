@@ -21,6 +21,7 @@ use crate::{
     },
 };
 
+// this is here in one place.
 pub(crate) const MULTIADDR_MEMORY_ID_OFFSET_GOSSIP_BASIC: u64 = 120;
 pub(crate) const MULTIADDR_MEMORY_ID_OFFSET_TEST_IS_CONNECTED: u64 = 150;
 pub(crate) const MULTIADDR_MEMORY_ID_OFFSET_GOSSIP_NEW_USER: u64 = 200;
@@ -31,6 +32,9 @@ pub(crate) const MULTIADDR_MEMORY_ID_OFFSET_REQUEST_RESPONSE_BASIC: u64 = 300;
 pub(crate) const MULTIADDR_MEMORY_ID_OFFSET_TEST_MANUALLY_GET_ALL_PEERS: u64 = 500;
 pub(crate) const MULTIADDR_MEMORY_ID_OFFSET_TEST_CONNECTION_BY_APP_PUBLIC_KEY: u64 = 600;
 pub(crate) const MULTIADDR_MEMORY_ID_OFFSET_TEST_SETUP_WITH_INVALID_SIGNATURE: u64 = 700;
+
+#[cfg(all(feature = "request-response", feature = "kademlia"))]
+pub(crate) const MULTIADDR_MEMORY_ID_OFFSET_TEST_DHT_RECORD: u64 = 1000;
 
 /// Only attempt to start tracing once
 ///
@@ -107,6 +111,7 @@ impl<S: ApplicationSigner> User<S> {
             kad_protocol_name: Some(StreamProtocol::new("/ipfs/kad_strata-p2p/0.0.1")),
             #[cfg(feature = "request-response")]
             channel_timeout: None,
+            kademlia_threshold: 2,
         };
 
         let swarm = swarm::with_inmemory_transport::<S>(&config, signer.clone())?;
@@ -151,7 +156,6 @@ pub(crate) struct Setup {
 pub(crate) struct SetupInitialData {
     pub(crate) app_keypairs: Vec<Keypair>,
     pub(crate) transport_keypairs: Vec<Keypair>,
-    pub(crate) peer_ids: Vec<PeerId>,
     pub(crate) multiaddresses: Vec<libp2p::Multiaddr>,
 }
 
@@ -162,7 +166,6 @@ impl Setup {
         let SetupInitialData {
             app_keypairs,
             transport_keypairs,
-            peer_ids,
             multiaddresses,
         } = Self::setup_keys_ids_addrs_of_n_users(n, offset);
 
@@ -177,8 +180,6 @@ impl Setup {
         {
             let mut other_addrs = multiaddresses.clone();
             other_addrs.remove(idx);
-            let mut other_peerids = peer_ids.clone();
-            other_peerids.remove(idx);
             let mut other_app_pk = app_keypairs
                 .iter()
                 .map(|kp| kp.public())
@@ -191,6 +192,59 @@ impl Setup {
                 other_addrs,
                 addr.clone(),
                 other_app_pk,
+                cancel.child_token(),
+                MockApplicationSigner {
+                    app_keypair: app_keypair.clone(),
+                },
+            )?;
+
+            users.push(user);
+        }
+
+        let (users, tasks) = Self::start_users(users).await;
+
+        Ok(Self {
+            cancel,
+            tasks,
+            user_handles: users,
+        })
+    }
+
+    pub(crate) async fn all_to_all_limited(
+        n: usize,
+        init_limit: usize,
+        offset: u64,
+    ) -> anyhow::Result<Self> {
+        let SetupInitialData {
+            app_keypairs,
+            transport_keypairs,
+            multiaddresses,
+        } = Self::setup_keys_ids_addrs_of_n_users(n, offset);
+
+        let cancel = CancellationToken::new();
+        let mut users = Vec::new();
+
+        for (idx, ((app_keypair, transport_keypair), addr)) in app_keypairs
+            .iter()
+            .zip(&transport_keypairs)
+            .zip(&multiaddresses)
+            .enumerate()
+        {
+            let mut other_addrs = multiaddresses.clone();
+            other_addrs.remove(idx);
+            let limited_other_addrs = &other_addrs[0..init_limit];
+            let mut other_app_pk = app_keypairs
+                .iter()
+                .map(|kp| kp.public())
+                .collect::<Vec<_>>();
+            other_app_pk.remove(idx);
+
+            let user = User::new(
+                app_keypair.clone(),
+                transport_keypair.clone(),
+                limited_other_addrs.to_vec(),
+                addr.clone(),
+                other_app_pk.to_vec(),
                 cancel.child_token(),
                 MockApplicationSigner {
                     app_keypair: app_keypair.clone(),
@@ -228,11 +282,6 @@ impl Setup {
             transport_keypairs.len()
         );
 
-        let peer_ids = transport_keypairs
-            .iter()
-            .map(|key| PeerId::from_public_key(&key.clone().public()))
-            .collect::<Vec<_>>();
-
         let multiaddresses = (offset..(offset + u64::try_from(n).unwrap()))
             .map(|idx| build_multiaddr!(Memory(idx)))
             .collect::<Vec<_>>();
@@ -240,7 +289,6 @@ impl Setup {
         SetupInitialData {
             app_keypairs,
             transport_keypairs,
-            peer_ids,
             multiaddresses,
         }
     }
