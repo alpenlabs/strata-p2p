@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/p2p"]
+members = ["crates/p2p","crates/types"]
 
 default-members = ["crates/p2p"]
 

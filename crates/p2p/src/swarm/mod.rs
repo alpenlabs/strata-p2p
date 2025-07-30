@@ -894,6 +894,7 @@ impl<S: ApplicationSigner> P2P<S> {
         Ok(())
     }
 
+    // TODO(Arniiiii): make it for both gossipsub and request-response
     /// Handles [`MessageEvent`] from the swarm.
     #[cfg(feature = "request-response")]
     async fn handle_message_event(
