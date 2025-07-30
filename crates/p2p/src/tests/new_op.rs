@@ -1,14 +1,15 @@
-//! Connect to Peer Command tests.
+//! Tests for new operator functionality.
 
 use std::time::Duration;
 
+use futures::SinkExt;
 use libp2p::{Multiaddr, build_multiaddr, identity::Keypair};
 use tokio::{sync::oneshot::channel, time::sleep};
 use tracing::{debug, info};
 
 use super::common::Setup;
 use crate::{
-    commands::{Command, ConnectToPeerCommand, QueryP2PStateCommand},
+    commands::{Command, GossipCommand, QueryP2PStateCommand},
     events::GossipEvent,
     tests::common::{MockApplicationSigner, User, init_tracing},
 };
@@ -51,7 +52,7 @@ async fn gossip_new_user() -> anyhow::Result<()> {
     }
 
     // Create a separate listening address for the new user
-    let local_addr = build_multiaddr!(Memory(88888888_u64));
+    let local_addr = build_multiaddr!(Memory(88_888_888_u64));
 
     // Create new user with all necessary information
     info!(%local_addr, "Creating new user to listen");
@@ -60,15 +61,15 @@ async fn gossip_new_user() -> anyhow::Result<()> {
         new_user_app_keypair.clone(),
         new_user_transport_keypair.clone(),
         connect_addrs.clone(), // Connect directly to existing users
-        local_addr.clone(),
         Vec::new(),
+        vec![local_addr.clone()],
         cancel.child_token(),
         MockApplicationSigner::new(new_user_app_keypair.clone()),
     )
     .unwrap();
 
     // Wait for existing users to fully initialize
-    sleep(Duration::from_millis(5000)).await;
+    sleep(Duration::from_millis(5_000)).await;
 
     // Run the new user in a separate task - this call will handle connections
     tasks.spawn(async move {
@@ -82,15 +83,24 @@ async fn gossip_new_user() -> anyhow::Result<()> {
     });
 
     // Wait for existing users to fully initialize
-    sleep(Duration::from_millis(5000)).await;
+    sleep(Duration::from_millis(5_000)).await;
 
     // Connect the old users to the new one
-    for user in user_handles.iter().take(connect_addrs.len()) {
-        user.command
-            .send_command(Command::ConnectToPeer(ConnectToPeerCommand {
-                peer_id: new_user.transport_keypair.public().to_peer_id(),
-                peer_addr: local_addr.clone(),
-            }))
+    for (index, addr) in connect_addrs.iter().enumerate() {
+        info!(
+            index,
+            addr = %addr,
+            old_peer = %user_handles[index].peer_id,
+            new_peer = %new_user.app_keypair.public().to_peer_id(),
+            "Old user connecting to new user"
+        );
+        let app_public_key = user_handles[index].app_keypair.public();
+        user_handles[index]
+            .command
+            .send_command(Command::ConnectToPeer {
+                app_public_key,
+                addresses: vec![local_addr.clone()],
+            })
             .await;
     }
 
@@ -102,22 +112,24 @@ async fn gossip_new_user() -> anyhow::Result<()> {
 
     info!("Regular user sending test message");
     user_handles[0]
-        .command
-        .send_command(Command::PublishMessage {
+        .gossip
+        .send(GossipCommand {
             data: message_from_inside.clone(),
         })
-        .await;
+        .await
+        .expect("Failed to send gossip message");
 
     // Wait for message propagation and verify
     sleep(Duration::from_secs(2)).await;
 
     info!("New user sending test message");
     new_user
-        .command
-        .send_command(Command::PublishMessage {
+        .gossip
+        .send(GossipCommand {
             data: message_from_outsider.clone(),
         })
-        .await;
+        .await
+        .expect("Failed to send gossip message");
 
     // Wait for message propagation
     sleep(Duration::from_secs(2)).await;

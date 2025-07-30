@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use anyhow::bail;
-use libp2p::PeerId;
+use libp2p::identity::PublicKey;
 use tokio::{sync::oneshot, time::sleep};
 
 use super::common::Setup;
@@ -45,9 +45,9 @@ async fn test_is_connected() -> anyhow::Result<()> {
 
     // Also test the get_connected_peers API
     let connected_peers = user_handles[0].command.get_connected_peers(None).await;
-    assert!(connected_peers.contains(&user_handles[1].peer_id));
+    assert!(connected_peers.contains(&user_handles[1].app_keypair.public()));
 
-    let (tx, rx) = oneshot::channel::<Vec<PeerId>>();
+    let (tx, rx) = oneshot::channel::<Vec<PublicKey>>();
     // Also test the get_connected_peers API manually
     user_handles[0]
         .command
@@ -56,7 +56,7 @@ async fn test_is_connected() -> anyhow::Result<()> {
         }))
         .await;
     let connected_peers = rx.await.unwrap();
-    assert!(connected_peers.contains(&user_handles[1].peer_id));
+    assert!(connected_peers.contains(&user_handles[1].app_keypair.public()));
 
     // Cleanup
     cancel.cancel();
@@ -77,7 +77,7 @@ async fn test_manually_get_all_peers() -> anyhow::Result<()> {
         tasks,
     } = Setup::all_to_all(USERS_NUM).await?;
 
-    let (tx, rx) = oneshot::channel::<Vec<PeerId>>();
+    let (tx, rx) = oneshot::channel::<Vec<PublicKey>>();
 
     let _ = sleep(Duration::from_secs(2)).await;
 
@@ -95,7 +95,9 @@ async fn test_manually_get_all_peers() -> anyhow::Result<()> {
         Err(e) => bail!("error {e}"),
     };
 
+    #[cfg(feature = "gossipsub")]
     assert!(user_handles[0].gossip.events_is_empty());
+
     #[cfg(feature = "request-response")]
     assert!(user_handles[0].reqresp.events_is_empty());
 
