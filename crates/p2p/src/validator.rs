@@ -9,6 +9,7 @@ pub const DEFAULT_BAN_PERIOD: Duration = Duration::from_secs(60 * 60 * 24 * 30);
 
 #[derive(Debug)]
 pub enum Message {
+    Setup(Vec<u8>),
     Gossipsub(Vec<u8>),
     Request(Vec<u8>),
     Response(Vec<u8>),

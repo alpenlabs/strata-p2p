@@ -5,7 +5,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use libp2p::{identity::PublicKey, PeerId};
 use serde::{Deserialize, Serialize};
 
-use super::errors::{SetupError, SetupUpgradeError};
+use super::errors::{MessageError, SetupError};
 
 pub(super) mod pubkey_serializer {
     use serde::{self, de, Deserializer, Serializer};
@@ -56,6 +56,9 @@ pub(crate) const PROTOCOL_VERSION: u8 = 2;
 /// Protocol identifier for setup messages.
 pub(crate) const SETUP_PROTOCOL_ID: u8 = 1;
 
+/// Protocol identifier for gossipsub messages.
+pub(crate) const GOSSIP_PROTOCOL_ID: u8 = 2;
+
 /// Wrapper for signed messages.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SignedMessage {
@@ -72,16 +75,16 @@ impl SignedMessage {
         message: T,
         signer: &S,
         app_public_key: PublicKey,
-    ) -> Result<Self, SetupUpgradeError>
+    ) -> Result<Self, MessageError>
     where
         T: Serialize,
         S: crate::signer::ApplicationSigner,
     {
         let message_bytes =
-            serde_json::to_vec(&message).map_err(|e| SetupUpgradeError::JsonCodec(e.into()))?;
+            serde_json::to_vec(&message).map_err(|e| MessageError::JsonCodec(e.into()))?;
         let signature = signer
             .sign(&message_bytes, app_public_key)
-            .map_err(SetupUpgradeError::SignedMessageCreation)?;
+            .map_err(MessageError::SignedMessageCreation)?;
 
         Ok(Self {
             message: message_bytes,
@@ -95,18 +98,17 @@ impl SignedMessage {
     }
 
     /// Deserializes the inner message.
-    pub(crate) fn deserialize_message<T>(&self) -> Result<T, SetupError>
+    pub(crate) fn deserialize_message<T>(&self) -> Result<T, MessageError>
     where
         T: for<'de> serde::Deserialize<'de>,
     {
         serde_json::from_slice(&self.message)
-            .map_err(|e| SetupError::DeserializationFailed(e.into()))
+            .map_err(|e| MessageError::DeserializationFailed(e.into()))
     }
 
     /// Deserializes a signed message from JSON bytes.
-    #[expect(dead_code)]
-    pub(crate) fn from_json_bytes(data: &[u8]) -> Result<Self, SetupError> {
-        serde_json::from_slice(data).map_err(|e| SetupError::DeserializationFailed(e.into()))
+    pub(crate) fn from_json_bytes(data: &[u8]) -> Result<Self, MessageError> {
+        serde_json::from_slice(data).map_err(|e| MessageError::DeserializationFailed(e.into()))
     }
 }
 
@@ -117,7 +119,7 @@ impl SignedMessage {
         local_transport_id: PeerId,
         remote_transport_id: PeerId,
         signer: &S,
-    ) -> Result<Self, SetupUpgradeError> {
+    ) -> Result<Self, MessageError> {
         let setup_message = SetupMessage::new(
             app_public_key.clone(),
             local_transport_id,
@@ -125,6 +127,17 @@ impl SignedMessage {
         );
 
         SignedMessage::new(setup_message, signer, app_public_key)
+    }
+
+    /// Creates a new signed gossipsub message with the given signer (convenience method).
+    pub(crate) fn new_signed_gossip<S: crate::signer::ApplicationSigner>(
+        app_public_key: PublicKey,
+        message: Vec<u8>,
+        signer: &S,
+    ) -> Result<Self, MessageError> {
+        let gossip_message = GossipMessage::new(app_public_key.clone(), message);
+
+        SignedMessage::new(gossip_message, signer, app_public_key)
     }
 }
 
@@ -154,10 +167,7 @@ impl SetupMessage {
         local_transport_id: PeerId,
         remote_transport_id: PeerId,
     ) -> Self {
-        let timestamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
+        let timestamp = get_timestamp();
 
         Self {
             version: PROTOCOL_VERSION,
@@ -168,4 +178,43 @@ impl SetupMessage {
             date: timestamp,
         }
     }
+}
+
+/// Gossipsub message structure for the gossipsub protocol.
+/// Serialized/deserialized using JSON format.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct GossipMessage {
+    /// Protocol version.
+    pub version: u8,
+    /// Protocol identifier (gossipsub).
+    pub protocol: u8,
+    /// Gossipsub message data
+    pub message: Vec<u8>,
+    /// The application public key (Ed25519) - stored as bytes for serialization.
+    #[serde(with = "pubkey_serializer")]
+    pub app_public_key: PublicKey,
+    /// Timestamp of message creation.
+    pub date: u64,
+}
+
+impl GossipMessage {
+    /// Creates a new gossipsub message with the given parameters.
+    pub(crate) fn new(app_public_key: PublicKey, message: Vec<u8>) -> Self {
+        let timestamp = get_timestamp();
+
+        Self {
+            version: PROTOCOL_VERSION,
+            protocol: GOSSIP_PROTOCOL_ID,
+            message,
+            app_public_key,
+            date: timestamp,
+        }
+    }
+}
+
+fn get_timestamp() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
 }

@@ -53,7 +53,11 @@ use crate::{
         ScoreManager, DEFAULT_DECAY_FACTOR, DEFAULT_GOSSIP_APP_SCORE, DEFAULT_REQ_RESP_APP_SCORE,
     },
     signer::ApplicationSigner,
-    swarm::{dial_manager::DialManager, setup::events::SetupBehaviourEvent},
+    swarm::{
+        dial_manager::DialManager,
+        message::{GossipMessage, SignedMessage},
+        setup::events::SetupBehaviourEvent,
+    },
     validator::{
         DefaultP2PValidator, Message as MessageType, PenaltyPeerStorage, PenaltyType, Validator,
         DEFAULT_BAN_PERIOD,
@@ -159,7 +163,7 @@ pub struct P2PConfig {
 }
 
 /// Implementation of P2P protocol data exchange.
-#[expect(missing_debug_implementations, dead_code)]
+#[expect(missing_debug_implementations)]
 pub struct P2P<S, V = DefaultP2PValidator>
 where
     S: ApplicationSigner,
@@ -777,7 +781,7 @@ where
         message_id: MessageId,
         message: Message,
     ) -> P2PResult<()> {
-        trace!("Got message: {:?}", &message.data);
+        trace!(?message.data, "Got message");
 
         // Score/penalty logic for gossipsub
         if self
@@ -785,18 +789,95 @@ where
             .is_gossip_muted(&propagation_source)
         {
             warn!(
-                "Peer(peer_id={}) is muted for Gossipsub",
-                propagation_source
+                %propagation_source, "Peer is muted for Gossipsub"
             );
             return Ok(());
         }
+
+        let signed_message = match SignedMessage::from_json_bytes(&message.data) {
+            Ok(signed_msg) => signed_msg,
+            Err(e) => {
+                warn!(%propagation_source, ?e, "Failed to deserialize signed gossipsub message");
+                self.swarm
+                    .behaviour_mut()
+                    .gossipsub
+                    .report_message_validation_result(
+                        &message_id,
+                        &propagation_source,
+                        MessageAcceptance::Reject,
+                    );
+                return Ok(());
+            }
+        };
+
+        let gossip_message: GossipMessage = match signed_message.deserialize_message() {
+            Ok(msg) => msg,
+            Err(e) => {
+                warn!(%propagation_source, ?e, "Failed to deserialize inner gossipsub message");
+                self.swarm
+                    .behaviour_mut()
+                    .gossipsub
+                    .report_message_validation_result(
+                        &message_id,
+                        &propagation_source,
+                        MessageAcceptance::Reject,
+                    );
+                return Ok(());
+            }
+        };
+
+        let is_signature_valid =
+            match signed_message.verify_signature(&gossip_message.app_public_key) {
+                Ok(valid) => valid,
+                Err(e) => {
+                    warn!(%propagation_source, ?e, "Error verifying gossipsub message signature");
+                    self.swarm
+                        .behaviour_mut()
+                        .gossipsub
+                        .report_message_validation_result(
+                            &message_id,
+                            &propagation_source,
+                            MessageAcceptance::Reject,
+                        );
+                    return Ok(());
+                }
+            };
+
+        if !is_signature_valid {
+            warn!(%propagation_source, "Invalid signature for gossipsub message");
+            self.swarm
+                .behaviour_mut()
+                .gossipsub
+                .report_message_validation_result(
+                    &message_id,
+                    &propagation_source,
+                    MessageAcceptance::Reject,
+                );
+            return Ok(());
+        }
+
+        if !self.allowlist.contains(&gossip_message.app_public_key) {
+            warn!(%propagation_source, "Gossipsub message from peer not in allowlist");
+            self.swarm
+                .behaviour_mut()
+                .gossipsub
+                .report_message_validation_result(
+                    &message_id,
+                    &propagation_source,
+                    MessageAcceptance::Reject,
+                );
+            return Ok(());
+        }
+
+        info!(%propagation_source, "Verified signed gossipsub message");
+
         let old_app_score = self
             .score_manager
             .get_gossipsub_app_score(&propagation_source)
             .unwrap_or(DEFAULT_GOSSIP_APP_SCORE);
 
         let updated_score = DefaultP2PValidator::validate_msg(
-            &MessageType::Gossipsub(message.data.clone()),
+            &MessageType::Gossipsub(gossip_message.message.clone()),
             old_app_score,
         );
 
@@ -807,7 +888,7 @@ where
             self.get_all_scores(&propagation_source);
 
         if let Some(penalty) = DefaultP2PValidator::get_penalty(
-            &MessageType::Gossipsub(message.data.clone()),
+            &MessageType::Gossipsub(gossip_message.message.clone()),
             gossip_internal_score,
             gossip_app_score,
             reqresp_app_score,
@@ -822,12 +903,12 @@ where
             .report_message_validation_result(
                 &message_id,
                 &propagation_source,
-                MessageAcceptance::Ignore,
+                MessageAcceptance::Accept,
             );
 
-        // Send event to gossip_events channel
+        // Send event to gossip_events channel with the actual message data
         self.gossip_events
-            .send(GossipEvent::ReceivedMessage(message.data))
+            .send(GossipEvent::ReceivedMessage(gossip_message.message))
             .map_err(|e| ProtocolError::GossipEventsChannelClosed(e.into()))?;
 
         Ok(())
@@ -836,9 +917,67 @@ where
     /// Handles command sent through channel by P2P implementation user.
     async fn handle_command(&mut self, cmd: Command) -> P2PResult<()> {
         match cmd {
-            Command::ConnectToPeer {
-                app_public_key,
-                mut addresses,
+            Command::PublishMessage { data } => {
+                debug!("Publishing message");
+                trace!(?data, "Publishing message");
+
+                let signed_gossip_message: SignedMessage = match SignedMessage::new_signed_gossip(
+                    self.config.app_public_key.clone(),
+                    data,
+                    &self.signer,
+                ) {
+                    Ok(signed_msg) => signed_msg,
+                    Err(e) => {
+                        error!(?e, "Failed to create signed gossipsub message");
+                        return Ok(());
+                    }
+                };
+
+                let signed_message_data = match serde_json::to_vec(&signed_gossip_message) {
+                    Ok(data) => data,
+                    Err(e) => {
+                        error!(?e, "Failed to serialize signed gossipsub message");
+                        return Ok(());
+                    }
+                };
+
+                let message_id = self
+                    .swarm
+                    .behaviour_mut()
+                    .gossipsub
+                    .publish(TOPIC.hash(), signed_message_data)
+                    .inspect_err(|err| {
+                        match err {
+                            PublishError::Duplicate => {
+                                warn!(%err, "Failed to publish msg through gossipsub, message already exists");
+                            }
+                            PublishError::SigningError(signing_error) => {
+                                error!(%signing_error, "Failed to sign message");
+                            }
+                            PublishError::InsufficientPeers => {
+                                error!("Insufficient peers to publish message");
+                            }
+                            PublishError::MessageTooLarge => {
+                                error!("Message too large to publish");
+                            }
+                            PublishError::TransformFailed(error) => {
+                                error!(%error, "Failed to transform message");
+                            }
+                            PublishError::AllQueuesFull(num_peers_attempted) => {
+                                error!(%num_peers_attempted, "All queues full, dropping message");
+                            }
+                        }
+                    });
+
+                if message_id.is_ok() {
+                    debug!(message_id=%message_id.unwrap(), "Message published");
+                }
+
+                Ok(())
+            }
+            Command::RequestMessage {
+                app_public_key: app_pk,
+                data,
             } => {
                 if addresses.is_empty() {
                     warn!("No addresses provided to dial");
@@ -1201,6 +1340,12 @@ where
                 transport_id: peer_id,
                 app_public_key,
             } => {
+                if self.peer_penalty_storage.is_banned(&peer_id) {
+                    info!(%peer_id, "Received app public key from banned peer. Disconnecting.");
+                    let _ = self.swarm.disconnect_peer_id(peer_id);
+                    return Ok(());
+                }
+
                 if self.allowlist.contains(&app_public_key) {
                     info!(%peer_id, "Received app public key from peer");
                     trace!(%peer_id, ?app_public_key, "App public key details");
