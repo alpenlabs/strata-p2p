@@ -1162,9 +1162,13 @@ impl<S: ApplicationSigner> P2P<S> {
         self.kademlia_postponed_get_action.insert(queryid, tx);
 
         // TODO(Arniiiii): make timeout configurable
-        let Ok(Ok(maybe_data)) = timeout(Duration::from_secs(5), rx).await else {
-            // let Ok(maybe_data) = rx.await else {
-            trace!("Oneshot channel has been closed");
+        let Ok(maybe_result_of_data) = timeout(Duration::from_secs(10), rx).await else {
+            trace!("Timeout.");
+            return None;
+        };
+
+        let Ok(maybe_data) = maybe_result_of_data else {
+            trace!("Channel is closed.");
             return None;
         };
 
