@@ -14,7 +14,7 @@ use libp2p::{
         PeerScoreThresholds, TopicScoreParams, WhitelistSubscriptionFilter,
     },
     identify::{Behaviour as Identify, Config},
-    identity::{Keypair, PublicKey},
+    identity::Keypair,
     request_response::{
         Behaviour as RequestResponse, Config as RequestResponseConfig, ProtocolSupport,
     },
@@ -66,14 +66,10 @@ fn create_gossipsub(
         params
     });
 
-    let peer_score_thresholds = gossipsub_score_thresholds
-        .clone()
-        .unwrap_or_else(PeerScoreThresholds::default);
+    let peer_score_thresholds = gossipsub_score_thresholds.clone().unwrap_or_default();
 
     let mut gossipsub = Gossipsub::new_with_subscription_filter(
-        MessageAuthenticity::Author(PeerId::from_public_key(&libp2p::identity::PublicKey::from(
-            keypair.public().clone(),
-        ))),
+        MessageAuthenticity::Author(PeerId::from_public_key(&keypair.public().clone())),
         gossipsub::ConfigBuilder::default()
             .validation_mode(gossipsub::ValidationMode::Permissive)
             .validate_messages()

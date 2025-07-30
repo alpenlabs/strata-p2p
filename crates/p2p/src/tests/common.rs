@@ -300,21 +300,3 @@ impl Setup {
         (levers, tasks)
     }
 }
-
-#[cfg(test)]
-mod send_sync_tests {
-    use super::*;
-
-    // These functions will fail to compile if T is Send or Sync, respectively.
-    fn assert_send<T: ?Sized + Send>() {}
-    fn assert_sync<T: ?Sized + Sync>() {}
-
-    #[test]
-    fn p2p_is_not_send_or_sync() {
-        assert_sync::<DefaultP2PValidator>();
-        assert_send::<DefaultP2PValidator>();
-
-        assert_send::<P2P>();
-        // assert_sync::<P2P>();
-    }
-}

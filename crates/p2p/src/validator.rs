@@ -44,7 +44,7 @@ impl PenaltyInfo {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct PenaltyPeerStorage {
     penalties: HashMap<PeerId, PenaltyInfo>,
 }
@@ -90,21 +90,21 @@ impl PenaltyPeerStorage {
         self.penalties
             .get(peer_id)
             .and_then(|penalty| penalty.mute_gossip_until)
-            .map_or(false, |timestamp| timestamp > SystemTime::now())
+            .is_some_and(|timestamp| timestamp > SystemTime::now())
     }
 
     pub fn is_req_resp_muted(&self, peer_id: &PeerId) -> bool {
         self.penalties
             .get(peer_id)
             .and_then(|penalty| penalty.mute_req_resp_until)
-            .map_or(false, |timestamp| timestamp > SystemTime::now())
+            .is_some_and(|timestamp| timestamp > SystemTime::now())
     }
 
     pub fn is_banned(&self, peer_id: &PeerId) -> bool {
         self.penalties
             .get(peer_id)
             .and_then(|penalty| penalty.ban_until)
-            .map_or(false, |timestamp| timestamp > SystemTime::now())
+            .is_some_and(|timestamp| timestamp > SystemTime::now())
     }
 
     pub fn mute_peer_gossip(
@@ -114,7 +114,7 @@ impl PenaltyPeerStorage {
     ) -> Result<(), &'static str> {
         let penalty = self
             .penalties
-            .entry(peer_id.clone())
+            .entry(*peer_id)
             .or_insert_with(|| PenaltyInfo::new(None, None, None));
 
         if let Some(mute_until) = penalty.mute_gossip_until {
@@ -134,7 +134,7 @@ impl PenaltyPeerStorage {
     ) -> Result<(), &'static str> {
         let penalty = self
             .penalties
-            .entry(peer_id.clone())
+            .entry(*peer_id)
             .or_insert_with(|| PenaltyInfo::new(None, None, None));
 
         if let Some(mute_until) = penalty.mute_req_resp_until {
@@ -150,7 +150,7 @@ impl PenaltyPeerStorage {
     pub fn ban_peer(&mut self, peer_id: &PeerId, until: SystemTime) -> Result<(), &'static str> {
         let penalty = self
             .penalties
-            .entry(peer_id.clone())
+            .entry(*peer_id)
             .or_insert_with(|| PenaltyInfo::new(None, None, None));
 
         if let Some(ban_until) = penalty.ban_until {
