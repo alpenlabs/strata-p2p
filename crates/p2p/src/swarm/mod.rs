@@ -55,7 +55,7 @@ use crate::{
     signer::ApplicationSigner,
     swarm::{
         dial_manager::DialManager,
-        message::{GossipMessage, ResponseMessage, SignedMessage, RequestMessage},
+        message::{GossipMessage, RequestMessage, ResponseMessage, SignedMessage},
         setup::events::SetupBehaviourEvent,
     },
     validator::{
@@ -1174,6 +1174,35 @@ where
             request_response::Message::Request {
                 request, channel, ..
             } => {
+                let signed_message = match SignedMessage::from_json_bytes(&request) {
+                    Ok(signed_msg) => signed_msg,
+                    Err(e) => {
+                        warn!(%peer_id, ?e, "Failed to deserialize signed request message");
+                        return Ok(());
+                    }
+                };
+
+                let request: RequestMessage = match signed_message.deserialize_message() {
+                    Ok(request) => request,
+                    Err(e) => {
+                        warn!(%peer_id, ?e, "Failed to deserialize request message");
+                        return Ok(());
+                    }
+                };
+
+                let is_valid = match signed_message.verify_signature(&request.app_public_key) {
+                    Ok(is_valid) => is_valid,
+                    Err(e) => {
+                        warn!(%peer_id, ?e, "Failed to verify signature for request message");
+                        return Ok(());
+                    }
+                };
+
+                if !is_valid {
+                    warn!(%peer_id, "Invalid signature for request message");
+                    return Ok(());
+                }
+
                 // Score/penalty logic for request
                 if self.peer_penalty_storage.is_req_resp_muted(&peer_id) {
                     warn!("Peer(peer_id={}) is muted for request/response", peer_id);
@@ -1186,7 +1215,7 @@ where
                     .unwrap_or(DEFAULT_REQ_RESP_APP_SCORE);
 
                 let updated_score = DefaultP2PValidator::validate_msg(
-                    &MessageType::Request(request.clone()),
+                    &MessageType::Request(request.message.clone()),
                     old_app_score,
                 );
 
@@ -1197,7 +1226,7 @@ where
                     self.get_all_scores(&peer_id);
 
                 if let Some(penalty) = DefaultP2PValidator::get_penalty(
-                    &MessageType::Request(request.clone()),
+                    &MessageType::Request(request.message.clone()),
                     gossip_internal_score,
                     gossip_app_score,
                     reqresp_app_score,
@@ -1208,7 +1237,7 @@ where
 
                 let (tx, rx) = oneshot::channel();
 
-                let event = ReqRespEvent::ReceivedRequest(request, tx);
+                let event = ReqRespEvent::ReceivedRequest(request.message.clone(), tx);
                 let send_result = timeout(reqresp_timeout, self.req_resp_events.send(event)).await;
 
                 match send_result {
@@ -1224,49 +1253,94 @@ where
                 }
 
                 let resp = timeout(reqresp_timeout, rx).await;
+
                 let _ = match resp {
-                        Ok(Ok(response)) => self
-                            .swarm
-                            .behaviour_mut()
-                            .request_response
-                            .send_response(channel, response)
-                            .map_err(|_| {
-                                error!("Failed to send response: connection dropped or response channel closed");
-                            }),
-                        Ok(Err(err)) => {
-                            error!("Received error in response: {err:?}");
-                            Ok(())
-                        }
-                        Err(_) => {
-                            error!("Timeout waiting for response to request");
-                            Ok(())
-                        }
-                    };
+                    Ok(Ok(response)) => {
+                        let signed_response_message: SignedMessage =
+                            match SignedMessage::new_signed_response(
+                                self.config.app_public_key.clone(),
+                                response,
+                                &self.signer,
+                            ) {
+                                Ok(signed_msg) => signed_msg,
+                                Err(e) => {
+                                    error!(?e, "Failed to create signed response message");
+                                    return Ok(());
+                                }
+                            };
+                        let signed_response_message_data =
+                            match serde_json::to_vec(&signed_response_message) {
+                                Ok(data) => data,
+                                Err(e) => {
+                                    error!(?e, "Failed to serialize signed response message");
+                                    return Ok(());
+                                }
+                            };
+                        self
+                                .swarm
+                                .behaviour_mut()
+                                .request_response
+                                .send_response(channel, signed_response_message_data)
+                                .map_err(|_| {
+                                    error!("Failed to send response: connection dropped or response channel closed");
+                                })
+                    }
+                    Ok(Err(err)) => {
+                        error!("Received error in response: {err:?}");
+                        Ok(())
+                    }
+                    Err(_) => {
+                        error!("Timeout waiting for response to request");
+                        Ok(())
+                    }
+                };
                 Ok(())
             }
             request_response::Message::Response { response, .. } => {
                 // Score/penalty logic for response
                 if self.peer_penalty_storage.is_req_resp_muted(&peer_id) {
-                    warn!("Peer(peer_id={}) is muted for request/response", peer_id);
+                    warn!(%peer_id, "Peer is muted for request/response");
                     return Ok(());
                 }
 
-                let signed_response: SignedMessage = match SignedMessage::from_json_bytes(data) {
+                let signed_response_message = match SignedMessage::from_json_bytes(&response) {
                     Ok(signed_msg) => signed_msg,
                     Err(e) => {
-                        error!(?e, "Failed to deserialize signed response");
+                        warn!(%peer_id, ?e, "Failed to deserialize signed response message");
                         return Ok(());
                     }
                 };
 
-                let response_data: ResponseMessage = match signed_response.deserialize_data() {
+                let response: ResponseMessage = match signed_response_message.deserialize_message()
+                {
+                    Ok(response) => response,
+                    Err(e) => {
+                        warn!(%peer_id, ?e, "Failed to deserialize response message");
+                        return Ok(());
+                    }
+                };
+
+                let is_valid =
+                    match signed_response_message.verify_signature(&response.app_public_key) {
+                        Ok(is_valid) => is_valid,
+                        Err(e) => {
+                            warn!(%peer_id, ?e, "Failed to verify signature for response message");
+                            return Ok(());
+                        }
+                    };
+
+                if !is_valid {
+                    warn!(%peer_id, "Invalid signature for response message");
+                    return Ok(());
+                }
+
                 let old_app_score = self
                     .score_manager
                     .get_req_resp_score(&peer_id)
                     .unwrap_or(DEFAULT_REQ_RESP_APP_SCORE);
 
                 let updated_score = DefaultP2PValidator::validate_msg(
-                    &MessageType::Response(response.clone()),
+                    &MessageType::Response(response.message.clone()),
                     old_app_score,
                 );
 
@@ -1277,7 +1351,7 @@ where
                     self.get_all_scores(&peer_id);
 
                 if let Some(penalty) = DefaultP2PValidator::get_penalty(
-                    &MessageType::Response(response.clone()),
+                    &MessageType::Response(response.message.clone()),
                     gossip_internal_score,
                     gossip_app_score,
                     reqresp_app_score,
@@ -1286,7 +1360,7 @@ where
                     return Ok(());
                 }
 
-                let event = ReqRespEvent::ReceivedResponse(response);
+                let event = ReqRespEvent::ReceivedResponse(response.message.clone());
                 let send_result = timeout(reqresp_timeout, self.req_resp_events.send(event)).await;
                 match send_result {
                     Ok(Ok(())) => {}

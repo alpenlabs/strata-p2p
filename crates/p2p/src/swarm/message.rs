@@ -59,6 +59,9 @@ pub(crate) const SETUP_PROTOCOL_ID: u8 = 1;
 /// Protocol identifier for gossipsub messages.
 pub(crate) const GOSSIP_PROTOCOL_ID: u8 = 2;
 
+/// Protocol identifier for request-response messages.
+pub(crate) const REQ_RESP_PROTOCOL_ID: u8 = 3;
+
 /// Wrapper for signed messages.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SignedMessage {
@@ -139,6 +142,28 @@ impl SignedMessage {
 
         SignedMessage::new(gossip_message, signer, app_public_key)
     }
+
+    /// Creates a new signed request message with the given signer (convenience method).
+    pub(crate) fn new_signed_request<S: crate::signer::ApplicationSigner>(
+        app_public_key: PublicKey,
+        message: Vec<u8>,
+        signer: &S,
+    ) -> Result<Self, MessageError> {
+        let request_message = RequestMessage::new(app_public_key.clone(), message);
+
+        SignedMessage::new(request_message, signer, app_public_key)
+    }
+
+    /// Creates a new signed response message with the given signer (convenience method).
+    pub(crate) fn new_signed_response<S: crate::signer::ApplicationSigner>(
+        app_public_key: PublicKey,
+        message: Vec<u8>,
+        signer: &S,
+    ) -> Result<Self, MessageError> {
+        let response_message = ResponseMessage::new(app_public_key.clone(), message);
+
+        SignedMessage::new(response_message, signer, app_public_key)
+    }
 }
 
 /// Setup message structure for the handshake protocol.
@@ -205,6 +230,70 @@ impl GossipMessage {
         Self {
             version: PROTOCOL_VERSION,
             protocol: GOSSIP_PROTOCOL_ID,
+            message,
+            app_public_key,
+            date: timestamp,
+        }
+    }
+}
+
+/// Request message structure for the request-response protocol.
+/// Serialized/deserialized using JSON format.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct RequestMessage {
+    /// Protocol version.
+    pub version: u8,
+    /// Protocol identifier (request-response).
+    pub protocol: u8,
+    /// Request-response message data
+    pub message: Vec<u8>,
+    /// The application public key (Ed25519) - stored as bytes for serialization.
+    #[serde(with = "pubkey_serializer")]
+    pub app_public_key: PublicKey,
+    /// Timestamp of message creation.
+    pub date: u64,
+}
+
+impl RequestMessage {
+    /// Creates a new request-response message with the given parameters.
+    pub(crate) fn new(app_public_key: PublicKey, message: Vec<u8>) -> Self {
+        let timestamp = get_timestamp();
+
+        Self {
+            version: PROTOCOL_VERSION,
+            protocol: REQ_RESP_PROTOCOL_ID,
+            message,
+            app_public_key,
+            date: timestamp,
+        }
+    }
+}
+
+/// Response message structure for the request-response protocol.
+/// Serialized/deserialized using JSON format.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct ResponseMessage {
+    /// Protocol version.
+    pub version: u8,
+    /// Protocol identifier (request-response).
+    pub protocol: u8,
+    /// Response-response message data
+    pub message: Vec<u8>,
+    /// The application public key (Ed25519) - stored as bytes for serialization.
+    #[serde(with = "pubkey_serializer")]
+    pub app_public_key: PublicKey,
+    /// Timestamp of message creation.
+    pub date: u64,
+}
+
+impl ResponseMessage {
+    /// Creates a new response message with the given parameters.
+    pub(crate) fn new(app_public_key: PublicKey, message: Vec<u8>) -> Self {
+        let timestamp = get_timestamp();
+
+        Self {
+            version: PROTOCOL_VERSION,
+            protocol: REQ_RESP_PROTOCOL_ID,
             message,
             app_public_key,
             date: timestamp,
