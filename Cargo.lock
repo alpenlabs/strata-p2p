@@ -943,10 +943,14 @@ dependencies = [
  "log",
  "rustversion",
 <<<<<<< HEAD
+<<<<<<< HEAD
  "windows 0.61.3",
 =======
  "windows 0.61.2",
 >>>>>>> d57be6f (WIP: remove protobuf)
+=======
+ "windows 0.61.3",
+>>>>>>> 3536945 (run single gossipsub test)
 ]
 
 [[package]]
@@ -1521,6 +1525,7 @@ checksum = "bbd2bcb4c963f2ddae06a2efc7e9f3591312473c50c6685e1f298068316e66fe"
 [[package]]
 name = "libc"
 <<<<<<< HEAD
+<<<<<<< HEAD
 version = "0.2.173"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d8cfeafaffdbc32176b64fb251369d52ea9f0a8fbc6f8759edffef7b525d64bb"
@@ -1529,6 +1534,11 @@ version = "0.2.172"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d750af042f7ef4f724306de029d18836c26c1765a54a6a3f094cbd23a7267ffa"
 >>>>>>> d57be6f (WIP: remove protobuf)
+=======
+version = "0.2.173"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d8cfeafaffdbc32176b64fb251369d52ea9f0a8fbc6f8759edffef7b525d64bb"
+>>>>>>> 3536945 (run single gossipsub test)
 
 [[package]]
 name = "libp2p"
@@ -2716,6 +2726,7 @@ dependencies = [
 [[package]]
 name = "redox_syscall"
 <<<<<<< HEAD
+<<<<<<< HEAD
 version = "0.5.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0d04b7d0ee6b4a0207a0a7adb104d23ecb0b47d6beae7152d0fa34b692b29fd6"
@@ -2724,6 +2735,11 @@ version = "0.5.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "928fca9cf2aa042393a8325b9ead81d2f0df4cb12e1e24cef072922ccd99c5af"
 >>>>>>> d57be6f (WIP: remove protobuf)
+=======
+version = "0.5.13"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0d04b7d0ee6b4a0207a0a7adb104d23ecb0b47d6beae7152d0fa34b692b29fd6"
+>>>>>>> 3536945 (run single gossipsub test)
 dependencies = [
  "bitflags 2.9.1",
 ]
@@ -3091,6 +3107,7 @@ dependencies = [
 [[package]]
 name = "slab"
 <<<<<<< HEAD
+<<<<<<< HEAD
 version = "0.4.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "04dc19736151f35336d325007ac991178d504a119863a2fcb3758cdb5e52c50d"
@@ -3102,6 +3119,11 @@ dependencies = [
  "autocfg",
 ]
 >>>>>>> d57be6f (WIP: remove protobuf)
+=======
+version = "0.4.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "04dc19736151f35336d325007ac991178d504a119863a2fcb3758cdb5e52c50d"
+>>>>>>> 3536945 (run single gossipsub test)
 
 [[package]]
 name = "smallvec"
@@ -3198,7 +3220,6 @@ dependencies = [
 name = "strata-p2p-types"
 version = "0.1.0"
 dependencies = [
- "bincode",
  "bitcoin",
  "hex",
  "libp2p-identity",
@@ -3219,6 +3240,7 @@ checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 [[package]]
 name = "syn"
 <<<<<<< HEAD
+<<<<<<< HEAD
 version = "2.0.103"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e4307e30089d6fd6aff212f2da3a1f9e32f3223b1f010fb09b7c95f90f3ca1e8"
@@ -3227,6 +3249,11 @@ version = "2.0.102"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f6397daf94fa90f058bd0fd88429dd9e5738999cca8d701813c80723add80462"
 >>>>>>> d57be6f (WIP: remove protobuf)
+=======
+version = "2.0.103"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e4307e30089d6fd6aff212f2da3a1f9e32f3223b1f010fb09b7c95f90f3ca1e8"
+>>>>>>> 3536945 (run single gossipsub test)
 dependencies = [
  "proc-macro2",
  "quote",
@@ -3330,6 +3357,7 @@ dependencies = [
 [[package]]
 name = "thread_local"
 <<<<<<< HEAD
+<<<<<<< HEAD
 version = "1.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f60246a4944f24f6e018aa17cdeffb7818b76356965d03b07d6a9886e8962185"
@@ -3337,12 +3365,18 @@ dependencies = [
  "cfg-if",
 =======
 version = "1.1.8"
+=======
+version = "1.1.9"
+>>>>>>> 3536945 (run single gossipsub test)
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8b9ef9bad013ada3808854ceac7b46812a6465ba368859a37e2100283d2d719c"
+checksum = "f60246a4944f24f6e018aa17cdeffb7818b76356965d03b07d6a9886e8962185"
 dependencies = [
  "cfg-if",
+<<<<<<< HEAD
  "once_cell",
 >>>>>>> d57be6f (WIP: remove protobuf)
+=======
+>>>>>>> 3536945 (run single gossipsub test)
 ]
 
 [[package]]
@@ -3765,6 +3799,7 @@ dependencies = [
 [[package]]
 name = "windows"
 <<<<<<< HEAD
+<<<<<<< HEAD
 version = "0.61.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9babd3a767a4c1aef6900409f85f5d53ce2544ccdfaa86dad48c91782c6d6893"
@@ -3773,6 +3808,11 @@ version = "0.61.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e2b85ac982d24496e0b49912479da8a89c0ba7b1d8bf6de49df12af42e94b325"
 >>>>>>> d57be6f (WIP: remove protobuf)
+=======
+version = "0.61.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9babd3a767a4c1aef6900409f85f5d53ce2544ccdfaa86dad48c91782c6d6893"
+>>>>>>> 3536945 (run single gossipsub test)
 dependencies = [
  "windows-collections",
  "windows-core 0.61.2",
@@ -3849,6 +3889,7 @@ dependencies = [
 [[package]]
 name = "windows-link"
 <<<<<<< HEAD
+<<<<<<< HEAD
 version = "0.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5e6ad25900d524eaabdbbb96d20b4311e1e7ae1699af4fb28c17ae66c80d798a"
@@ -3857,6 +3898,11 @@ version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d3bfe459f85da17560875b8bf1423d6f113b7a87a5d942e7da0ac71be7c61f8b"
 >>>>>>> d57be6f (WIP: remove protobuf)
+=======
+version = "0.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5e6ad25900d524eaabdbbb96d20b4311e1e7ae1699af4fb28c17ae66c80d798a"
+>>>>>>> 3536945 (run single gossipsub test)
 
 [[package]]
 name = "windows-numerics"

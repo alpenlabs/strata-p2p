@@ -242,11 +242,11 @@ impl Setup {
 
         // This allows multiple tests to not overlap multiaddresses in most cases. Unreliable but
         // works.
-        let mut rng = rand::rng();
-        let mut multiaddr_base = rng.random::<u64>();
+        let mut rng = rand::thread_rng();
+        let mut multiaddr_base = rng.gen::<u64>();
         loop {
             if multiaddr_base > u64::MAX - u64::try_from(n).unwrap() - 1 {
-                multiaddr_base = rng.random::<u64>();
+                multiaddr_base = rng.gen::<u64>();
             } else {
                 break;
             };
