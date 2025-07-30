@@ -20,7 +20,8 @@ use libp2p::request_response::{self, Event as RequestResponseEvent};
 use libp2p::{
     core::{muxing::StreamMuxerBox, transport::MemoryTransport, ConnectedPoint},
     gossipsub::{
-        Event as GossipsubEvent, Message, MessageAcceptance, MessageId, PublishError, Sha256Topic,
+        Event as GossipsubEvent, Message, MessageAcceptance, MessageId, PeerScoreParams,
+        PeerScoreThresholds, PublishError, Sha256Topic,
     },
     identity::{Keypair, PublicKey},
     noise,
@@ -141,6 +142,20 @@ pub struct P2PConfig {
     /// This parameter is used to decay the score.
     /// Default value is [`DEFAULT_DECAY_FACTOR`].
     pub decay_factor: Option<f64>,
+
+    /// Gossipsub peer scoring parameters.
+    ///
+    /// If `None`, the default parameters will be used.
+    /// Use this to fine-tune how peers are scored for message delivery, invalid messages, etc.
+    /// See [`PeerScoreParams`] for all available options.
+    pub gossipsub_score_params: Option<PeerScoreParams>,
+
+    /// Gossipsub peer score thresholds.
+    ///
+    /// If `None`, the default thresholds will be used.
+    /// These thresholds determine when peers are muted, graylisted, or banned based on their
+    /// score. See [`PeerScoreThresholds`] for details.
+    pub gossipsub_score_thresholds: Option<PeerScoreThresholds>,
 }
 
 /// Implementation of P2P protocol data exchange.
@@ -1130,6 +1145,8 @@ macro_rules! finish_swarm {
                     PROTOCOL_NAME,
                     &$cfg.transport_keypair,
                     &$cfg.app_public_key,
+                    &$cfg.gossipsub_score_params,
+                    &$cfg.gossipsub_score_thresholds,
                     $signer.clone(),
                 )
             })

@@ -49,38 +49,26 @@ pub struct Behaviour<S: ApplicationSigner> {
 
 fn create_gossipsub(
     keypair: &Keypair,
+    gossipsub_score_params: &Option<PeerScoreParams>,
+    gossipsub_score_thresholds: &Option<PeerScoreThresholds>,
 ) -> Gossipsub<IdentityTransform, WhitelistSubscriptionFilter> {
     let mut filter = HashSet::new();
     filter.insert(TOPIC.hash()); // Target topic for subscription.
 
-    let mut peer_score_params = PeerScoreParams::default();
-    peer_score_params.app_specific_weight = 1.0;
+    let peer_score_params = gossipsub_score_params.clone().unwrap_or_else(|| {
+        let mut params = PeerScoreParams::default();
+        params.topics.insert(
+            TOPIC.hash(),
+            TopicScoreParams {
+                ..Default::default()
+            },
+        );
+        params
+    });
 
-    // Configure topic-specific scoring
-    peer_score_params.topics.insert(
-        TOPIC.hash(),
-        TopicScoreParams {
-            topic_weight: 1.0,
-            first_message_deliveries_weight: 1.0,
-            first_message_deliveries_decay: 0.99,
-            invalid_message_deliveries_weight: -2.0,
-            invalid_message_deliveries_decay: 0.99,
-            ..Default::default()
-        },
-    );
-
-    // General scoring configuration
-    peer_score_params.behaviour_penalty_weight = -0.5;
-    peer_score_params.retain_score = Duration::from_secs(300);
-    peer_score_params.decay_interval = Duration::from_secs(10);
-
-    // Define score thresholds
-    let peer_score_thresholds = PeerScoreThresholds {
-        gossip_threshold: -50.0,
-        publish_threshold: -200.0,
-        graylist_threshold: -500.0,
-        ..Default::default()
-    };
+    let peer_score_thresholds = gossipsub_score_thresholds
+        .clone()
+        .unwrap_or_else(PeerScoreThresholds::default);
 
     let mut gossipsub = Gossipsub::new_with_subscription_filter(
         MessageAuthenticity::Author(PeerId::from_public_key(&libp2p::identity::PublicKey::from(
@@ -111,12 +99,18 @@ impl<S: ApplicationSigner> Behaviour<S> {
         protocol_name: &'static str,
         transport_keypair: &Keypair,
         app_public_key: &PublicKey,
+        gossipsub_score_params: &Option<PeerScoreParams>,
+        gossipsub_score_thresholds: &Option<PeerScoreThresholds>,
         signer: S,
     ) -> Self {
         let mut filter = HashSet::new();
         filter.insert(TOPIC.hash());
 
-        let gossipsub = create_gossipsub(transport_keypair);
+        let gossipsub = create_gossipsub(
+            transport_keypair,
+            gossipsub_score_params,
+            gossipsub_score_thresholds,
+        );
 
         Self {
             identify: Identify::new(Config::new(

@@ -45,10 +45,10 @@ impl ScoreManager {
 
     pub fn decay_scores(&mut self) {
         for (_peer_id, score) in self.gossipsub_app_score.iter_mut() {
-            *score = *score * self.decay_factor as f64;
+            *score = *score * self.decay_factor;
         }
         for (_peer_id, score) in self.req_resp_app_score.iter_mut() {
-            *score = *score * self.decay_factor as f64;
+            *score = *score * self.decay_factor;
         }
     }
 }
