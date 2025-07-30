@@ -1151,6 +1151,8 @@ impl<S: ApplicationSigner> P2P<S> {
     }
 
     async fn get_tid_via_kademlia(&mut self, app_pk: &PublicKey) -> Option<RecordData> {
+        trace!(?app_pk, "We got to get_tid_via_kademlia.");
+
         let queryid = self
             .swarm
             .behaviour_mut()
@@ -1159,7 +1161,11 @@ impl<S: ApplicationSigner> P2P<S> {
 
         let (tx, rx) = oneshot::channel();
 
+        trace!(?app_pk, "We created oneshot channel");
+
         self.kademlia_postponed_get_action.insert(queryid, tx);
+
+        trace!(?app_pk, "We inserted queryid -> tx");
 
         // TODO(Arniiiii): make timeout configurable
         let Ok(maybe_result_of_data) = timeout(Duration::from_secs(10), rx).await else {
