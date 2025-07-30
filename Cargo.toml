@@ -25,6 +25,7 @@ asynchronous-codec = { version = "0.7.0", features = ["json"] }
 crossbeam-deque = "0.8.5"
 dashmap = "6.1.0"
 futures = "0.3.31"
+hex = "0.4.3"
 libp2p = { version = "0.55.0", features = [
   "noise",
   "gossipsub",

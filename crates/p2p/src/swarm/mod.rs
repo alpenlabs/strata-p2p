@@ -17,15 +17,17 @@ use handle::ReqRespHandle;
 #[cfg(feature = "request-response")]
 use libp2p::request_response::{self, Event as RequestResponseEvent};
 use libp2p::{
-    Multiaddr, PeerId, Swarm, SwarmBuilder, Transport,
-    core::{ConnectedPoint, muxing::StreamMuxerBox, transport::MemoryTransport},
+    core::{muxing::StreamMuxerBox, transport::MemoryTransport, ConnectedPoint},
     gossipsub::{
         Event as GossipsubEvent, Message, MessageAcceptance, MessageId, PublishError, Sha256Topic,
     },
     identity::{Keypair, PublicKey},
     noise,
-    swarm::{NetworkBehaviour, SwarmEvent, dial_opts::DialOpts},
-    yamux,
+    swarm::{
+        dial_opts::{DialOpts, PeerCondition},
+        NetworkBehaviour, SwarmEvent,
+    },
+    yamux, Multiaddr, PeerId, Swarm, SwarmBuilder, Transport,
 };
 #[cfg(feature = "request-response")]
 use tokio::sync::oneshot;

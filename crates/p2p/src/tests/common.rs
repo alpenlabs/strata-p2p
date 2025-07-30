@@ -4,13 +4,14 @@ use std::{sync::Once, time::Duration};
 
 use futures::future::join_all;
 use libp2p::{
-    Multiaddr, PeerId, build_multiaddr,
+    build_multiaddr,
     identity::{Keypair, PublicKey},
+    Multiaddr, PeerId,
 };
 use rand::Rng;
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use tracing::debug;
-use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, util::SubscriberInitExt};
+use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
 #[cfg(feature = "gossipsub")]
 use crate::swarm::handle::GossipHandle;
@@ -18,7 +19,11 @@ use crate::swarm::handle::GossipHandle;
 use crate::swarm::handle::ReqRespHandle;
 use crate::{
     signer::ApplicationSigner,
-    swarm::{self, P2P, P2PConfig, handle::CommandHandle},
+    swarm::{
+        self,
+        handle::{CommandHandle, GossipHandle},
+        P2PConfig, P2P,
+    },
 };
 
 /// Only attempt to start tracing once
