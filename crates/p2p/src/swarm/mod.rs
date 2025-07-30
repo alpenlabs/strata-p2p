@@ -55,7 +55,7 @@ use crate::{
     signer::ApplicationSigner,
     swarm::{
         dial_manager::DialManager,
-        message::{GossipMessage, SignedMessage},
+        message::{GossipMessage, ResponseMessage, SignedMessage, RequestMessage},
         setup::events::SetupBehaviourEvent,
     },
     validator::{
@@ -214,6 +214,7 @@ where
 
     /// Application signer for signing setup messages.
     signer: S,
+
     /// Manages dial sequences and address queues for multiaddress connections.
     dial_manager: DialManager,
 
@@ -297,7 +298,7 @@ where
                 _phantom_data: PhantomData,
             },
             #[cfg(feature = "request-response")]
-            ReqRespHandle::new(req_resp_event_rx),
+            ReqRespHandle::new(req_resp_event_rx, req_resp_cmds_tx),
         ))
     }
 
@@ -917,67 +918,9 @@ where
     /// Handles command sent through channel by P2P implementation user.
     async fn handle_command(&mut self, cmd: Command) -> P2PResult<()> {
         match cmd {
-            Command::PublishMessage { data } => {
-                debug!("Publishing message");
-                trace!(?data, "Publishing message");
-
-                let signed_gossip_message: SignedMessage = match SignedMessage::new_signed_gossip(
-                    self.config.app_public_key.clone(),
-                    data,
-                    &self.signer,
-                ) {
-                    Ok(signed_msg) => signed_msg,
-                    Err(e) => {
-                        error!(?e, "Failed to create signed gossipsub message");
-                        return Ok(());
-                    }
-                };
-
-                let signed_message_data = match serde_json::to_vec(&signed_gossip_message) {
-                    Ok(data) => data,
-                    Err(e) => {
-                        error!(?e, "Failed to serialize signed gossipsub message");
-                        return Ok(());
-                    }
-                };
-
-                let message_id = self
-                    .swarm
-                    .behaviour_mut()
-                    .gossipsub
-                    .publish(TOPIC.hash(), signed_message_data)
-                    .inspect_err(|err| {
-                        match err {
-                            PublishError::Duplicate => {
-                                warn!(%err, "Failed to publish msg through gossipsub, message already exists");
-                            }
-                            PublishError::SigningError(signing_error) => {
-                                error!(%signing_error, "Failed to sign message");
-                            }
-                            PublishError::InsufficientPeers => {
-                                error!("Insufficient peers to publish message");
-                            }
-                            PublishError::MessageTooLarge => {
-                                error!("Message too large to publish");
-                            }
-                            PublishError::TransformFailed(error) => {
-                                error!(%error, "Failed to transform message");
-                            }
-                            PublishError::AllQueuesFull(num_peers_attempted) => {
-                                error!(%num_peers_attempted, "All queues full, dropping message");
-                            }
-                        }
-                    });
-
-                if message_id.is_ok() {
-                    debug!(message_id=%message_id.unwrap(), "Message published");
-                }
-
-                Ok(())
-            }
-            Command::RequestMessage {
-                app_public_key: app_pk,
-                data,
+            Command::ConnectToPeer {
+                app_public_key,
+                mut addresses,
             } => {
                 if addresses.is_empty() {
                     warn!("No addresses provided to dial");
@@ -1086,13 +1029,33 @@ where
     #[cfg(feature = "gossipsub")]
     async fn handle_gossip_command(&mut self, cmd: GossipCommand) -> P2PResult<()> {
         debug!("Publishing message");
-        trace!("Publishing message {:?}", &cmd.data);
+        trace!(?data, "Publishing message");
+
+        let signed_gossip_message: SignedMessage = match SignedMessage::new_signed_gossip(
+            self.config.app_public_key.clone(),
+            data,
+            &self.signer,
+        ) {
+            Ok(signed_msg) => signed_msg,
+            Err(e) => {
+                error!(?e, "Failed to create signed gossipsub message");
+                return Ok(());
+            }
+        };
+
+        let signed_message_data = match serde_json::to_vec(&signed_gossip_message) {
+            Ok(data) => data,
+            Err(e) => {
+                error!(?e, "Failed to serialize signed gossipsub message");
+                return Ok(());
+            }
+        };
 
         let message_id = self
             .swarm
             .behaviour_mut()
             .gossipsub
-            .publish(TOPIC.hash(), cmd.data)
+            .publish(TOPIC.hash(), signed_message_data)
             .inspect_err(|err| match err {
                 PublishError::Duplicate => {
                     warn!(%err, "Failed to publish msg through gossipsub, message already exists");
@@ -1288,6 +1251,15 @@ where
                     return Ok(());
                 }
 
+                let signed_response: SignedMessage = match SignedMessage::from_json_bytes(data) {
+                    Ok(signed_msg) => signed_msg,
+                    Err(e) => {
+                        error!(?e, "Failed to deserialize signed response");
+                        return Ok(());
+                    }
+                };
+
+                let response_data: ResponseMessage = match signed_response.deserialize_data() {
                 let old_app_score = self
                     .score_manager
                     .get_req_resp_score(&peer_id)
