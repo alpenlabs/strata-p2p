@@ -63,11 +63,14 @@ mod codec_raw;
 
 pub mod errors;
 pub mod handle;
+
+pub(crate) mod serializing;
+
 mod message;
 pub mod setup;
 
 #[cfg(feature = "kademlia")]
-mod message_dht;
+pub mod message_dht;
 
 /// Global topic name for gossipsub messages.
 static TOPIC: LazyLock<Sha256Topic> = LazyLock::new(|| Sha256Topic::new("bitvm2"));
@@ -138,7 +141,7 @@ pub struct P2PConfig {
     #[cfg(feature = "request-response")]
     pub channel_timeout: Option<Duration>,
 
-    /// How many peers we should connect to before trying to put our [`SignedRecordData`] for app
+    /// How many peers we should connect to before trying to put our signed [`RecordData`] for app
     /// public key
     pub kademlia_threshold: usize,
 }
@@ -184,7 +187,7 @@ pub struct P2P<S: ApplicationSigner> {
     kademlia_is_initial_record_already_posted: bool,
 
     /// Postponed action: a channel for a query to which send something back.
-    kademlia_postponed_get_action: HashMap<QueryId, tokio::sync::oneshot::Sender<Vec<u8>>>,
+    kademlia_postponed_get_action: HashMap<QueryId, tokio::sync::oneshot::Sender<Option<Vec<u8>>>>,
 }
 
 /// Alias for [`P2P`] and [`ReqRespHandle`] tuple.
@@ -576,11 +579,7 @@ impl<S: ApplicationSigner> P2P<S> {
                     present_locally,
                 } => {
                     trace!(
-                        "
-                    {num_closer_peers}
-                    {present_locally}
-libp2p::kad::InboundRequest::GetRecord
-                    "
+                        "{num_closer_peers} {present_locally} libp2p::kad::InboundRequest::GetRecord"
                     );
                     Ok(())
                 }
@@ -632,7 +631,7 @@ libp2p::kad::InboundRequest::GetRecord
                             .kademlia_postponed_get_action
                             .remove(&id)
                             .unwrap()
-                            .send(peer_record.record.value);
+                            .send(Some(peer_record.record.value));
                     }
                     Ok(())
                 }
@@ -647,7 +646,7 @@ libp2p::kad::InboundRequest::GetRecord
                             .kademlia_postponed_get_action
                             .remove(&id)
                             .unwrap()
-                            .closed().await;
+                            .send(None);
                     }
                     Ok(())
                 }
@@ -660,7 +659,7 @@ libp2p::kad::InboundRequest::GetRecord
                             .kademlia_postponed_get_action
                             .remove(&id)
                             .unwrap()
-                            .closed().await;
+                            .send(None);
                     }
                     Ok(())
                 }
@@ -676,7 +675,7 @@ libp2p::kad::InboundRequest::GetRecord
                             .kademlia_postponed_get_action
                             .remove(&id)
                             .unwrap()
-                            .closed().await;
+                            .send(None);
                     }
                     Ok(())
                 }
@@ -688,6 +687,13 @@ libp2p::kad::InboundRequest::GetRecord
                     trace!(
                         "{id} {stats:?} {step:?} {key:?} {records:?} {quorum} QueryResult::GetRecord(Err(libp2p::kad::GetRecordError::QuorumFailed"
                     );
+                    if self.kademlia_postponed_get_action.contains_key(&id) {
+                        let _ = self
+                            .kademlia_postponed_get_action
+                            .remove(&id)
+                            .unwrap()
+                            .send(None);
+                    }
                     Ok(())
                 }
                 QueryResult::PutRecord(Ok(PutRecordOk { key })) => {
@@ -819,15 +825,16 @@ libp2p::kad::InboundRequest::GetRecord
                 trace!(
                     "{peer:?} {is_new_peer:?} {addresses:?} {bucket_range:?} {old_peer:?} KademliaEvent::RoutingUpdated"
                 );
-                if self.kademlia_is_initial_record_already_posted
-                    && self
-                        .swarm
-                        .behaviour_mut()
-                        .kademlia
-                        .store_mut()
-                        .records()
-                        .len()
-                        > self.config.kademlia_threshold
+                trace!(res = %(!self.kademlia_is_initial_record_already_posted
+                                    && self
+                                        .swarm
+                                        .connected_peers().count()
+                                        > self.config.kademlia_threshold), is_already_posted = %self.kademlia_is_initial_record_already_posted, how_many_connections = %self
+                                        .swarm
+                                        .connected_peers().count(), threshold = %self.config.kademlia_threshold, "Routing updated..."
+                );
+                if !self.kademlia_is_initial_record_already_posted
+                    && self.swarm.connected_peers().count() > self.config.kademlia_threshold
                 {
                     let maybe_signed_record_data = SignedRecordData::new_signed_record(
                         self.config.app_public_key.clone(),
@@ -850,6 +857,7 @@ libp2p::kad::InboundRequest::GetRecord
                             );
                         }
                     };
+                    self.kademlia_is_initial_record_already_posted = true;
                 }
                 Ok(())
             }
@@ -982,7 +990,7 @@ libp2p::kad::InboundRequest::GetRecord
                 //
                 // Solution:
                 // 1. Check if Setup behaviour does have the app_pk -> peer_id.
-                // 2. If no, if kad feature is enabled, try get the app_pk -> multiaddr and
+                // 2. If no, if `kademlia` feature is enabled, try get the app_pk -> multiaddr and
                 // tell swarm to dial the multiaddr.
                 // 3. if nothing has successfully finished, now just log error. Should it
                 // return error somehow?
@@ -996,11 +1004,8 @@ libp2p::kad::InboundRequest::GetRecord
                     .setup
                     .get_transport_id_by_application_key(&app_pk);
 
+                #[cfg(feature = "kademlia")]
                 if option_request_target_peer_id.is_none() {
-                    // // TODO(Arniiiii): feature gate if not kademlia
-                    // error!(
-                    //     "Logic error: Request response is attempted on a peer we haven't done
-                    // Setup yet." )
                     match self.get_tid_via_kademlia(&app_pk).await {
                         Some(record) => {
                             option_request_target_peer_id = Some(record.transport_id);
@@ -1076,20 +1081,6 @@ libp2p::kad::InboundRequest::GetRecord
                     )
                 });
 
-                // Bootstrap DHT so that we connect in the end, maybe.
-                trace!(
-                    "Ask kademlia behaviour to bootstrap itself so that it maybe checks and connects to a new node {} {}",
-                    connect_to_peer_command.peer_id, connect_to_peer_command.peer_addr
-                );
-                let _queryid: libp2p::kad::QueryId =
-                    self.swarm.behaviour_mut().kademlia.bootstrap().unwrap();
-
-                // trace!(
-                //     "TODO: change waiting for 5 secs to waiting for some events to be triggered
-                // {} {}",     connect_to_peer_command.peer_id,
-                // connect_to_peer_command.peer_addr );
-                // tokio::time::sleep(Duration::from_secs(5)).await;
-
                 Ok(())
             }
             Command::QueryP2PState(query) => match query {
@@ -1141,6 +1132,21 @@ libp2p::kad::InboundRequest::GetRecord
                     Ok(())
                 }
             },
+            #[cfg(feature = "kademlia")]
+            Command::GetDHTRecord {
+                app_public_key,
+                tx_back,
+            } => {
+                if tx_back
+                    .send(self.get_tid_via_kademlia(&app_public_key).await)
+                    .is_err()
+                {
+                    return Err(errors::SwarmError::Protocol(
+                        ProtocolError::OneshotChannelFromCommandClosed,
+                    ));
+                }
+                Ok(())
+            }
         }
     }
 
@@ -1155,9 +1161,15 @@ libp2p::kad::InboundRequest::GetRecord
 
         self.kademlia_postponed_get_action.insert(queryid, tx);
 
-        let Ok(Ok(data)) = timeout(Duration::from_secs(50), rx).await else {
-            // This handles timeout or a channel error. We now simply stop processing this
-            // event.
+        // TODO(Arniiiii): make timeout configurable
+        let Ok(Ok(maybe_data)) = timeout(Duration::from_secs(5), rx).await else {
+            // let Ok(maybe_data) = rx.await else {
+            trace!("Oneshot channel has been closed");
+            return None;
+        };
+
+        let Some(data) = maybe_data else {
+            trace!("We received None.");
             return None;
         };
 
@@ -1192,6 +1204,7 @@ libp2p::kad::InboundRequest::GetRecord
             return None;
         }
 
+        trace!("Returning a record");
         Some(record)
     }
 

@@ -35,7 +35,7 @@ pub enum SetupError {
     InboundError(Box<dyn error::Error + Send + Sync>),
 }
 
-/// Swarm errors.
+/// Errors after which we don't recover.
 #[derive(Debug, Error)]
 pub enum SwarmError {
     /// Protocol errors.
@@ -130,4 +130,8 @@ pub enum ProtocolError {
     /// Failed to send response.
     #[error("Failed to send response: {0}")]
     ResponseError(String),
+
+    /// A command's one shot channel has failed to return a result back.
+    #[error("Failed to send result of command back")]
+    OneshotChannelFromCommandClosed,
 }

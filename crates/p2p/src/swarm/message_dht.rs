@@ -1,3 +1,5 @@
+//! Our DHT record type.
+
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use libp2p::{Multiaddr, PeerId, identity::PublicKey};
@@ -5,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::swarm::{
     errors::DHTError,
-    message::{
+    serializing::{
         pubkey_serialization::pubkey_serializer, signature_serialization::signature_serializer,
     },
 };
@@ -29,7 +31,7 @@ pub(crate) struct SignedRecordData {
 /// Record structure for DHT.
 /// (De)serializable via serde.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub(crate) struct RecordData {
+pub struct RecordData {
     /// Protocol version.
     pub version: u8,
     /// Protocol identifier.

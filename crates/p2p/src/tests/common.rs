@@ -33,8 +33,11 @@ pub(crate) const MULTIADDR_MEMORY_ID_OFFSET_TEST_MANUALLY_GET_ALL_PEERS: u64 = 5
 pub(crate) const MULTIADDR_MEMORY_ID_OFFSET_TEST_CONNECTION_BY_APP_PUBLIC_KEY: u64 = 600;
 pub(crate) const MULTIADDR_MEMORY_ID_OFFSET_TEST_SETUP_WITH_INVALID_SIGNATURE: u64 = 700;
 
+#[cfg(feature = "kademlia")]
+pub(crate) const MULTIADDR_MEMORY_ID_OFFSET_TEST_DHT_RECORD: u64 = 800;
+
 #[cfg(all(feature = "request-response", feature = "kademlia"))]
-pub(crate) const MULTIADDR_MEMORY_ID_OFFSET_TEST_DHT_RECORD: u64 = 1000;
+pub(crate) const MULTIADDR_MEMORY_ID_OFFSET_TEST_REQUEST_RESPONSE_DHT: u64 = 1000;
 
 /// Only attempt to start tracing once
 ///

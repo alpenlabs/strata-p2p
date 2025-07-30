@@ -10,4 +10,7 @@ pub(crate) mod setup;
 pub(crate) mod setup_invalid_signature;
 
 #[cfg(all(feature = "request-response", feature = "kademlia"))]
+pub(crate) mod dht_request_response;
+
+#[cfg(feature = "kademlia")]
 pub(crate) mod dht_record;

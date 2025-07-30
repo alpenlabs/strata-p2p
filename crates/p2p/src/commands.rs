@@ -3,6 +3,8 @@
 use libp2p::{Multiaddr, PeerId, identity::PublicKey};
 use tokio::sync::oneshot;
 
+use crate::swarm::message_dht::RecordData;
+
 /// Commands that users can send to the P2P node.
 #[derive(Debug)]
 pub enum Command {
@@ -30,6 +32,16 @@ pub enum Command {
 
     /// Directly queries P2P state (doesn't produce events).
     QueryP2PState(QueryP2PStateCommand),
+
+    /// Try get record in DHT where application public is a key. A record is a [`RecordData`].
+    /// Checking of signature is enabled and works via a Signer.
+    #[cfg(feature = "kademlia")]
+    GetDHTRecord {
+        /// Key for DHT record: a remote node's application public key.
+        app_public_key: PublicKey,
+        /// One shot channel for sending result back.
+        tx_back: tokio::sync::oneshot::Sender<Option<RecordData>>,
+    },
 }
 
 /// Connects to a peer, whitelists peer, and adds peer to the gossip sub network.

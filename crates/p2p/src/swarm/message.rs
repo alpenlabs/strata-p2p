@@ -6,13 +6,9 @@ use libp2p::{PeerId, identity::PublicKey};
 use serde::{Deserialize, Serialize};
 
 use super::errors::{SetupError, SetupUpgradeError};
-
-pub(crate) mod pubkey_serialization;
-pub(crate) mod signature_serialization;
-
-use crate::swarm::message::signature_serialization::signature_serializer;
-use crate::swarm::message::pubkey_serialization::pubkey_serializer;
-
+use crate::swarm::serializing::{
+    pubkey_serialization::pubkey_serializer, signature_serialization::signature_serializer,
+};
 
 /// Protocol version for all messages.
 pub(crate) const PROTOCOL_VERSION: u8 = 2;
