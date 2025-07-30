@@ -1,7 +1,8 @@
 //! Swarm implementation for P2P.
 
 use std::{
-    collections::{HashSet, VecDeque},
+    collections::HashSet,
+    marker::PhantomData,
     sync::LazyLock,
     time::{Duration, Instant},
 };
@@ -47,10 +48,15 @@ use crate::{commands::GossipCommand, events::GossipEvent};
 use crate::{
     commands::{Command, QueryP2PStateCommand},
     events::GossipEvent,
-    score_manager::{ScoreManager, DEFAULT_DECAY_FACTOR},
+    score_manager::{
+        ScoreManager, DEFAULT_DECAY_FACTOR, DEFAULT_GOSSIP_APP_SCORE, DEFAULT_REQ_RESP_APP_SCORE,
+    },
     signer::ApplicationSigner,
     swarm::{dial_manager::DialManager, setup::events::SetupBehaviourEvent},
-    validator::{PenaltyPeerStorage, Validator},
+    validator::{
+        DefaultP2PValidator, Message as MessageType, PenaltyPeerStorage, PenaltyType, Validator,
+        DEFAULT_BAN_PERIOD,
+    },
 };
 
 pub mod behavior;
@@ -138,8 +144,12 @@ pub struct P2PConfig {
 }
 
 /// Implementation of P2P protocol data exchange.
-#[expect(missing_debug_implementations, dead_code)]
-pub struct P2P<S: ApplicationSigner> {
+#[expect(missing_debug_implementations)]
+pub struct P2P<V = DefaultP2PValidator, S>
+where
+    V: Validator + Send + Sync + 'static,
+    S: ApplicationSigner,
+{
     /// The swarm that handles the networking.
     swarm: Swarm<Behaviour<S>>,
 
@@ -193,13 +203,20 @@ pub struct P2P<S: ApplicationSigner> {
 
     /// Storage with penalty for peer's penalty
     peer_penalty_storage: PenaltyPeerStorage,
+
+    // PhantomData
+    _phantom_data: PhantomData<V>,
 }
 
 /// Alias for [`P2P`] and [`ReqRespHandle`] tuple.
 #[cfg(feature = "request-response")]
-pub type P2PWithReqRespHandle<S> = (P2P<S>, ReqRespHandle);
+pub type P2PWithReqRespHandle<V, S> = (P2P<V, S>, ReqRespHandle);
 
-impl<S: ApplicationSigner> P2P<S> {
+impl<V, S> P2P<V, S>
+where
+    V: Validator + Send + Sync + 'static,
+    S: ApplicationSigner,
+{
     /// Creates a new P2P instance from the given configuration.
     #[cfg(feature = "request-response")]
     pub fn from_config(
@@ -209,12 +226,10 @@ impl<S: ApplicationSigner> P2P<S> {
         allowlist: Vec<PublicKey>,
         channel_size: Option<usize>,
         signer: S,
-    ) -> P2PResult<P2PWithReqRespHandle<S>> {
-        for addr in &cfg.listening_addrs {
-            swarm
-                .listen_on(addr.clone())
-                .map_err(ProtocolError::Listen)?;
-        }
+    ) -> P2PResult<P2PWithReqRespHandle<V, S>> {
+        swarm
+            .listen_on(cfg.listening_addr.clone())
+            .map_err(ProtocolError::Listen)?;
 
         let channel_size = channel_size.unwrap_or(256);
         let (cmds_tx, cmds_rx) = mpsc::channel(64);
@@ -255,6 +270,7 @@ impl<S: ApplicationSigner> P2P<S> {
                 dial_manager: DialManager::new(),
                 score_manager,
                 peer_penalty_storage,
+                _phantom_data: PhantomData,
             },
             ReqRespHandle::new(req_resp_event_rx, req_resp_cmds_tx),
         ))
@@ -552,6 +568,72 @@ impl<S: ApplicationSigner> P2P<S> {
                 return;
             }
         }
+    }
+
+    // Apply penalties for peer
+    async fn apply_penalty(&mut self, peer_id: &PeerId, penalty: PenaltyType) {
+        match penalty {
+            PenaltyType::Ignore => return,
+            PenaltyType::MuteGossip(time_amount) => {
+                let until = Utc::now() + chrono::Duration::from_std(time_amount).unwrap();
+                match self.peer_penalty_storage.mute_peer_gossip(peer_id, until) {
+                    Ok(()) => info!(%peer_id, ?until, "Peer muted for Gossipsub"),
+                    Err(e) => error!(%peer_id, ?e, "Failed to mute peer for Gossipsub"),
+                }
+            }
+            PenaltyType::MuteReqresp(time_amount) => {
+                let until = Utc::now() + chrono::Duration::from_std(time_amount).unwrap();
+                match self.peer_penalty_storage.mute_peer_req_resp(peer_id, until) {
+                    Ok(()) => info!(%peer_id, ?until, "Peer muted for RequestResponse"),
+                    Err(e) => error!(%peer_id, ?e, "Failed to mute peer for RequestResponse"),
+                }
+            }
+            PenaltyType::MuteBoth(time_amount) => {
+                let until = Utc::now() + chrono::Duration::from_std(time_amount).unwrap();
+                let gossip_mute_result = self.peer_penalty_storage.mute_peer_gossip(peer_id, until);
+                let req_resp_mute_result =
+                    self.peer_penalty_storage.mute_peer_req_resp(peer_id, until);
+                match (gossip_mute_result, req_resp_mute_result) {
+                    (Ok(()), Ok(())) => {
+                        info!(%peer_id, ?until, "Peer muted for both Gossipsub and RequestResponse")
+                    }
+                    (Err(e1), Err(e2)) => {
+                        error!(%peer_id, ?e1, ?e2, "Failed to mute peer for both protocols")
+                    }
+                    (Err(e), _) | (_, Err(e)) => {
+                        error!(%peer_id, ?e, "Failed to mute peer for one protocol")
+                    }
+                }
+            }
+            PenaltyType::Ban(opt_time_amount) => {
+                let until = Utc::now()
+                    + chrono::Duration::from_std(opt_time_amount.unwrap_or(DEFAULT_BAN_PERIOD))
+                        .unwrap();
+                match self.peer_penalty_storage.ban_peer(peer_id, until) {
+                    Ok(()) => info!(%peer_id, ?until, "Peer banned"),
+                    Err(e) => error!(%peer_id, ?e, "Failed to ban peer"),
+                }
+            }
+        }
+    }
+
+    async fn get_all_scores(&self, peer_id: &PeerId) -> (f64, f64, f64) {
+        let gossip_internal_score = self
+            .swarm
+            .behaviour()
+            .gossipsub
+            .peer_score(&peer_id)
+            .unwrap_or(0.0);
+        let gossip_app_score = self
+            .score_manager
+            .get_gossipsub_app_score(&peer_id)
+            .unwrap_or(DEFAULT_GOSSIP_APP_SCORE);
+        let reqresp_app_score = self
+            .score_manager
+            .get_req_resp_score(&peer_id)
+            .unwrap_or(DEFAULT_REQ_RESP_APP_SCORE);
+
+        return (gossip_internal_score, gossip_app_score, reqresp_app_score);
     }
 
     /// Handles a [`SwarmEvent`] from the swarm.
@@ -914,7 +996,6 @@ impl<S: ApplicationSigner> P2P<S> {
         Ok(())
     }
 
-    // TODO(Arniiiii): make it for both gossipsub and request-response
     /// Handles [`MessageEvent`] from the swarm.
     #[cfg(feature = "request-response")]
     async fn handle_message_event(
@@ -988,8 +1069,12 @@ impl<S: ApplicationSigner> P2P<S> {
                         }
                     }
                 }
-
-                Ok(())
+                self.process_message_event(
+                    &peer_id,
+                    MessageType::Response(response.clone()),
+                    Event::ReceivedMessage(response),
+                )
+                .await
             }
         }
     }
