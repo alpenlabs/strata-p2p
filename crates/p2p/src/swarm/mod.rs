@@ -247,6 +247,10 @@ where
             .map_err(ProtocolError::Listen)?;
 
         let channel_size = channel_size.unwrap_or(256);
+        #[cfg(feature = "gossipsub")]
+        let (gossip_events_tx, _gossip_events_rx) = broadcast::channel(channel_size);
+        #[cfg(feature = "request-response")]
+        let (req_resp_event_tx, req_resp_event_rx) = mpsc::channel(64);
         let (cmds_tx, cmds_rx) = mpsc::channel(64);
         let score_manager = ScoreManager::new(cfg.decay_factor.unwrap_or(DEFAULT_DECAY_FACTOR));
         let peer_penalty_storage = PenaltyPeerStorage::new();
@@ -262,10 +266,11 @@ where
         let (gossip_cmds_tx, gossip_cmds_rx) = mpsc::channel(64);
 
         Ok((
-            Self {
+            P2P::<S, V> {
                 swarm,
-
-                // Request-response fields
+                #[cfg(feature = "gossipsub")]
+                gossip_events: gossip_events_tx,
+                #[cfg(feature = "request-response")]
                 req_resp_events: req_resp_event_tx,
                 request_response_commands: req_resp_cmds_rx,
                 // Conditional gossipsub fields
@@ -287,7 +292,8 @@ where
                 peer_penalty_storage,
                 _phantom_data: PhantomData,
             },
-            ReqRespHandle::new(req_resp_event_rx, req_resp_cmds_tx),
+            #[cfg(feature = "request-response")]
+            ReqRespHandle::new(req_resp_event_rx),
         ))
     }
 
@@ -308,16 +314,16 @@ where
         }
 
         let channel_size = channel_size.unwrap_or(256);
-        let (cmds_tx, cmds_rx) = mpsc::channel(64);
-
-        // Conditionally setup gossipsub channels
         #[cfg(feature = "gossipsub")]
         let (gossip_events_tx, _gossip_events_rx) = broadcast::channel(channel_size);
-        #[cfg(feature = "gossipsub")]
-        let (gossip_cmds_tx, gossip_cmds_rx) = mpsc::channel(64);
+        let (cmds_tx, cmds_rx) = mpsc::channel(64);
+        let score_manager = ScoreManager::new(cfg.decay_factor.unwrap_or(DEFAULT_DECAY_FACTOR));
+        let peer_penalty_storage = PenaltyPeerStorage::new();
 
-        Ok(Self {
+        Ok(P2P::<S, V> {
             swarm,
+            #[cfg(feature = "gossipsub")]
+            gossip_events: gossip_events_tx,
             commands: cmds_rx,
             commands_sender: cmds_tx.clone(),
 
@@ -405,38 +411,41 @@ where
             is_not_connected.insert(addr);
         }
 
-        let mut num_retries = 0;
-        loop {
-            debug!(topic=%TOPIC.to_string(), %num_retries, %max_retry_count, "attempting to subscribe to topic");
-            match timeout(general_timeout, async {
-                self.swarm.behaviour_mut().gossipsub.subscribe(&TOPIC)
-            })
-            .await
-            {
-                Ok(Ok(_)) => {
-                    info!(topic=%TOPIC.to_string(), %num_retries, %max_retry_count, "subscribed to topic successfully");
+        #[cfg(feature = "gossipsub")]
+        {
+            let mut num_retries = 0;
+            loop {
+                debug!(topic=%TOPIC.to_string(), %num_retries, %max_retry_count, "attempting to subscribe to topic");
+                match timeout(general_timeout, async {
+                    self.swarm.behaviour_mut().gossipsub.subscribe(&TOPIC)
+                })
+                .await
+                {
+                    Ok(Ok(_)) => {
+                        info!(topic=%TOPIC.to_string(), %num_retries, %max_retry_count, "subscribed to topic successfully");
+                        break;
+                    }
+                    Ok(Err(err)) => {
+                        error!(topic=%TOPIC.to_string(), %err, %num_retries, %max_retry_count, "failed to subscribe to topic, retrying...");
+                    }
+                    Err(_) => {
+                        error!(topic=%TOPIC.to_string(), %num_retries, %max_retry_count, "failed to subscribe to topic, retrying...");
+                    }
+                }
+
+                num_retries += 1;
+
+                if num_retries > max_retry_count {
+                    error!(topic=%TOPIC.to_string(), %num_retries, %max_retry_count, "failed to subscribe to topic after max retries");
                     break;
                 }
-                Ok(Err(err)) => {
-                    error!(topic=%TOPIC.to_string(), %err, %num_retries, %max_retry_count, "failed to subscribe to topic, retrying...");
-                }
-                Err(_) => {
-                    error!(topic=%TOPIC.to_string(), %num_retries, %max_retry_count, "failed to subscribe to topic, retrying...");
-                }
+
+                // Add a small delay between retries
+                tokio::time::sleep(connection_check_interval).await;
+                debug!(topic=%TOPIC.to_string(), %num_retries, %max_retry_count, "attempting to subscribe to topic again");
             }
-
-            num_retries += 1;
-
-            if num_retries > max_retry_count {
-                error!(topic=%TOPIC.to_string(), %num_retries, %max_retry_count, "failed to subscribe to topic after max retries");
-                break;
-            }
-
-            // Add a small delay between retries
-            tokio::time::sleep(connection_check_interval).await;
-            debug!(topic=%TOPIC.to_string(), %num_retries, %max_retry_count, "attempting to subscribe to topic again");
+            debug!(topic=%TOPIC.to_string(), %num_retries, %max_retry_count, "finished trying to subscribe to topic");
         }
-        debug!(topic=%TOPIC.to_string(), %num_retries, %max_retry_count, "finished trying to subscribe to topic");
 
         let mut subscriptions = 0;
         let start_time = Instant::now();
@@ -448,6 +457,7 @@ where
                 trace!(?event, "received event from swarm");
 
                 match event {
+                    #[cfg(feature = "gossipsub")]
                     SwarmEvent::Behaviour(BehaviourEvent::Gossipsub(
                         GossipsubEvent::Subscribed { peer_id, .. },
                     )) => {
@@ -638,12 +648,16 @@ where
     }
 
     fn get_all_scores(&self, peer_id: &PeerId) -> (f64, f64, f64) {
+        #[cfg(feature = "gossipsub")]
         let gossip_internal_score = self
             .swarm
             .behaviour()
             .gossipsub
             .peer_score(peer_id)
             .unwrap_or(0.0);
+        #[cfg(not(feature = "gossipsub"))]
+        let gossip_internal_score = 0.0;
+
         let gossip_app_score = self
             .score_manager
             .get_gossipsub_app_score(peer_id)
@@ -1000,8 +1014,8 @@ where
     }
 
     /// Handles [`RequestResponseEvent`] from the swarm.
-    #[instrument(skip(self, event))]
     #[cfg(feature = "request-response")]
+    #[instrument(skip(self, event))]
     async fn handle_request_response_event(
         &mut self,
         event: RequestResponseEvent<Vec<u8>, Vec<u8>>,

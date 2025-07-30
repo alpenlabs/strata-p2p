@@ -40,9 +40,11 @@ pub struct Behaviour<S: ApplicationSigner> {
     pub identify: Identify,
 
     /// Request-response model for recursive discovery of lost or skipped info.
+    #[cfg(feature = "request-response")]
     pub request_response: RequestResponseRawBehaviour,
 
     /// Gossipsub - pub/sub model for messages distribution.
+    #[cfg(feature = "gossipsub")]
     pub gossipsub: Gossipsub<IdentityTransform, WhitelistSubscriptionFilter>,
 }
 
@@ -101,6 +103,7 @@ impl<S: ApplicationSigner> Behaviour<S> {
         let mut filter = HashSet::new();
         filter.insert(TOPIC.hash());
 
+        #[cfg(feature = "gossipsub")]
         let gossipsub = create_gossipsub(
             transport_keypair,
             gossipsub_score_params,
@@ -112,7 +115,9 @@ impl<S: ApplicationSigner> Behaviour<S> {
                 protocol_name.to_string(),
                 transport_keypair.public(),
             )),
+            #[cfg(feature = "gossipsub")]
             gossipsub,
+            #[cfg(feature = "request-response")]
             request_response: RequestResponseRawBehaviour::new(
                 [(StreamProtocol::new(protocol_name), ProtocolSupport::Full)],
                 RequestResponseConfig::default(),

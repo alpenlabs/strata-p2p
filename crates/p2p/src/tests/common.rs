@@ -68,6 +68,7 @@ impl ApplicationSigner for MockApplicationSigner {
 
 pub(crate) struct User<S: ApplicationSigner = MockApplicationSigner> {
     pub(crate) p2p: P2P<S>,
+    #[cfg(feature = "gossipsub")]
     pub(crate) gossip: GossipHandle,
     #[cfg(feature = "request-response")]
     pub(crate) reqresp: ReqRespHandle,
@@ -125,7 +126,7 @@ impl<S: ApplicationSigner> User<S> {
         let (p2p, reqresp) =
             P2P::from_config(config, cancel, swarm, allowlist, None, signer.clone())?;
         #[cfg(not(feature = "request-response"))]
-        let p2p = P2P::from_config(config, cancel, swarm, None, None, signer.clone())?;
+        let p2p = P2P::<S, V>::from_config(config, cancel, swarm, allowlist, None, signer)?;
         #[cfg(feature = "gossipsub")]
         let gossip = p2p.new_gossip_handle();
         let command = p2p.new_command_handle();
