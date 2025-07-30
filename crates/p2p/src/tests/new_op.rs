@@ -3,7 +3,7 @@
 use std::time::Duration;
 
 use futures::SinkExt;
-use libp2p::{Multiaddr, build_multiaddr, identity::Keypair};
+use libp2p::{build_multiaddr, identity::Keypair, Multiaddr};
 use tokio::{sync::oneshot::channel, time::sleep};
 use tracing::{debug, info};
 
@@ -11,7 +11,7 @@ use super::common::Setup;
 use crate::{
     commands::{Command, GossipCommand, QueryP2PStateCommand},
     events::GossipEvent,
-    tests::common::{MockApplicationSigner, User, init_tracing},
+    tests::common::{init_tracing, MockApplicationSigner, User},
 };
 
 /// Tests sending a gossipsub message from a new user to all existing users.

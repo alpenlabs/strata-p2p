@@ -104,6 +104,8 @@ impl<S: ApplicationSigner> User<S> {
             #[cfg(feature = "request-response")]
             channel_timeout: None,
             decay_factor: None,
+            gossipsub_score_params: None,
+            gossipsub_score_thresholds: None,
         };
 
         // Determine transport type based on the first listening address
