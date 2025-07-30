@@ -542,6 +542,7 @@ where
     /// This method should be spawned in separate async task or polled periodically
     /// to advance handling of new messages, event or commands.
     pub async fn listen(mut self) {
+        let mut heartbeat = tokio::time::interval(Duration::from_secs(30));
         loop {
             // Prepare futures for each branch; disabled features use a pending future
             let cancel_fut = self.cancellation_token.cancelled();
@@ -559,8 +560,13 @@ where
             let reqresp_fut = pending::<Option<RequestResponseCommand>>();
 
             // Select over all branches; disabled futures never complete
-            let result = tokio::select! {
-                _ = cancel_fut => {
+            let result = select! {
+                _ = heartbeat.tick() => {
+                    self.score_manager.apply_decay();
+                    info!("Score decay is applied");
+                    return;
+                }
+                _ = self.cancellation_token.cancelled() => {
                     debug!("Received cancellation, stopping listening");
                     return;
                 }
