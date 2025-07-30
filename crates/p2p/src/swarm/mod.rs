@@ -46,8 +46,11 @@ use crate::events::ReqRespEvent;
 use crate::{commands::GossipCommand, events::GossipEvent};
 use crate::{
     commands::{Command, QueryP2PStateCommand},
+    events::GossipEvent,
+    score_manager::{ScoreManager, DEFAULT_DECAY_FACTOR},
     signer::ApplicationSigner,
     swarm::{dial_manager::DialManager, setup::events::SetupBehaviourEvent},
+    validator::{PenaltyPeerStorage, Validator},
 };
 
 pub mod behavior;
@@ -126,6 +129,12 @@ pub struct P2PConfig {
     /// Timeout for channel operations (e.g., sending/receiving on channels).
     #[cfg(feature = "request-response")]
     pub channel_timeout: Option<Duration>,
+
+    /// Fields for [`ScoreManager`]s.
+    ///
+    /// This parameter is used to decay the score.
+    /// Default value is [`DEFAULT_DECAY_FACTOR`].
+    pub decay_factor: Option<f64>,
 }
 
 /// Implementation of P2P protocol data exchange.
@@ -178,6 +187,12 @@ pub struct P2P<S: ApplicationSigner> {
     signer: S,
     /// Manages dial sequences and address queues for multiaddress connections.
     dial_manager: DialManager,
+
+    /// Score manager.
+    score_manager: ScoreManager,
+
+    /// Storage with penalty for peer's penalty
+    peer_penalty_storage: PenaltyPeerStorage,
 }
 
 /// Alias for [`P2P`] and [`ReqRespHandle`] tuple.
@@ -203,6 +218,8 @@ impl<S: ApplicationSigner> P2P<S> {
 
         let channel_size = channel_size.unwrap_or(256);
         let (cmds_tx, cmds_rx) = mpsc::channel(64);
+        let score_manager = ScoreManager::new(cfg.decay_factor.unwrap_or(DEFAULT_DECAY_FACTOR));
+        let peer_penalty_storage = PenaltyPeerStorage::new();
 
         // Request-response setup
         let (req_resp_event_tx, req_resp_event_rx) = mpsc::channel(64);
@@ -236,6 +253,8 @@ impl<S: ApplicationSigner> P2P<S> {
                 config: cfg,
                 signer,
                 dial_manager: DialManager::new(),
+                score_manager,
+                peer_penalty_storage,
             },
             ReqRespHandle::new(req_resp_event_rx, req_resp_cmds_tx),
         ))
@@ -283,8 +302,9 @@ impl<S: ApplicationSigner> P2P<S> {
             config: cfg,
             allowlist: HashSet::from_iter(allowlist),
             signer,
-            addr_store: SharedAddrStore(Arc::new(Mutex::new(HashMap::new()))),
             dial_manager: DialManager::new(),
+            score_manager,
+            peer_penalty_storage,
         })
     }
 

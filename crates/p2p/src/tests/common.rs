@@ -103,6 +103,7 @@ impl<S: ApplicationSigner> User<S> {
             connect_to,
             #[cfg(feature = "request-response")]
             channel_timeout: None,
+            decay_factor: None,
         };
 
         // Determine transport type based on the first listening address
