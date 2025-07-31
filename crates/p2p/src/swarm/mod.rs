@@ -833,6 +833,8 @@ impl<S: ApplicationSigner> P2P<S> {
                                         .swarm
                                         .connected_peers().count(), threshold = %self.config.kademlia_threshold, "Routing updated..."
                 );
+                // TODO(Arniiiii): get amount not connected peers but how many nodes we know in
+                // kademlia
                 if !self.kademlia_is_initial_record_already_posted
                     && self.swarm.connected_peers().count() > self.config.kademlia_threshold
                 {
