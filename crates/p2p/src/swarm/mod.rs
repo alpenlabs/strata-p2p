@@ -791,7 +791,10 @@ impl<S: ApplicationSigner> P2P<S> {
                     );
                     if self.kademlia_postponed_get_action.contains_key(&id) {
                         let record = deserialize_and_validate_dht_record(&peer_record.record.value);
-                        trace!(?record, "Deserialized and validated. Still can be optional.");
+                        trace!(
+                            ?record,
+                            "Deserialized and validated. Still can be optional."
+                        );
                         let _ = match self.kademlia_postponed_get_action.remove(&id).unwrap() {
                             ActionOnKademliaGetRecord::JustThroughResultBack { tx } => {
                                 tx.send(record)
