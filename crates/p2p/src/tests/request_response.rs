@@ -1,16 +1,13 @@
-//! Request-response tests
+//! Request-response protocol tests.
 
 use std::time::Duration;
 
+use futures::SinkExt;
 use tokio::time::sleep;
 use tracing::info;
 
 use super::common::Setup;
-use crate::{
-    commands::Command,
-    events::ReqRespEvent,
-    tests::common::{MULTIADDR_MEMORY_ID_OFFSET_REQUEST_RESPONSE_BASIC, init_tracing},
-};
+use crate::{Command, commands::RequestResponseCommand, events::ReqRespEvent, tests::common::{MULTIADDR_MEMORY_ID_OFFSET_REQUEST_RESPONSE_BASIC, init_tracing};
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_reqresp_basic() -> anyhow::Result<()> {
@@ -29,13 +26,15 @@ async fn test_reqresp_basic() -> anyhow::Result<()> {
 
     let req_msg = b"request from node1".to_vec();
     let resp_msg = b"response from node2".to_vec();
+    let peer_public_key = user_handles[1].app_keypair.public();
     user_handles[0]
-        .command
-        .send_command(Command::RequestMessage {
-            app_public_key: user_handles[1].app_keypair.public(),
+        .reqresp
+        .send(RequestResponseCommand {
+            target_app_public_key: peer_public_key,
             data: req_msg.clone(),
         })
-        .await;
+        .await
+        .expect("Failed to send request message");
     info!("Node 1 sent request to Node 2");
 
     match user_handles[1].reqresp.next_event().await.unwrap() {

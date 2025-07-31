@@ -4,8 +4,10 @@ version.workspace = true
 edition.workspace = true
 
 [features]
-default = ["request-response", "kademlia"]
-request-response = []
+default = ["request-response", "quic", "gossipsub", "kademlia"]
+request-response = ["libp2p/request-response"]
+quic = ["libp2p/quic"]
+gossipsub = ["libp2p/gossipsub"]
 kademlia = []
 
 [lints]
@@ -13,11 +15,12 @@ workspace = true
 
 [dependencies]
 asynchronous-codec.workspace = true
+crossbeam-deque.workspace = true
+dashmap.workspace = true
+futures.workspace = true
 libp2p = { workspace = true, features = [
   "noise",
-  "gossipsub",
   "tcp",
-  "request-response",
   "tokio",
   "ed25519",
   "macros",
@@ -25,16 +28,17 @@ libp2p = { workspace = true, features = [
   "identify",
   "kad",
 ] }
-futures.workspace = true
+serde.workspace = true
+serde_json.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["macros", "time"] }
 tokio-util.workspace = true
 tracing.workspace = true
-serde.workspace = true
-serde_json.workspace = true
+
 
 [dev-dependencies]
 anyhow = "1.0.95"
+rand = "0.9.1"
 tokio = { workspace = true, features = ["rt", "rt-multi-thread"] }
 tokio-util.workspace = true
 tracing-subscriber.workspace = true

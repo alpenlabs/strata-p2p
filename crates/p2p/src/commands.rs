@@ -1,6 +1,6 @@
 //! Commands for P2P implementation from operator implementation.
 
-use libp2p::{Multiaddr, PeerId, identity::PublicKey};
+use libp2p::{Multiaddr, identity::PublicKey};
 use tokio::sync::oneshot;
 
 use crate::swarm::message_dht::RecordData;
@@ -8,27 +8,20 @@ use crate::swarm::message_dht::RecordData;
 /// Commands that users can send to the P2P node.
 #[derive(Debug)]
 pub enum Command {
-    /// Publishes message through gossip sub network of peers.
-    PublishMessage {
-        /// Message payload in raw bytes.
-        ///
-        /// The user is responsible for properly serializing/deserializing the data.
-        data: Vec<u8>,
-    },
-
-    /// Requests some message directly from other operator by public Key.
-    #[cfg(feature = "request-response")]
-    RequestMessage {
-        /// Libp2p application [`PublicKey`] of target peer.
+    /// Dials a set of address directly.
+    ConnectToPeer {
+        /// Application public key to associate with the dial sequence.
         app_public_key: PublicKey,
-        /// Message payload in raw bytes.
-        ///
-        /// The user is responsible for properly serializing/deserializing the data.
-        data: Vec<u8>,
+
+        /// List of multiaddresses to try dialing.
+        addresses: Vec<Multiaddr>,
     },
 
-    /// Connects to a peer, whitelists peer, and adds peer to the gossip sub network.
-    ConnectToPeer(ConnectToPeerCommand),
+    /// Disconnects from a peer.
+    DisconnectFromPeer {
+        /// Libp2p [`PublicKey`] of target peer.
+        target_app_public_key: PublicKey,
+    },
 
     /// Directly queries P2P state (doesn't produce events).
     QueryP2PState(QueryP2PStateCommand),
@@ -44,20 +37,27 @@ pub enum Command {
     },
 }
 
-/// Connects to a peer, whitelists peer, and adds peer to the gossip sub network.
-#[derive(Debug, Clone)]
-pub struct ConnectToPeerCommand {
-    /// Transport ID.
-    pub peer_id: PeerId,
-
-    /// Peer address.
-    pub peer_addr: Multiaddr,
+/// Command to publish a message through gossipsub.
+#[cfg(feature = "gossipsub")]
+#[derive(Debug)]
+pub struct GossipCommand {
+    /// Message payload in raw bytes.
+    ///
+    /// The user is responsible for properly serializing/deserializing the data.
+    pub data: Vec<u8>,
 }
 
-impl From<ConnectToPeerCommand> for Command {
-    fn from(v: ConnectToPeerCommand) -> Self {
-        Self::ConnectToPeer(v)
-    }
+/// Command to request a message from a specific peer.
+#[cfg(feature = "request-response")]
+#[derive(Debug)]
+pub struct RequestResponseCommand {
+    /// Libp2p [`PublicKey`] of target peer.
+    pub target_app_public_key: PublicKey,
+
+    /// Message payload in raw bytes.
+    ///
+    /// The user is responsible for properly serializing/deserializing the data.
+    pub data: Vec<u8>,
 }
 
 /// Commands to directly query P2P state information.
@@ -67,6 +67,7 @@ pub enum QueryP2PStateCommand {
     IsConnected {
         /// App public key to check.
         app_public_key: PublicKey,
+
         /// Channel to send the response back.
         response_sender: oneshot::Sender<bool>,
     },
@@ -74,7 +75,7 @@ pub enum QueryP2PStateCommand {
     /// Gets all connected peers.
     GetConnectedPeers {
         /// Channel to send the response back.
-        response_sender: oneshot::Sender<Vec<PeerId>>,
+        response_sender: oneshot::Sender<Vec<PublicKey>>,
     },
 
     /// Gets all listening addresses from swarm's point of view.

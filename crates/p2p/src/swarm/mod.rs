@@ -1,7 +1,7 @@
 //! Swarm implementation for P2P.
 
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{HashMap, HashSet, VecDeque},
     sync::LazyLock,
     time::{Duration, Instant},
 };
@@ -9,9 +9,11 @@ use std::{
 use behavior::{Behaviour, BehaviourEvent};
 use errors::{P2PResult, ProtocolError};
 use futures::StreamExt as _;
+use handle::CommandHandle;
+#[cfg(feature = "gossipsub")]
+use handle::GossipHandle;
 #[cfg(feature = "request-response")]
 use handle::ReqRespHandle;
-use handle::{CommandHandle, GossipHandle};
 #[cfg(feature = "request-response")]
 use libp2p::request_response::{self, Event as RequestResponseEvent};
 use libp2p::{
@@ -28,16 +30,12 @@ use libp2p::{
         Quorum, Record, RecordKey, store::RecordStore,
     },
     noise,
-    swarm::{
-        NetworkBehaviour, SwarmEvent,
-        dial_opts::{DialOpts, PeerCondition},
-    },
+    swarm::{NetworkBehaviour, SwarmEvent, dial_opts::DialOpts},
     yamux,
 };
 #[cfg(feature = "request-response")]
 use tokio::sync::oneshot;
 use tokio::{
-    select,
     sync::{broadcast, mpsc},
     time::timeout,
 };
@@ -45,22 +43,28 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, instrument, trace, warn};
 
 #[cfg(feature = "request-response")]
+use crate::commands::RequestResponseCommand;
+#[cfg(feature = "request-response")]
 use crate::events::ReqRespEvent;
+#[cfg(feature = "gossipsub")]
+use crate::{commands::GossipCommand, events::GossipEvent};
 use crate::{
     commands::{Command, QueryP2PStateCommand},
-    events::GossipEvent,
     signer::ApplicationSigner,
+};
+
+
+use libp2p::tcp;
     swarm::{
+
         message_dht::{RecordData, SignedRecordData},
-        setup::events::SetupBehaviourEvent,
-    },
+        dial_manager::DialManager, setup::events::SetupBehaviourEvent},
 };
 
 mod behavior;
-
 #[cfg(feature = "request-response")]
 mod codec_raw;
-
+pub mod dial_manager;
 pub mod errors;
 pub mod handle;
 
@@ -129,8 +133,8 @@ pub struct P2PConfig {
     /// The default is [`DEFAULT_CONNECTION_CHECK_INTERVAL`].
     pub connection_check_interval: Option<Duration>,
 
-    /// The node's address.
-    pub listening_addr: Multiaddr,
+    /// The node's listening addresses.
+    pub listening_addrs: Vec<Multiaddr>,
 
     /// Initial list of nodes to connect to at startup.
     pub connect_to: Vec<Multiaddr>,
@@ -153,6 +157,7 @@ pub struct P2P<S: ApplicationSigner> {
     swarm: Swarm<Behaviour<S>>,
 
     /// Event channel for the gossip.
+    #[cfg(feature = "gossipsub")]
     gossip_events: broadcast::Sender<GossipEvent>,
 
     /// Event channel for request/response.
@@ -162,6 +167,14 @@ pub struct P2P<S: ApplicationSigner> {
     /// Command channel for the swarm.
     commands: mpsc::Receiver<Command>,
 
+    /// Gossip command channel for handles.
+    #[cfg(feature = "gossipsub")]
+    gossip_commands: mpsc::Receiver<GossipCommand>,
+
+    /// Request-response command channel for handles.
+    #[cfg(feature = "request-response")]
+    request_response_commands: mpsc::Receiver<RequestResponseCommand>,
+
     /// ([`Clone`]able) Command channel for the swarm.
     ///
     /// # Implementation details
@@ -169,6 +182,10 @@ pub struct P2P<S: ApplicationSigner> {
     /// This is needed because we can't create new handles from the receiver, as
     /// only sender is [`Clone`]able.
     commands_sender: mpsc::Sender<Command>,
+
+    /// Gossip command sender for creating handles.
+    #[cfg(feature = "gossipsub")]
+    gossip_commands_sender: mpsc::Sender<GossipCommand>,
 
     /// Cancellation token for the swarm.
     cancellation_token: CancellationToken,
@@ -188,6 +205,8 @@ pub struct P2P<S: ApplicationSigner> {
 
     /// Postponed action: a channel for a query to which send something back.
     kademlia_postponed_get_action: HashMap<QueryId, tokio::sync::oneshot::Sender<Option<Vec<u8>>>>,
+    /// Manages dial sequences and address queues for multiaddress connections.
+    dial_manager: DialManager,
 }
 
 /// Alias for [`P2P`] and [`ReqRespHandle`] tuple.
@@ -205,20 +224,40 @@ impl<S: ApplicationSigner> P2P<S> {
         channel_size: Option<usize>,
         signer: S,
     ) -> P2PResult<P2PWithReqRespHandle<S>> {
-        swarm
-            .listen_on(cfg.listening_addr.clone())
-            .map_err(ProtocolError::Listen)?;
+        for addr in &cfg.listening_addrs {
+            swarm
+                .listen_on(addr.clone())
+                .map_err(ProtocolError::Listen)?;
+        }
 
         let channel_size = channel_size.unwrap_or(256);
-        let (gossip_events_tx, _gossip_events_rx) = broadcast::channel(channel_size);
-        let (req_resp_event_tx, req_resp_event_rx) = mpsc::channel(64);
         let (cmds_tx, cmds_rx) = mpsc::channel(64);
+
+        // Request-response setup
+        let (req_resp_event_tx, req_resp_event_rx) = mpsc::channel(64);
+        let (req_resp_cmds_tx, req_resp_cmds_rx) = mpsc::channel(64);
+
+        // Conditionally setup gossipsub channels
+        #[cfg(feature = "gossipsub")]
+        let (gossip_events_tx, _gossip_events_rx) = broadcast::channel(channel_size);
+        #[cfg(feature = "gossipsub")]
+        let (gossip_cmds_tx, gossip_cmds_rx) = mpsc::channel(64);
 
         Ok((
             Self {
                 swarm,
-                gossip_events: gossip_events_tx,
+
+                // Request-response fields
                 req_resp_events: req_resp_event_tx,
+                request_response_commands: req_resp_cmds_rx,
+                // Conditional gossipsub fields
+                #[cfg(feature = "gossipsub")]
+                gossip_events: gossip_events_tx,
+                #[cfg(feature = "gossipsub")]
+                gossip_commands: gossip_cmds_rx,
+                #[cfg(feature = "gossipsub")]
+                gossip_commands_sender: gossip_cmds_tx.clone(),
+
                 commands: cmds_rx,
                 commands_sender: cmds_tx.clone(),
                 cancellation_token: cancel,
@@ -227,8 +266,9 @@ impl<S: ApplicationSigner> P2P<S> {
                 signer,
                 kademlia_is_initial_record_already_posted: false,
                 kademlia_postponed_get_action: HashMap::new(),
+                dial_manager: DialManager::new(),
             },
-            ReqRespHandle::new(req_resp_event_rx),
+            ReqRespHandle::new(req_resp_event_rx, req_resp_cmds_tx),
         ))
     }
 
@@ -241,26 +281,43 @@ impl<S: ApplicationSigner> P2P<S> {
         allowlist: Vec<PublicKey>,
         channel_size: Option<usize>,
         signer: S,
-    ) -> P2PResult<P2P<S>> {
-        swarm
-            .listen_on(cfg.listening_addr.clone())
-            .map_err(ProtocolError::Listen)?;
+    ) -> P2PResult<P2P> {
+        for addr in &cfg.listening_addrs {
+            swarm
+                .listen_on(addr.clone())
+                .map_err(ProtocolError::Listen)?;
+        }
 
         let channel_size = channel_size.unwrap_or(256);
-        let (gossip_events_tx, _gossip_events_rx) = broadcast::channel(channel_size);
         let (cmds_tx, cmds_rx) = mpsc::channel(64);
+
+        // Conditionally setup gossipsub channels
+        #[cfg(feature = "gossipsub")]
+        let (gossip_events_tx, _gossip_events_rx) = broadcast::channel(channel_size);
+        #[cfg(feature = "gossipsub")]
+        let (gossip_cmds_tx, gossip_cmds_rx) = mpsc::channel(64);
 
         Ok(Self {
             swarm,
-            gossip_events: gossip_events_tx,
             commands: cmds_rx,
             commands_sender: cmds_tx.clone(),
+
+            // Conditional gossipsub fields
+            #[cfg(feature = "gossipsub")]
+            gossip_events: gossip_events_tx,
+            #[cfg(feature = "gossipsub")]
+            gossip_commands: gossip_cmds_rx,
+            #[cfg(feature = "gossipsub")]
+            gossip_commands_sender: gossip_cmds_tx.clone(),
+
             cancellation_token: cancel,
             config: cfg,
             allowlist: HashSet::from_iter(allowlist),
             signer,
             kademlia_is_initial_record_already_posted: false,
             kademlia_postponed_get_action: HashMap::new(),
+            addr_store: SharedAddrStore(Arc::new(Mutex::new(HashMap::new()))),
+            dial_manager: DialManager::new(),
         })
     }
 
@@ -270,8 +327,12 @@ impl<S: ApplicationSigner> P2P<S> {
     }
 
     /// Creates new handle for gossip.
+    #[cfg(feature = "gossipsub")]
     pub fn new_gossip_handle(&self) -> GossipHandle {
-        GossipHandle::new(self.gossip_events.subscribe())
+        GossipHandle::new(
+            self.gossip_events.subscribe(),
+            self.gossip_commands_sender.clone(),
+        )
     }
 
     /// Creates new handle for commands.
@@ -451,6 +512,18 @@ impl<S: ApplicationSigner> P2P<S> {
         info!("established all connections and subscriptions");
     }
 
+    /// Dials the given address and maps the resulting connection ID to the dial sequence ID.
+    /// Used for both initial and retry dial attempts.
+    async fn dial_and_map(&mut self, addr: Multiaddr, app_public_key: PublicKey) {
+        let dial_opts = DialOpts::unknown_peer_id().address(addr.clone()).build();
+        let conn_id = dial_opts.connection_id();
+        self.dial_manager.map_connid(conn_id, app_public_key);
+        match self.swarm.dial(dial_opts) {
+            Ok(()) => info!(address = %addr, "Dialing libp2p peer"),
+            Err(err) => error!(address = %addr, error = %err, "Could not connect to peer"),
+        }
+    }
+
     /// Starts listening and handling events from the network and commands from
     /// handles.
     ///
@@ -460,17 +533,39 @@ impl<S: ApplicationSigner> P2P<S> {
     /// to advance handling of new messages, event or commands.
     pub async fn listen(mut self) {
         loop {
-            let result = select! {
-                _ = self.cancellation_token.cancelled() => {
+            // Prepare futures for each branch; disabled features use a pending future
+            let cancel_fut = self.cancellation_token.cancelled();
+            let swarm_fut = self.swarm.select_next_some();
+            let cmd_fut = self.commands.recv();
+
+            #[cfg(feature = "gossipsub")]
+            let gossip_fut = self.gossip_commands.recv();
+            #[cfg(not(feature = "gossipsub"))]
+            let gossip_fut = pending::<Option<GossipCommand>>();
+
+            #[cfg(feature = "request-response")]
+            let reqresp_fut = self.request_response_commands.recv();
+            #[cfg(not(feature = "request-response"))]
+            let reqresp_fut = pending::<Option<RequestResponseCommand>>();
+
+            // Select over all branches; disabled futures never complete
+            let result = tokio::select! {
+                _ = cancel_fut => {
                     debug!("Received cancellation, stopping listening");
                     return;
-                },
-                event = self.swarm.select_next_some() => {
+                }
+                event = swarm_fut => {
                     self.handle_swarm_event(event).await
                 }
-                Some(cmd) = self.commands.recv() => {
+                Some(cmd) = cmd_fut => {
                     self.handle_command(cmd).await
-                },
+                }
+                Some(gossip_cmd) = gossip_fut => {
+                    self.handle_gossip_command(gossip_cmd).await
+                }
+                Some(req_cmd) = reqresp_fut => {
+                    self.handle_request_response_command(req_cmd).await
+                }
             };
 
             if let Err(err) = result {
@@ -487,6 +582,56 @@ impl<S: ApplicationSigner> P2P<S> {
     ) -> P2PResult<()> {
         match event {
             SwarmEvent::Behaviour(event) => self.handle_behaviour_event(event).await,
+            SwarmEvent::ConnectionEstablished { .. }
+            | SwarmEvent::OutgoingConnectionError { .. } => {
+                self.handle_connection_event(event).await
+            }
+            _ => Ok(()),
+        }
+    }
+
+    /// Handles connection-related events (both successful and failed connections).
+    async fn handle_connection_event(
+        &mut self,
+        event: SwarmEvent<BehaviourEvent<S>>,
+    ) -> P2PResult<()> {
+        match event {
+            SwarmEvent::ConnectionEstablished {
+                peer_id,
+                connection_id,
+                ..
+            } => {
+                if let Some(app_public_key) = self
+                    .dial_manager
+                    .get_app_public_key_by_connection_id(&connection_id)
+                {
+                    self.dial_manager.remove_queue(&app_public_key);
+                    self.dial_manager.remove_connid(&connection_id);
+                    info!(peer_id = %peer_id, "connected to peer");
+                }
+                Ok(())
+            }
+            SwarmEvent::OutgoingConnectionError {
+                connection_id,
+                error,
+                ..
+            } => {
+                if let Some(app_public_key) = self
+                    .dial_manager
+                    .get_app_public_key_by_connection_id(&connection_id)
+                {
+                    warn!(app_public_key = ?app_public_key, error = %error, "connection failed");
+                    self.dial_manager.remove_connid(&connection_id);
+                    if let Some(next_addr) = self.dial_manager.pop_next_addr(&app_public_key) {
+                        info!(next_addr = %next_addr, app_public_key = ?app_public_key, "retrying with next address");
+                        self.dial_and_map(next_addr, app_public_key).await;
+                    } else {
+                        warn!(app_public_key = ?app_public_key, "no more addresses to try, removing queue");
+                        self.dial_manager.remove_queue(&app_public_key);
+                    }
+                }
+                Ok(())
+            }
             _ => Ok(()),
         }
     }
@@ -497,6 +642,7 @@ impl<S: ApplicationSigner> P2P<S> {
         event: <Behaviour<S> as NetworkBehaviour>::ToSwarm,
     ) -> P2PResult<()> {
         match event {
+            #[cfg(feature = "gossipsub")]
             BehaviourEvent::Gossipsub(event) => self.handle_gossip_event(event).await,
             #[cfg(feature = "request-response")]
             BehaviourEvent::RequestResponse(event) => {
@@ -884,6 +1030,7 @@ impl<S: ApplicationSigner> P2P<S> {
     }
 
     /// Handles a [`GossipsubEvent`] from the swarm.
+    #[cfg(feature = "gossipsub")]
     async fn handle_gossip_event(&mut self, event: GossipsubEvent) -> P2PResult<()> {
         match event {
             GossipsubEvent::Message {
@@ -903,6 +1050,7 @@ impl<S: ApplicationSigner> P2P<S> {
     /// If message is not [`GossipsubMsg`] or is not signed, the message will
     /// be rejected without propagation, otherwise if wasn't handled before, send an [`Event`] to
     /// handles, store it and reset timeout.
+    #[cfg(feature = "gossipsub")]
     #[instrument(skip(self, message), fields(sender = %message.source.unwrap()))]
     async fn handle_gossip_msg(
         &mut self,
@@ -942,146 +1090,48 @@ impl<S: ApplicationSigner> P2P<S> {
     /// Handles command sent through channel by P2P implementation user.
     async fn handle_command(&mut self, cmd: Command) -> P2PResult<()> {
         match cmd {
-            Command::PublishMessage { data } => {
-                debug!("Publishing message");
-                trace!("Publishing message {:?}", &data);
-
-                let message_id = self
-                    .swarm
-                    .behaviour_mut()
-                    .gossipsub
-                    .publish(TOPIC.hash(), data)
-                    .inspect_err(|err| {
-                        match err {
-                            PublishError::Duplicate => {
-                                warn!(%err, "Failed to publish msg through gossipsub, message already exists");
-                            }
-                            PublishError::SigningError(signing_error) => {
-                                error!(%signing_error, "Failed to sign message");
-                            }
-                            PublishError::InsufficientPeers => {
-                                error!("Insufficient peers to publish message");
-                            }
-                            PublishError::MessageTooLarge => {
-                                error!("Message too large to publish");
-                            }
-                            PublishError::TransformFailed(error) => {
-                                error!(%error, "Failed to transform message");
-                            }
-                            PublishError::AllQueuesFull(num_peers_attempted) => {
-                                error!(%num_peers_attempted, "All queues full, dropping message");
-                            }
-                        }
-                    });
-
-                if message_id.is_ok() {
-                    debug!(message_id=%message_id.unwrap(), "Message published");
-                }
-
-                Ok(())
-            }
-            #[cfg(feature = "request-response")]
-            Command::RequestMessage {
-                app_public_key: app_pk,
-                data,
+            Command::ConnectToPeer {
+                app_public_key,
+                mut addresses,
             } => {
-                // Problem: in request response we take application public key.
-                // If we don't have peer id ( therefore libp2p's swarm doesn't have
-                // multiaddr of the peer ), we can't connect to peer with given application
-                // public key.
-                //
-                // Solution:
-                // 1. Check if Setup behaviour does have the app_pk -> peer_id.
-                // 2. If no, if `kademlia` feature is enabled, try get the app_pk -> multiaddr and
-                // tell swarm to dial the multiaddr.
-                // 3. if nothing has successfully finished, now just log error. Should it
-                // return error somehow?
-
-                debug!(?app_pk, "Got request message");
-                trace!(?data, "Got request message");
-
-                let mut option_request_target_peer_id = self
-                    .swarm
-                    .behaviour()
-                    .setup
-                    .get_transport_id_by_application_key(&app_pk);
-
-                #[cfg(feature = "kademlia")]
-                if option_request_target_peer_id.is_none() {
-                    match self.get_tid_via_kademlia(&app_pk).await {
-                        Some(record) => {
-                            option_request_target_peer_id = Some(record.transport_id);
-
-                            for multiaddr in record.multiaddresses {
-                                self.swarm.add_peer_address(record.transport_id, multiaddr);
-                            }
-                        }
-                        None => {
-                            debug!(
-                                "Attempt to find the peerid in DHT has failed: no known peers with the application public key."
-                            );
-                        }
-                    }
+                if addresses.is_empty() {
+                    warn!("No addresses provided to dial");
+                    return Ok(());
                 }
 
-                match option_request_target_peer_id {
-                    Some(request_target_peer_id) => {
-                        info!("Sent some data via request response.");
-                        trace!(%request_target_peer_id, ?app_pk, ?data, "Sent some data via request response.");
-                        self.swarm
-                            .behaviour_mut()
-                            .request_response
-                            .send_request(&request_target_peer_id, data);
-                    }
-                    None => {
-                        error!(
-                            "Request response has failed: no known peers with the application public key."
-                        );
-                    }
+                if self.dial_manager.has_app_public_key(&app_public_key) {
+                    error!(
+                        "Already dialing peer with app_public_key: {:?}",
+                        app_public_key
+                    );
+                    return Ok(());
                 }
+
+                addresses
+                    .sort_by_key(|addr| !addr.protocol_stack().any(|proto| proto.contains("quic")));
+
+                let mut queue = VecDeque::from(addresses);
+
+                let first_addr = queue.pop_front().unwrap(); // can use unwrap() here thus we have at least one element
+
+                self.config.connect_to.push(first_addr.clone());
+                self.dial_manager
+                    .insert_queue(app_public_key.clone(), queue);
+                self.dial_and_map(first_addr, app_public_key).await;
 
                 Ok(())
             }
-            Command::ConnectToPeer(connect_to_peer_command) => {
-                // Add peer to swarm
-                trace!(
-                    "Ask swarm to tell other behaviours that there's a new peer {} {}",
-                    connect_to_peer_command.peer_id, connect_to_peer_command.peer_addr
-                );
-                self.swarm.add_peer_address(
-                    connect_to_peer_command.peer_id,
-                    connect_to_peer_command.peer_addr.clone(),
-                );
-
-                trace!(
-                    "Ask explicitly Kademlia behaviour to add a new peer {} {}",
-                    connect_to_peer_command.peer_id, connect_to_peer_command.peer_addr
-                );
-                self.swarm.behaviour_mut().kademlia.add_address(
-                    &connect_to_peer_command.peer_id,
-                    connect_to_peer_command.peer_addr.clone(),
-                );
-
-                let dialing_opts: DialOpts = DialOpts::peer_id(connect_to_peer_command.peer_id)
-                    .condition(PeerCondition::DisconnectedAndNotDialing)
-                    .addresses(Vec::<Multiaddr>::from([connect_to_peer_command
-                        .peer_addr
-                        .clone()]))
-                    .extend_addresses_through_behaviour()
-                    .build();
-
-                // Dial peer ( not fully connect )
-                trace!(
-                    "Try to dial a new peer {} {}",
-                    connect_to_peer_command.peer_id, connect_to_peer_command.peer_addr
-                );
-                let _ = self.swarm.dial(dialing_opts).inspect_err(|err| {
-                    error!(
-                        "Failed to connect to peer at peer_addr '{}' : {}",
-                        connect_to_peer_command.peer_addr.to_string(),
-                        err
-                    )
-                });
+            Command::DisconnectFromPeer {
+                target_app_public_key,
+            } => {
+                debug!(?target_app_public_key, "Got DisconnectFromPeer command");
+                let peer_id = target_app_public_key.to_peer_id();
+                if self.swarm.is_connected(&peer_id) {
+                    let _ = self.swarm.disconnect_peer_id(peer_id);
+                    debug!(%peer_id, "Initiated disconnect");
+                } else {
+                    debug!(%peer_id, "Peer not connected, nothing to disconnect");
+                }
 
                 Ok(())
             }
@@ -1113,9 +1163,19 @@ impl<S: ApplicationSigner> P2P<S> {
                 }
                 QueryP2PStateCommand::GetConnectedPeers { response_sender } => {
                     info!("Querying connected peers");
-                    let peers = self.swarm.connected_peers().cloned().collect();
-                    trace!("Querying connected peers: done: {peers:?}");
-                    let _ = response_sender.send(peers);
+                    let peer_ids = self.swarm.connected_peers().cloned().collect::<Vec<_>>();
+
+                    let public_keys: Vec<PublicKey> = peer_ids
+                        .into_iter()
+                        .filter_map(|peer_id| {
+                            self.swarm
+                                .behaviour()
+                                .setup
+                                .get_app_public_key_by_transport_id(&peer_id)
+                        })
+                        .collect();
+
+                    let _ = response_sender.send(public_keys);
                     Ok(())
                 }
                 QueryP2PStateCommand::GetMyListeningAddresses { response_sender } => {
@@ -1218,6 +1278,76 @@ impl<S: ApplicationSigner> P2P<S> {
 
         trace!("Returning a record");
         Some(record)
+}
+
+    /// Handles gossip command sent through GossipHandle.
+    #[cfg(feature = "gossipsub")]
+    async fn handle_gossip_command(&mut self, cmd: GossipCommand) -> P2PResult<()> {
+        debug!("Publishing message");
+        trace!("Publishing message {:?}", &cmd.data);
+
+        let message_id = self
+            .swarm
+            .behaviour_mut()
+            .gossipsub
+            .publish(TOPIC.hash(), cmd.data)
+            .inspect_err(|err| match err {
+                PublishError::Duplicate => {
+                    warn!(%err, "Failed to publish msg through gossipsub, message already exists");
+                }
+                PublishError::SigningError(signing_error) => {
+                    error!(%signing_error, "Failed to sign message");
+                }
+                PublishError::InsufficientPeers => {
+                    error!("Insufficient peers to publish message");
+                }
+                PublishError::MessageTooLarge => {
+                    error!("Message too large to publish");
+                }
+                PublishError::TransformFailed(error) => {
+                    error!(%error, "Failed to transform message");
+                }
+                PublishError::AllQueuesFull(num_peers_attempted) => {
+                    error!(%num_peers_attempted, "All queues full, dropping message");
+                }
+            });
+
+        if message_id.is_ok() {
+            debug!(message_id=%message_id.unwrap(), "Message published");
+        }
+
+        Ok(())
+    }
+
+    /// Handles request-response command sent through ReqRespHandle.
+    #[cfg(feature = "request-response")]
+    async fn handle_request_response_command(
+        &mut self,
+        cmd: RequestResponseCommand,
+    ) -> P2PResult<()> {
+        let request_target_peer_id = cmd.target_app_public_key.to_peer_id();
+        debug!(%request_target_peer_id, "Got request message");
+        trace!(?cmd.data, "Got request message");
+
+        if self.swarm.is_connected(&request_target_peer_id) {
+            self.swarm
+                .behaviour_mut()
+                .request_response
+                .send_request(&request_target_peer_id, cmd.data);
+            return Ok(());
+        }
+
+        // TODO(Arniiiii) : rewrite this part so it sends to gossipsub instead of the
+        // manual floodsub via manual request-response to everyone.
+        let connected_peers = self.swarm.connected_peers().cloned().collect::<Vec<_>>();
+        for peer in connected_peers {
+            self.swarm
+                .behaviour_mut()
+                .request_response
+                .send_request(&peer, cmd.data.clone());
+        }
+
+        Ok(())
     }
 
     /// Handles [`RequestResponseEvent`] from the swarm.
@@ -1434,13 +1564,34 @@ pub fn with_inmemory_transport<S: ApplicationSigner>(
     Ok(swarm)
 }
 
-/// Constructs swarm from P2P config with TCP transport. Uses
-/// `/ip4/{addr}/tcp/{port}` addresses.
-pub fn with_tcp_transport<S: ApplicationSigner>(
+/// Constructs a `Swarm<Behaviour>` from `P2PConfig` using QUIC with TCP fallback when available, or
+/// TCP only otherwise.
+pub fn with_default_transport<S: ApplicationSigner>(
     config: &P2PConfig,
     signer: S,
 ) -> P2PResult<Swarm<Behaviour<S>>> {
     let builder = init_swarm!(config);
+    #[cfg(feature = "quic")]
+    let swarm = builder
+        .with_tcp(
+            tcp::Config::default(),
+            noise::Config::new,
+            yamux::Config::default,
+        )
+        .unwrap()
+        .with_quic()
+        .with_behaviour(|_| {
+            Behaviour::new(
+                PROTOCOL_NAME,
+                &config.transport_keypair,
+                &config.app_public_key,
+                signer,
+            )
+        })
+        .map_err(|e| ProtocolError::BehaviourInitialization(e.into()))?
+        .with_swarm_config(|c| c.with_idle_connection_timeout(Duration::from_secs(60)))
+        .build();
+    #[cfg(not(feature = "quic"))]
     let swarm = finish_swarm!(
         builder.with_tcp(
             Default::default(),
@@ -1450,6 +1601,5 @@ pub fn with_tcp_transport<S: ApplicationSigner>(
         config,
         signer
     );
-
     Ok(swarm)
 }
