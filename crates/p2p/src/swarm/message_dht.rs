@@ -4,6 +4,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use libp2p::{Multiaddr, PeerId, identity::PublicKey};
 use serde::{Deserialize, Serialize};
+use tracing::{trace, warn};
 
 use crate::swarm::{
     errors::DHTError,
@@ -116,4 +117,54 @@ impl SignedRecordData {
 
         SignedRecordData::new(setup_message, signer, app_public_key)
     }
+}
+
+pub(crate) fn deserialize_and_validate_dht_record(data: &Vec<u8>) -> Option<RecordData> {
+    let str = match String::from_utf8(data.clone()) {
+        Ok(s) => s,
+        Err(e) => {
+            warn!(%e, record = %String::from_utf8_lossy(&data),
+                "Tried to get record from DHT, but it seems to have a string for multiaddress to be invalid UTF-8.");
+            return None;
+        }
+    };
+
+    trace!(%str, "We got a record.");
+
+    let signed_data: SignedRecordData = match serde_json::from_str(&str) {
+        Ok(data) => data,
+        Err(e) => {
+            warn!(%e, "Tried to get record from DHT, but we failed deserializing its signature.");
+            return None;
+        }
+    };
+
+    let str_record = match String::from_utf8(signed_data.record.clone()) {
+        Ok(s) => s,
+        Err(e) => {
+            warn!(%e, record = %String::from_utf8_lossy(&signed_data.record),
+            "Tried to get record from DHT, but it seems to have a string for multiaddress to be invalid UTF-8."
+            );
+            return None;
+        }
+    };
+
+    let record: RecordData = match serde_json::from_str(&str_record) {
+        Ok(data) => data,
+        Err(e) => {
+            warn!(%e, "Tried to get record from DHT, but we failed deserializing its data.");
+            return None;
+        }
+    };
+
+    if !record
+        .app_public_key
+        .verify(&signed_data.record, &signed_data.signature)
+    {
+        warn!("Tried to get record from DHT, but it has bad signature.");
+        return None;
+    }
+
+    trace!("Returning a record");
+    Some(record)
 }

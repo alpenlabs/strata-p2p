@@ -53,7 +53,7 @@ use crate::{
     signer::ApplicationSigner,
     swarm::{
         dial_manager::DialManager,
-        message_dht::{RecordData, SignedRecordData},
+        message_dht::{RecordData, SignedRecordData, deserialize_and_validate_dht_record},
         setup::events::SetupBehaviourEvent,
     },
 };
@@ -97,6 +97,22 @@ pub const DEFAULT_CONNECTION_CHECK_INTERVAL: Duration = Duration::from_millis(50
 
 /// Global default timeout for channel operations (e.g., sending/receiving on channels).
 pub const DEFAULT_CHANNEL_TIMEOUT: Duration = Duration::from_secs(5);
+
+// This is a move to callbacks, because [`tokio::select!`] does not awaits on handlers: you can't
+// await in one handler to expect result from another handler in a clean way.
+// If you know how to solve it, you can test your idea by fixing test in next commit:
+// https://github.com/alpenlabs/strata-p2p/pull/76/commits/c4d180665309f24050399709fb1c72497fd6ca8c
+// I wasted testing theories of how to fix the deadlock for 7 hours.
+// I don't have any good idea how to solve it and therefore it is decided to do this via callbacks.
+// Agreed by "Arniiiii" and "dovgopoly".
+enum ActionOnKademliaGetRecord {
+    JustThroughResultBack {
+        tx: tokio::sync::oneshot::Sender<Option<RecordData>>,
+    },
+    DoSetupThenRequestThenSendResultBack {
+        tx: tokio::sync::oneshot::Sender<Option<RecordData>>,
+    },
+}
 
 /// Configuration options for [`P2P`].
 #[derive(Debug, Clone)]
@@ -202,7 +218,8 @@ pub struct P2P<S: ApplicationSigner> {
     kademlia_is_initial_record_already_posted: bool,
 
     /// Postponed action: a channel for a query to which send something back.
-    kademlia_postponed_get_action: HashMap<QueryId, tokio::sync::oneshot::Sender<Option<Vec<u8>>>>,
+    kademlia_postponed_get_action: HashMap<QueryId, ActionOnKademliaGetRecord>,
+
     /// Manages dial sequences and address queues for multiaddress connections.
     dial_manager: DialManager,
 }
@@ -770,14 +787,19 @@ impl<S: ApplicationSigner> P2P<S> {
                 }
                 QueryResult::GetRecord(Ok(libp2p::kad::GetRecordOk::FoundRecord(peer_record))) => {
                     trace!(
-                        "{id} {stats:?} {step:?} {peer_record:?} QueryResult::GetRecord(Ok(libp2p::kad::GetRecordOk::FoundRecord"
+                        %id, ?stats, ?step, peer_key = ?peer_record.record.key, peer_record = %String::from_utf8_lossy(&peer_record.record.value), "QueryResult::GetRecord(Ok(libp2p::kad::GetRecordOk::FoundRecord"
                     );
                     if self.kademlia_postponed_get_action.contains_key(&id) {
-                        let _ = self
-                            .kademlia_postponed_get_action
-                            .remove(&id)
-                            .unwrap()
-                            .send(Some(peer_record.record.value));
+                        let record = deserialize_and_validate_dht_record(&peer_record.record.value);
+                        trace!(?record, "Deserialized and validated. Still can be optional.");
+                        let _ = match self.kademlia_postponed_get_action.remove(&id).unwrap() {
+                            ActionOnKademliaGetRecord::JustThroughResultBack { tx } => {
+                                tx.send(record)
+                            }
+                            ActionOnKademliaGetRecord::DoSetupThenRequestThenSendResultBack {
+                                tx,
+                            } => tx.send(record),
+                        };
                     }
                     Ok(())
                 }
@@ -788,11 +810,14 @@ impl<S: ApplicationSigner> P2P<S> {
                         "{id} {stats:?} {step:?} {cache_candidates:?} QueryResult::GetRecord(Ok(libp2p::kad::GetRecordOk::FinishedWithNoAdditionalRecord"
                     );
                     if self.kademlia_postponed_get_action.contains_key(&id) {
-                        let _ = self
-                            .kademlia_postponed_get_action
-                            .remove(&id)
-                            .unwrap()
-                            .send(None);
+                        let _ = match self.kademlia_postponed_get_action.remove(&id).unwrap() {
+                            ActionOnKademliaGetRecord::JustThroughResultBack { tx } => {
+                                tx.send(None)
+                            }
+                            ActionOnKademliaGetRecord::DoSetupThenRequestThenSendResultBack {
+                                tx,
+                            } => tx.send(None),
+                        };
                     }
                     Ok(())
                 }
@@ -801,11 +826,14 @@ impl<S: ApplicationSigner> P2P<S> {
                         "{id} {stats:?} {step:?} {key:?} QueryResult::GetRecord(Err(libp2p::kad::GetRecordError::Timeout"
                     );
                     if self.kademlia_postponed_get_action.contains_key(&id) {
-                        let _ = self
-                            .kademlia_postponed_get_action
-                            .remove(&id)
-                            .unwrap()
-                            .send(None);
+                        let _ = match self.kademlia_postponed_get_action.remove(&id).unwrap() {
+                            ActionOnKademliaGetRecord::JustThroughResultBack { tx } => {
+                                tx.send(None)
+                            }
+                            ActionOnKademliaGetRecord::DoSetupThenRequestThenSendResultBack {
+                                tx,
+                            } => tx.send(None),
+                        };
                     }
                     Ok(())
                 }
@@ -817,11 +845,14 @@ impl<S: ApplicationSigner> P2P<S> {
                         "{id} {stats:?} {step:?} {key:?} {closest_peers:?} QueryResult::GetRecord(Err(libp2p::kad::GetRecordError::NotFound"
                     );
                     if self.kademlia_postponed_get_action.contains_key(&id) {
-                        let _ = self
-                            .kademlia_postponed_get_action
-                            .remove(&id)
-                            .unwrap()
-                            .send(None);
+                        let _ = match self.kademlia_postponed_get_action.remove(&id).unwrap() {
+                            ActionOnKademliaGetRecord::JustThroughResultBack { tx } => {
+                                tx.send(None)
+                            }
+                            ActionOnKademliaGetRecord::DoSetupThenRequestThenSendResultBack {
+                                tx,
+                            } => tx.send(None),
+                        };
                     }
                     Ok(())
                 }
@@ -834,11 +865,14 @@ impl<S: ApplicationSigner> P2P<S> {
                         "{id} {stats:?} {step:?} {key:?} {records:?} {quorum} QueryResult::GetRecord(Err(libp2p::kad::GetRecordError::QuorumFailed"
                     );
                     if self.kademlia_postponed_get_action.contains_key(&id) {
-                        let _ = self
-                            .kademlia_postponed_get_action
-                            .remove(&id)
-                            .unwrap()
-                            .send(None);
+                        let _ = match self.kademlia_postponed_get_action.remove(&id).unwrap() {
+                            ActionOnKademliaGetRecord::JustThroughResultBack { tx } => {
+                                tx.send(None)
+                            }
+                            ActionOnKademliaGetRecord::DoSetupThenRequestThenSendResultBack {
+                                tx,
+                            } => tx.send(None),
+                        };
                     }
                     Ok(())
                 }
@@ -1208,21 +1242,17 @@ impl<S: ApplicationSigner> P2P<S> {
                 app_public_key,
                 tx_back,
             } => {
-                if tx_back
-                    .send(self.get_tid_via_kademlia(&app_public_key).await)
-                    .is_err()
-                {
-                    return Err(errors::SwarmError::Protocol(
-                        ProtocolError::OneshotChannelFromCommandClosed,
-                    ));
-                }
+                self.ask_kademlia_get_record(
+                    &app_public_key,
+                    ActionOnKademliaGetRecord::JustThroughResultBack { tx: tx_back },
+                );
                 Ok(())
             }
         }
     }
 
-    async fn get_tid_via_kademlia(&mut self, app_pk: &PublicKey) -> Option<RecordData> {
-        trace!(?app_pk, "We got to get_tid_via_kademlia.");
+    fn ask_kademlia_get_record(&mut self, app_pk: &PublicKey, action: ActionOnKademliaGetRecord) {
+        trace!(?app_pk, "We got to ask_kademlia_get_record.");
 
         let queryid = self
             .swarm
@@ -1230,63 +1260,9 @@ impl<S: ApplicationSigner> P2P<S> {
             .kademlia
             .get_record(RecordKey::new(&app_pk.encode_protobuf()));
 
-        let (tx, rx) = oneshot::channel();
+        self.kademlia_postponed_get_action.insert(queryid, action);
 
-        trace!(?app_pk, "We created oneshot channel");
-
-        self.kademlia_postponed_get_action.insert(queryid, tx);
-
-        trace!(?app_pk, "We inserted queryid -> tx");
-
-        // TODO(Arniiiii): make timeout configurable
-        let Ok(maybe_result_of_data) = timeout(Duration::from_secs(10), rx).await else {
-            trace!("Timeout.");
-            return None;
-        };
-
-        let Ok(maybe_data) = maybe_result_of_data else {
-            trace!("Channel is closed.");
-            return None;
-        };
-
-        let Some(data) = maybe_data else {
-            trace!("We received None.");
-            return None;
-        };
-
-        let str = match String::from_utf8(data.clone()) {
-            Ok(s) => s,
-            Err(e) => {
-                warn!(%e, record = %String::from_utf8_lossy(&data), "Tried to get record from DHT, but it seems to have a string for multiaddress to be invalid UTF-8.");
-                return None;
-            }
-        };
-
-        trace!(%str, "We got a record.");
-
-        let signed_data: SignedRecordData = match serde_json::from_str(&str) {
-            Ok(data) => data,
-            Err(e) => {
-                warn!(%e, "Tried to get record from DHT, but we failed deserializing its signature.");
-                return None;
-            }
-        };
-
-        let record: RecordData = match serde_json::from_str(&str) {
-            Ok(data) => data,
-            Err(e) => {
-                warn!(%e, "Tried to get record from DHT, but we failed deserializing its data.");
-                return None;
-            }
-        };
-
-        if !signed_data.verify_signature(&record.app_public_key) {
-            warn!("Tried to get record from DHT, but it has bad signature.");
-            return None;
-        }
-
-        trace!("Returning a record");
-        Some(record)
+        trace!(?app_pk, "We inserted queryid -> action");
     }
 
     /// Handles gossip command sent through GossipHandle.
