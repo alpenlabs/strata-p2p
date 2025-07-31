@@ -4,6 +4,7 @@
 use std::time::Duration;
 
 use anyhow::bail;
+use futures::SinkExt;
 use tokio::time::sleep;
 
 use super::common::Setup;
@@ -12,7 +13,6 @@ use crate::{
     events::ReqRespEvent,
     tests::common::{MULTIADDR_MEMORY_ID_OFFSET_TEST_REQUEST_RESPONSE_DHT, init_tracing},
 };
-use futures::SinkExt;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 #[ignore = "Because this test is impossible to run on my 12 thread laptop without getting `OutboundUpgradeError(Timeout)` from any behaviour, even when worker threads are 12 and timeouts set to 10secs. To run this test you need a threadripper beast and smth like 100 GB of RAM."]

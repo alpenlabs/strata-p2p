@@ -1,12 +1,12 @@
 use std::time::Duration;
 
 use anyhow::bail;
+use libp2p::identity::PublicKey;
 use tokio::{
     sync::oneshot,
     time::{sleep, timeout},
 };
 use tracing::info;
-use libp2p::identity::PublicKey;
 
 use super::common::Setup;
 use crate::{

@@ -31,7 +31,7 @@ use libp2p::{
     },
     noise,
     swarm::{NetworkBehaviour, SwarmEvent, dial_opts::DialOpts},
-    yamux,
+    tcp, yamux,
 };
 #[cfg(feature = "request-response")]
 use tokio::sync::oneshot;
@@ -51,14 +51,11 @@ use crate::{commands::GossipCommand, events::GossipEvent};
 use crate::{
     commands::{Command, QueryP2PStateCommand},
     signer::ApplicationSigner,
-};
-
-use libp2p::tcp;
-
-use crate::swarm::{
-    dial_manager::DialManager,
-    message_dht::{RecordData, SignedRecordData},
-    setup::events::SetupBehaviourEvent,
+    swarm::{
+        dial_manager::DialManager,
+        message_dht::{RecordData, SignedRecordData},
+        setup::events::SetupBehaviourEvent,
+    },
 };
 
 mod behavior;
@@ -974,13 +971,18 @@ impl<S: ApplicationSigner> P2P<S> {
                 trace!(
                     "{peer:?} {is_new_peer:?} {addresses:?} {bucket_range:?} {old_peer:?} KademliaEvent::RoutingUpdated"
                 );
-                trace!(res = %(!self.kademlia_is_initial_record_already_posted
+                trace!(
+                    res = %(!self.kademlia_is_initial_record_already_posted
                                     && self
                                         .swarm
                                         .connected_peers().count()
-                                        > self.config.kademlia_threshold), is_already_posted = %self.kademlia_is_initial_record_already_posted, how_many_connections = %self
+                                        > self.config.kademlia_threshold),
+                    is_already_posted = %self.kademlia_is_initial_record_already_posted,
+                    how_many_connections = %self
                                         .swarm
-                                        .connected_peers().count(), threshold = %self.config.kademlia_threshold, "Routing updated..."
+                                        .connected_peers().count(),
+                    threshold = %self.config.kademlia_threshold,
+                    "Routing updated..."
                 );
                 // TODO(Arniiiii): get amount not connected peers but how many nodes we know in
                 // kademlia
@@ -996,7 +998,11 @@ impl<S: ApplicationSigner> P2P<S> {
 
                     match maybe_signed_record_data {
                         Err(e) => {
-                            warn!(%e,app_pk = ?self.config.app_public_key,local_tid = %self.swarm.local_peer_id(),external_addresses = ?self.swarm.external_addresses().cloned().collect::<Vec<_>>(), "Failed to serialize our signed record.");
+                            warn!(%e,
+                                app_pk = ?self.config.app_public_key,
+                                local_tid = %self.swarm.local_peer_id(),
+                                external_addresses = ?self.swarm.external_addresses().cloned().collect::<Vec<_>>(),
+                                "Failed to serialize our signed record.");
                         }
                         Ok(signed_record_data) => {
                             let _ = self.swarm.behaviour_mut().kademlia.put_record(
