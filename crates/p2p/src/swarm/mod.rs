@@ -105,6 +105,7 @@ pub const DEFAULT_CHANNEL_TIMEOUT: Duration = Duration::from_secs(5);
 // I wasted testing theories of how to fix the deadlock for 7 hours.
 // I don't have any good idea how to solve it and therefore it is decided to do this via callbacks.
 // Agreed by "Arniiiii" and "dovgopoly".
+#[expect(dead_code)]
 enum ActionOnKademliaGetRecord {
     JustThroughResultBack {
         tx: tokio::sync::oneshot::Sender<Option<RecordData>>,

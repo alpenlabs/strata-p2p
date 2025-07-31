@@ -93,11 +93,6 @@ impl SignedRecordData {
         })
     }
 
-    /// Verifies the signature of this record.
-    pub(crate) fn verify_signature(&self, app_public_key: &PublicKey) -> bool {
-        app_public_key.verify(&self.record, &self.signature)
-    }
-
     /// Deserializes a signed record from JSON bytes.
     #[expect(dead_code)]
     pub(crate) fn from_json_bytes(data: &[u8]) -> Result<Self, DHTError> {
@@ -119,11 +114,11 @@ impl SignedRecordData {
     }
 }
 
-pub(crate) fn deserialize_and_validate_dht_record(data: &Vec<u8>) -> Option<RecordData> {
-    let str = match String::from_utf8(data.clone()) {
+pub(crate) fn deserialize_and_validate_dht_record(data: &[u8]) -> Option<RecordData> {
+    let str = match String::from_utf8(data.to_owned()) {
         Ok(s) => s,
         Err(e) => {
-            warn!(%e, record = %String::from_utf8_lossy(&data),
+            warn!(%e, record = %String::from_utf8_lossy(data),
                 "Tried to get record from DHT, but it seems to have a string for multiaddress to be invalid UTF-8.");
             return None;
         }
