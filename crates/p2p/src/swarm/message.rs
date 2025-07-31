@@ -5,7 +5,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use libp2p::{identity::PublicKey, PeerId};
 use serde::{Deserialize, Serialize};
 
-use super::errors::{MessageError, SetupError};
+use super::errors::{SetupError, SignedMessageError};
 
 pub(super) mod pubkey_serializer {
     use serde::{self, de, Deserializer, Serializer};
@@ -80,16 +80,16 @@ impl SignedMessage {
         message: T,
         signer: &S,
         app_public_key: PublicKey,
-    ) -> Result<Self, MessageError>
+    ) -> Result<Self, SignedMessageError>
     where
         T: Serialize,
         S: crate::signer::ApplicationSigner,
     {
         let message_bytes =
-            serde_json::to_vec(&message).map_err(|e| MessageError::JsonCodec(e.into()))?;
+            serde_json::to_vec(&message).map_err(|e| SignedMessageError::JsonCodec(e.into()))?;
         let signature = signer
             .sign(&message_bytes, app_public_key)
-            .map_err(MessageError::SignedMessageCreation)?;
+            .map_err(SignedMessageError::SignedMessageCreation)?;
 
         Ok(Self {
             message: message_bytes,
@@ -103,18 +103,19 @@ impl SignedMessage {
     }
 
     /// Deserializes the inner message.
-    pub(crate) fn deserialize_message<T>(&self) -> Result<T, MessageError>
+    pub(crate) fn deserialize_message<T>(&self) -> Result<T, SignedMessageError>
     where
         T: for<'de> serde::Deserialize<'de>,
     {
         serde_json::from_slice(&self.message)
-            .map_err(|e| MessageError::DeserializationFailed(e.into()))
+            .map_err(|e| SignedMessageError::DeserializationFailed(e.into()))
     }
 
     /// Deserializes a signed message from JSON bytes.
     #[cfg(any(feature = "gossipsub", feature = "request-response"))]
-    pub(crate) fn from_json_bytes(data: &[u8]) -> Result<Self, MessageError> {
-        serde_json::from_slice(data).map_err(|e| MessageError::DeserializationFailed(e.into()))
+    pub(crate) fn from_json_bytes(data: &[u8]) -> Result<Self, SignedMessageError> {
+        serde_json::from_slice(data)
+            .map_err(|e| SignedMessageError::DeserializationFailed(e.into()))
     }
 }
 
@@ -125,7 +126,7 @@ impl SignedMessage {
         local_transport_id: PeerId,
         remote_transport_id: PeerId,
         signer: &S,
-    ) -> Result<Self, MessageError> {
+    ) -> Result<Self, SignedMessageError> {
         let setup_message = SetupMessage::new(
             app_public_key.clone(),
             local_transport_id,
@@ -141,7 +142,7 @@ impl SignedMessage {
         app_public_key: PublicKey,
         message: Vec<u8>,
         signer: &S,
-    ) -> Result<Self, MessageError> {
+    ) -> Result<Self, SignedMessageError> {
         let gossip_message = GossipMessage::new(app_public_key.clone(), message);
 
         SignedMessage::new(gossip_message, signer, app_public_key)
@@ -153,7 +154,7 @@ impl SignedMessage {
         app_public_key: PublicKey,
         message: Vec<u8>,
         signer: &S,
-    ) -> Result<Self, MessageError> {
+    ) -> Result<Self, SignedMessageError> {
         let request_message = RequestMessage::new(app_public_key.clone(), message);
 
         SignedMessage::new(request_message, signer, app_public_key)
@@ -165,7 +166,7 @@ impl SignedMessage {
         app_public_key: PublicKey,
         message: Vec<u8>,
         signer: &S,
-    ) -> Result<Self, MessageError> {
+    ) -> Result<Self, SignedMessageError> {
         let response_message = ResponseMessage::new(app_public_key.clone(), message);
 
         SignedMessage::new(response_message, signer, app_public_key)

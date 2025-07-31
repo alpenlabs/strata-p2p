@@ -9,26 +9,34 @@ pub const DEFAULT_BAN_PERIOD: Duration = Duration::from_secs(60 * 60 * 24 * 30);
 
 #[derive(Debug)]
 pub enum Message {
-    Setup(Vec<u8>),
     Gossipsub(Vec<u8>),
     Request(Vec<u8>),
     Response(Vec<u8>),
 }
 
+/// Penalty types for peer misbehavior.
 #[derive(Debug)]
 pub enum PenaltyType {
+    /// No action taken.
     Ignore,
-    MuteGossip(Duration),  // Mute this peer for some time in Gossipsub
-    MuteReqresp(Duration), // Mute this peer for some time in RequestResponse
-    MuteBoth(Duration),    // Mute this peer for both protocols
-    Ban(Option<Duration>), // Ban, optional duration (None = forever)
+    /// Mute gossipsub messages for duration.
+    MuteGossip(Duration),
+    /// Mute request/response messages for duration.
+    MuteReqresp(Duration),
+    /// Mute both protocols for duration.
+    MuteBoth(Duration),
+    /// Ban peer (None = permanent, Some = temporary).
+    Ban(Option<Duration>),
 }
 
 #[derive(Debug)]
 pub struct PenaltyInfo {
-    mute_gossip_until: Option<SystemTime>, // None if not muted for Gossipsub
-    mute_req_resp_until: Option<SystemTime>, // None if not muted for RequestResponse
-    ban_until: Option<SystemTime>,         // None if not banned
+    /// Timestamp until which the peer is muted for gossipsub.
+    mute_gossip_until: Option<SystemTime>,
+    /// Timestamp until which the peer is muted for request/response.
+    mute_req_resp_until: Option<SystemTime>,
+    /// Timestamp until which the peer is banned.
+    ban_until: Option<SystemTime>,
 }
 
 impl PenaltyInfo {

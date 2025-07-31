@@ -10,6 +10,8 @@ use std::{
 
 use behavior::{Behaviour, BehaviourEvent};
 use errors::{P2PResult, ProtocolError};
+#[cfg(not(all(feature = "gossipsub", feature = "request-response")))]
+use futures::future::pending;
 use futures::StreamExt as _;
 use handle::CommandHandle;
 use libp2p::{
@@ -54,7 +56,7 @@ use {
 
 use crate::{
     commands::{Command, QueryP2PStateCommand},
-    score_manager::{ScoreManager, DEFAULT_DECAY_FACTOR},
+    score_manager::ScoreManager,
     signer::ApplicationSigner,
     swarm::{dial_manager::DialManager, setup::events::SetupBehaviourEvent},
     validator::{DefaultP2PValidator, PenaltyPeerStorage, Validator},
@@ -144,12 +146,6 @@ pub struct P2PConfig {
     #[cfg(feature = "request-response")]
     pub channel_timeout: Option<Duration>,
 
-    /// Fields for [`ScoreManager`]s.
-    ///
-    /// This parameter is used to decay the score.
-    /// Default value is [`DEFAULT_DECAY_FACTOR`].
-    pub decay_factor: Option<f64>,
-
     /// Gossipsub peer scoring parameters.
     ///
     /// If `None`, the default parameters will be used.
@@ -228,6 +224,10 @@ where
     dial_manager: DialManager,
 
     /// Score manager.
+    #[cfg_attr(
+        not(any(feature = "gossipsub", feature = "request-response")),
+        allow(dead_code)
+    )]
     score_manager: ScoreManager,
 
     /// Storage with penalty for peer's penalty
@@ -264,7 +264,7 @@ where
 
         // Core components setup
         let (cmds_tx, cmds_rx) = mpsc::channel(64);
-        let score_manager = ScoreManager::new(cfg.decay_factor.unwrap_or(DEFAULT_DECAY_FACTOR));
+        let score_manager = ScoreManager::new();
         let peer_penalty_storage = PenaltyPeerStorage::new();
 
         // Request-response setup
@@ -336,7 +336,7 @@ where
         // Core components setup
         let (cmds_tx, cmds_rx, score_manager, peer_penalty_storage) = {
             let (cmds_tx, cmds_rx) = mpsc::channel(64);
-            let score_manager = ScoreManager::new(cfg.decay_factor.unwrap_or(DEFAULT_DECAY_FACTOR));
+            let score_manager = ScoreManager::new();
             let peer_penalty_storage = PenaltyPeerStorage::new();
             (cmds_tx, cmds_rx, score_manager, peer_penalty_storage)
         };
@@ -571,123 +571,63 @@ where
     ///
     /// This method should be spawned in separate async task or polled periodically
     /// to advance handling of new messages, event or commands.
-    #[cfg(all(feature = "gossipsub", feature = "request-response"))]
+    #[cfg_attr(
+        not(all(feature = "gossipsub", feature = "request-response")),
+        allow(unused_variables)
+    )]
     pub async fn listen(mut self) {
-        let mut heartbeat = tokio::time::interval(Duration::from_secs(30));
         loop {
-            let result = tokio::select! {
-                _ = heartbeat.tick() => {
-                    self.score_manager.apply_decay();
-                    info!("Score decay is applied");
-                    Ok(())
-                }
-                _ = self.cancellation_token.cancelled() => {
-                    debug!("Received cancellation, stopping listening");
-                    return;
-                }
-                event = self.swarm.select_next_some() => {
-                    self.handle_swarm_event(event).await
-                }
-                Some(cmd) = self.commands.recv() => {
-                    self.handle_command(cmd).await
-                }
-                Some(gossip_cmd) = self.gossip_commands.recv() => {
-                    self.handle_gossip_command(gossip_cmd).await
-                }
-                Some(req_cmd) = self.request_response_commands.recv() => {
-                    self.handle_request_response_command(req_cmd).await
-                }
-            };
-            if let Err(err) = result {
-                error!(%err, "Stopping... encountered error...");
-                return;
-            }
-        }
-    }
+            let cancel_fut = self.cancellation_token.cancelled();
+            let swarm_fut = self.swarm.select_next_some();
+            let cmd_fut = self.commands.recv();
 
-    #[cfg(all(feature = "gossipsub", not(feature = "request-response")))]
-    pub async fn listen(mut self) {
-        let mut heartbeat = tokio::time::interval(Duration::from_secs(30));
-        loop {
-            let result = tokio::select! {
-                _ = heartbeat.tick() => {
-                    self.score_manager.apply_decay();
-                    info!("Score decay is applied");
-                    Ok(())
-                }
-                _ = self.cancellation_token.cancelled() => {
-                    debug!("Received cancellation, stopping listening");
-                    return;
-                }
-                event = self.swarm.select_next_some() => {
-                    self.handle_swarm_event(event).await
-                }
-                Some(cmd) = self.commands.recv() => {
-                    self.handle_command(cmd).await
-                }
-                Some(gossip_cmd) = self.gossip_commands.recv() => {
-                    self.handle_gossip_command(gossip_cmd).await
-                }
-            };
-            if let Err(err) = result {
-                error!(%err, "Stopping... encountered error...");
-                return;
-            }
-        }
-    }
+            #[cfg(feature = "gossipsub")]
+            let gossip_fut = self.gossip_commands.recv();
+            #[cfg(not(feature = "gossipsub"))]
+            let gossip_fut = pending::<Option<()>>();
 
-    #[cfg(all(not(feature = "gossipsub"), feature = "request-response"))]
-    pub async fn listen(mut self) {
-        let mut heartbeat = tokio::time::interval(Duration::from_secs(30));
-        loop {
-            let result = tokio::select! {
-                _ = heartbeat.tick() => {
-                    self.score_manager.apply_decay();
-                    info!("Score decay is applied");
-                    Ok(())
-                }
-                _ = self.cancellation_token.cancelled() => {
-                    debug!("Received cancellation, stopping listening");
-                    return;
-                }
-                event = self.swarm.select_next_some() => {
-                    self.handle_swarm_event(event).await
-                }
-                Some(cmd) = self.commands.recv() => {
-                    self.handle_command(cmd).await
-                }
-                Some(req_cmd) = self.request_response_commands.recv() => {
-                    self.handle_request_response_command(req_cmd).await
-                }
-            };
-            if let Err(err) = result {
-                error!(%err, "Stopping... encountered error...");
-                return;
-            }
-        }
-    }
+            #[cfg(feature = "request-response")]
+            let reqresp_fut = self.request_response_commands.recv();
+            #[cfg(not(feature = "request-response"))]
+            let reqresp_fut = pending::<Option<()>>();
 
-    #[cfg(all(not(feature = "gossipsub"), not(feature = "request-response")))]
-    pub async fn listen(mut self) {
-        let mut heartbeat = tokio::time::interval(Duration::from_secs(30));
-        loop {
             let result = tokio::select! {
-                _ = heartbeat.tick() => {
-                    self.score_manager.apply_decay();
-                    info!("Score decay is applied");
-                    Ok(())
-                }
-                _ = self.cancellation_token.cancelled() => {
+                _ = cancel_fut => {
                     debug!("Received cancellation, stopping listening");
                     return;
                 }
-                event = self.swarm.select_next_some() => {
+                event = swarm_fut => {
                     self.handle_swarm_event(event).await
                 }
-                Some(cmd) = self.commands.recv() => {
+                Some(cmd) = cmd_fut => {
                     self.handle_command(cmd).await
                 }
+                Some(gossip_cmd) = gossip_fut => {
+                    #[cfg(feature = "gossipsub")]
+                    {
+                        self.handle_gossip_command(gossip_cmd).await
+                    }
+                    #[cfg(not(feature = "gossipsub"))]
+                    {
+                        unreachable!("gossip_fut never resolves when feature is disabled");
+                        #[allow(unreachable_code)]
+                        Ok(())
+                    }
+                }
+                Some(req_cmd) = reqresp_fut => {
+                    #[cfg(feature = "request-response")]
+                    {
+                        self.handle_request_response_command(req_cmd).await
+                    }
+                    #[cfg(not(feature = "request-response"))]
+                    {
+                        unreachable!("reqresp_fut never resolves when feature is disabled");
+                        #[allow(unreachable_code)]
+                        Ok(())
+                    }
+                }
             };
+
             if let Err(err) = result {
                 error!(%err, "Stopping... encountered error...");
                 return;

@@ -66,9 +66,9 @@ pub enum SetupUpgradeError {
     UnexpectedStreamClose,
 }
 
-/// Generic errors that can occur during message operations.
+/// Generic errors that can occur during signed message operations.
 #[derive(Debug, Error)]
-pub enum MessageError {
+pub enum SignedMessageError {
     /// Failed to deserialize a message.
     #[error("Deserialization failed: {0}")]
     DeserializationFailed(Box<dyn error::Error + Send + Sync>),
