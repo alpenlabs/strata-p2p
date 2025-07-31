@@ -1,36 +1,38 @@
 //! Entity to control P2P implementation, spawned in another async task,
 //! and listen to its events and send commands through channels.
 
+#[cfg(feature = "gossipsub")]
+use std::fmt::{self, Display};
+use std::time::Duration;
+#[cfg(any(feature = "gossipsub", feature = "request-response"))]
 use std::{
-    fmt::{self, Display},
     pin::Pin,
     task::{Context, Poll},
-    time::Duration,
 };
 
+#[cfg(any(feature = "gossipsub", feature = "request-response"))]
 use futures::{FutureExt, Sink, Stream};
-use libp2p::{identity::PublicKey, PeerId};
+use libp2p::identity::PublicKey;
+#[cfg(feature = "gossipsub")]
 use thiserror::Error;
+#[cfg(feature = "gossipsub")]
+use tokio::sync::broadcast::{self, error::RecvError};
+#[cfg(any(feature = "gossipsub", feature = "request-response"))]
+use tokio::sync::mpsc::error::SendError;
 use tokio::{
-    sync::{
-        broadcast::{self, error::RecvError},
-        mpsc::{self, error::SendError},
-        oneshot,
-    },
+    sync::{mpsc, oneshot},
     time::timeout,
 };
+#[cfg(feature = "gossipsub")]
 use tracing::warn;
 
 #[cfg(feature = "request-response")]
 use crate::commands::RequestResponseCommand;
+use crate::commands::{Command, QueryP2PStateCommand};
 #[cfg(feature = "request-response")]
 use crate::events::ReqRespEvent;
 #[cfg(feature = "gossipsub")]
 use crate::{commands::GossipCommand, events::GossipEvent};
-use crate::{
-    commands::{Command, QueryP2PStateCommand},
-    swarm::PublicKey,
-};
 
 /// The receiver lagged too far behind. Attempting to receive again will
 /// return the oldest message still retained by the channel.

@@ -5,7 +5,6 @@ use std::time::Duration;
 use libp2p::{
     build_multiaddr,
     identity::{Keypair, PublicKey},
-    PeerId,
 };
 use tokio::{sync::oneshot::channel, time::sleep};
 use tokio_util::{sync::CancellationToken, task::TaskTracker};

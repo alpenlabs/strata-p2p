@@ -5,27 +5,42 @@
     reason = "avoid 'missing documentation for a variant' error from deriving `NetworkBehaviour`"
 )]
 
-use std::{collections::HashSet, time::Duration};
+#[cfg(feature = "gossipsub")]
+use std::collections::HashSet;
 
+#[cfg(feature = "request-response")]
+use libp2p::request_response::{
+    Behaviour as RequestResponse, Config as RequestResponseConfig, ProtocolSupport,
+};
+#[cfg(feature = "request-response")]
+use libp2p::StreamProtocol;
+#[cfg(feature = "gossipsub")]
 use libp2p::{
     gossipsub::{
         self, Behaviour as Gossipsub, IdentityTransform, MessageAuthenticity, PeerScoreParams,
         PeerScoreThresholds, TopicScoreParams, WhitelistSubscriptionFilter,
     },
+    PeerId,
+};
+use libp2p::{
     identify::{Behaviour as Identify, Config},
-    identity::Keypair,
-    request_response::{
-        Behaviour as RequestResponse, Config as RequestResponseConfig, ProtocolSupport,
-    },
     swarm::NetworkBehaviour,
-    PeerId, StreamProtocol,
 };
 
-use super::{codec_raw, MAX_TRANSMIT_SIZE, TOPIC};
-use crate::{signer::ApplicationSigner, swarm::setup::behavior::SetupBehaviour};
+#[cfg(feature = "request-response")]
+use super::codec_raw;
+#[cfg(feature = "gossipsub")]
+use super::MAX_TRANSMIT_SIZE;
+#[cfg(feature = "gossipsub")]
+use super::TOPIC;
+use crate::{
+    signer::ApplicationSigner,
+    swarm::{setup::behavior::SetupBehaviour, Keypair, PublicKey},
+};
 
 /// Alias for request-response behaviour with messages serialized by using
 /// homebrewed codec implementation.
+#[cfg(feature = "request-response")]
 pub(crate) type RequestResponseRawBehaviour = RequestResponse<codec_raw::Codec>;
 
 /// Composite behaviour which consists of other ones used by swarm in P2P
@@ -48,6 +63,7 @@ pub struct Behaviour<S: ApplicationSigner> {
     pub gossipsub: Gossipsub<IdentityTransform, WhitelistSubscriptionFilter>,
 }
 
+#[cfg(feature = "gossipsub")]
 fn create_gossipsub(
     keypair: &Keypair,
     gossipsub_score_params: &Option<PeerScoreParams>,
@@ -96,13 +112,10 @@ impl<S: ApplicationSigner> Behaviour<S> {
         protocol_name: &'static str,
         transport_keypair: &Keypair,
         app_public_key: &PublicKey,
-        gossipsub_score_params: &Option<PeerScoreParams>,
-        gossipsub_score_thresholds: &Option<PeerScoreThresholds>,
+        #[cfg(feature = "gossipsub")] gossipsub_score_params: &Option<PeerScoreParams>,
+        #[cfg(feature = "gossipsub")] gossipsub_score_thresholds: &Option<PeerScoreThresholds>,
         signer: S,
     ) -> Self {
-        let mut filter = HashSet::new();
-        filter.insert(TOPIC.hash());
-
         #[cfg(feature = "gossipsub")]
         let gossipsub = create_gossipsub(
             transport_keypair,

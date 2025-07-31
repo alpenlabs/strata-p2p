@@ -33,7 +33,6 @@ libp2p = { workspace = true, features = [
 ] }
 serde.workspace = true
 serde_json.workspace = true
-futures.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["macros", "time"] }
 tokio-util.workspace = true

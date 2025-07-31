@@ -4,7 +4,7 @@ use std::{collections::VecDeque, sync::Arc};
 
 use crossbeam_deque::Injector;
 use dashmap::DashMap;
-use libp2p::{Multiaddr, identity::PublicKey, swarm::ConnectionId};
+use libp2p::{identity::PublicKey, swarm::ConnectionId, Multiaddr};
 
 /// This implementation uses lock-free concurrent data structures to eliminate deadlock risks:
 ///

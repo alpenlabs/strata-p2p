@@ -19,11 +19,7 @@ use crate::swarm::handle::GossipHandle;
 use crate::swarm::handle::ReqRespHandle;
 use crate::{
     signer::ApplicationSigner,
-    swarm::{
-        self,
-        handle::{CommandHandle, GossipHandle},
-        P2PConfig, P2P,
-    },
+    swarm::{self, handle::CommandHandle, P2PConfig, P2P},
 };
 
 /// Only attempt to start tracing once
@@ -105,7 +101,9 @@ impl<S: ApplicationSigner> User<S> {
             #[cfg(feature = "request-response")]
             channel_timeout: None,
             decay_factor: None,
+            #[cfg(feature = "gossipsub")]
             gossipsub_score_params: None,
+            #[cfg(feature = "gossipsub")]
             gossipsub_score_thresholds: None,
         };
 
@@ -123,10 +121,25 @@ impl<S: ApplicationSigner> User<S> {
         };
 
         #[cfg(feature = "request-response")]
-        let (p2p, reqresp) =
-            P2P::from_config(config, cancel, swarm, allowlist, None, signer.clone())?;
+        let (p2p, reqresp) = P2P::from_config(
+            config,
+            cancel,
+            swarm,
+            allowlist,
+            #[cfg(feature = "gossipsub")]
+            None,
+            signer.clone(),
+        )?;
         #[cfg(not(feature = "request-response"))]
-        let p2p = P2P::<S, V>::from_config(config, cancel, swarm, allowlist, None, signer)?;
+        let p2p = P2P::<S>::from_config(
+            config,
+            cancel,
+            swarm,
+            allowlist,
+            #[cfg(feature = "gossipsub")]
+            None,
+            signer,
+        )?;
         #[cfg(feature = "gossipsub")]
         let gossip = p2p.new_gossip_handle();
         let command = p2p.new_command_handle();
@@ -145,6 +158,7 @@ impl<S: ApplicationSigner> User<S> {
 }
 
 /// Auxiliary structure to control users from outside.
+#[cfg_attr(not(feature = "gossipsub"), allow(dead_code))]
 pub(crate) struct UserHandle {
     pub(crate) peer_id: PeerId,
     #[cfg(feature = "gossipsub")]
@@ -203,6 +217,65 @@ impl Setup {
                 transport_keypair.clone(),
                 other_addrs,
                 other_app_pk,
+                vec![addr.clone()],
+                cancel.child_token(),
+                MockApplicationSigner {
+                    app_keypair: app_keypair.clone(),
+                },
+            )?;
+
+            users.push(user);
+        }
+
+        let (users, tasks) = Self::start_users(users).await;
+
+        Ok(Self {
+            cancel,
+            tasks,
+            user_handles: users,
+        })
+    }
+
+    /// Spawn `n` users that are connected "all-to-all" with a new user's public key
+    /// pre-included in their allowlist.
+    #[cfg(feature = "gossipsub")]
+    pub(crate) async fn all_to_all_with_new_user_allowlist(
+        n: usize,
+        new_user_app_keypair: &Keypair,
+    ) -> anyhow::Result<Self> {
+        let SetupInitialData {
+            app_keypairs,
+            transport_keypairs,
+            peer_ids,
+            multiaddresses,
+        } = Self::setup_keys_ids_addrs_of_n_users(n);
+
+        let cancel = CancellationToken::new();
+        let mut users = Vec::new();
+
+        for (idx, ((app_keypair, transport_keypair), addr)) in app_keypairs
+            .iter()
+            .zip(&transport_keypairs)
+            .zip(&multiaddresses)
+            .enumerate()
+        {
+            let mut other_addrs = multiaddresses.clone();
+            other_addrs.remove(idx);
+            let mut other_peerids = peer_ids.clone();
+            other_peerids.remove(idx);
+
+            let mut allowlist = app_keypairs
+                .iter()
+                .map(|kp| kp.public())
+                .collect::<Vec<_>>();
+            allowlist.remove(idx);
+            allowlist.push(new_user_app_keypair.public());
+
+            let user = User::new(
+                app_keypair.clone(),
+                transport_keypair.clone(),
+                other_addrs,
+                allowlist,
                 vec![addr.clone()],
                 cancel.child_token(),
                 MockApplicationSigner {

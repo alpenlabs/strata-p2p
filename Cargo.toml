@@ -22,9 +22,8 @@ clippy.too_long_first_doc_paragraph = "warn"
 
 [workspace.dependencies]
 asynchronous-codec = { version = "0.7.0", features = ["json"] }
-crossbeam-deque = "0.8.5"
 dashmap = "6.1.0"
-futures = "0.3.31"
+crossbeam-deque = "0.8.5"
 hex = "0.4.3"
 futures = "0.3.31"
 libp2p = { version = "0.55.0", features = [

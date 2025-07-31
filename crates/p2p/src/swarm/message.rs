@@ -57,9 +57,11 @@ pub(crate) const PROTOCOL_VERSION: u8 = 2;
 pub(crate) const SETUP_PROTOCOL_ID: u8 = 1;
 
 /// Protocol identifier for gossipsub messages.
+#[cfg(feature = "gossipsub")]
 pub(crate) const GOSSIP_PROTOCOL_ID: u8 = 2;
 
 /// Protocol identifier for request-response messages.
+#[cfg(feature = "request-response")]
 pub(crate) const REQ_RESP_PROTOCOL_ID: u8 = 3;
 
 /// Wrapper for signed messages.
@@ -110,6 +112,7 @@ impl SignedMessage {
     }
 
     /// Deserializes a signed message from JSON bytes.
+    #[cfg(any(feature = "gossipsub", feature = "request-response"))]
     pub(crate) fn from_json_bytes(data: &[u8]) -> Result<Self, MessageError> {
         serde_json::from_slice(data).map_err(|e| MessageError::DeserializationFailed(e.into()))
     }
@@ -133,6 +136,7 @@ impl SignedMessage {
     }
 
     /// Creates a new signed gossipsub message with the given signer (convenience method).
+    #[cfg(feature = "gossipsub")]
     pub(crate) fn new_signed_gossip<S: crate::signer::ApplicationSigner>(
         app_public_key: PublicKey,
         message: Vec<u8>,
@@ -144,6 +148,7 @@ impl SignedMessage {
     }
 
     /// Creates a new signed request message with the given signer (convenience method).
+    #[cfg(feature = "request-response")]
     pub(crate) fn new_signed_request<S: crate::signer::ApplicationSigner>(
         app_public_key: PublicKey,
         message: Vec<u8>,
@@ -155,6 +160,7 @@ impl SignedMessage {
     }
 
     /// Creates a new signed response message with the given signer (convenience method).
+    #[cfg(feature = "request-response")]
     pub(crate) fn new_signed_response<S: crate::signer::ApplicationSigner>(
         app_public_key: PublicKey,
         message: Vec<u8>,
@@ -207,6 +213,7 @@ impl SetupMessage {
 
 /// Gossipsub message structure for the gossipsub protocol.
 /// Serialized/deserialized using JSON format.
+#[cfg(feature = "gossipsub")]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub(crate) struct GossipMessage {
     /// Protocol version.
@@ -222,6 +229,7 @@ pub(crate) struct GossipMessage {
     pub date: u64,
 }
 
+#[cfg(feature = "gossipsub")]
 impl GossipMessage {
     /// Creates a new gossipsub message with the given parameters.
     pub(crate) fn new(app_public_key: PublicKey, message: Vec<u8>) -> Self {
@@ -239,6 +247,7 @@ impl GossipMessage {
 
 /// Request message structure for the request-response protocol.
 /// Serialized/deserialized using JSON format.
+#[cfg(feature = "request-response")]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub(crate) struct RequestMessage {
     /// Protocol version.
@@ -254,6 +263,7 @@ pub(crate) struct RequestMessage {
     pub date: u64,
 }
 
+#[cfg(feature = "request-response")]
 impl RequestMessage {
     /// Creates a new request-response message with the given parameters.
     pub(crate) fn new(app_public_key: PublicKey, message: Vec<u8>) -> Self {
@@ -271,6 +281,7 @@ impl RequestMessage {
 
 /// Response message structure for the request-response protocol.
 /// Serialized/deserialized using JSON format.
+#[cfg(feature = "request-response")]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub(crate) struct ResponseMessage {
     /// Protocol version.
@@ -286,6 +297,7 @@ pub(crate) struct ResponseMessage {
     pub date: u64,
 }
 
+#[cfg(feature = "request-response")]
 impl ResponseMessage {
     /// Creates a new response message with the given parameters.
     pub(crate) fn new(app_public_key: PublicKey, message: Vec<u8>) -> Self {

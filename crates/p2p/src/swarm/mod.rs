@@ -1,67 +1,68 @@
 //! Swarm implementation for P2P.
 
+#[cfg(any(feature = "gossipsub", feature = "request-response"))]
+use std::time::SystemTime;
 use std::{
-    collections::HashSet,
+    collections::{HashSet, VecDeque},
     marker::PhantomData,
-    sync::LazyLock,
-    time::{Duration, Instant, SystemTime},
+    time::{Duration, Instant},
 };
 
 use behavior::{Behaviour, BehaviourEvent};
-use errors::{P2PResult, ProtocolError, SwarmError};
+use errors::{P2PResult, ProtocolError};
 use futures::StreamExt as _;
 use handle::CommandHandle;
-#[cfg(feature = "gossipsub")]
-use handle::GossipHandle;
-#[cfg(feature = "request-response")]
-use handle::ReqRespHandle;
-#[cfg(feature = "request-response")]
-use libp2p::request_response::{self, Event as RequestResponseEvent};
 use libp2p::{
     core::{muxing::StreamMuxerBox, transport::MemoryTransport, ConnectedPoint},
-    gossipsub::{
+    identity::{Keypair, PublicKey},
+    noise,
+    swarm::{dial_opts::DialOpts, NetworkBehaviour, SwarmEvent},
+    yamux, Multiaddr, PeerId, Swarm, SwarmBuilder, Transport,
+};
+use tokio::{sync::mpsc, time::timeout};
+use tokio_util::sync::CancellationToken;
+#[cfg(any(feature = "gossipsub", feature = "request-response"))]
+use tracing::instrument;
+use tracing::{debug, error, info, trace, warn};
+#[cfg(feature = "gossipsub")]
+use {
+    crate::{
+        commands::GossipCommand, events::GossipEvent, score_manager::DEFAULT_GOSSIP_APP_SCORE,
+        swarm::message::GossipMessage,
+    },
+    handle::GossipHandle,
+    libp2p::gossipsub::{
         Event as GossipsubEvent, Message, MessageAcceptance, MessageId, PeerScoreParams,
         PeerScoreThresholds, PublishError, Sha256Topic,
     },
-    identity::{Keypair, PublicKey},
-    noise,
-    swarm::{
-        dial_opts::{DialOpts, PeerCondition},
-        NetworkBehaviour, SwarmEvent,
+    std::sync::LazyLock,
+    tokio::sync::broadcast,
+};
+#[cfg(feature = "request-response")]
+use {
+    crate::{
+        commands::RequestResponseCommand,
+        events::ReqRespEvent,
+        score_manager::DEFAULT_REQ_RESP_APP_SCORE,
+        swarm::message::{RequestMessage, ResponseMessage},
     },
-    yamux, Multiaddr, PeerId, Swarm, SwarmBuilder, Transport,
+    errors::SwarmError,
+    handle::ReqRespHandle,
+    libp2p::request_response::{self, Event as RequestResponseEvent},
+    tokio::sync::oneshot,
 };
-#[cfg(feature = "request-response")]
-use tokio::sync::oneshot;
-use tokio::{
-    sync::{broadcast, mpsc},
-    time::timeout,
-};
-use tokio_util::sync::CancellationToken;
-use tracing::{debug, error, info, instrument, trace, warn};
 
-#[cfg(feature = "request-response")]
-use crate::commands::RequestResponseCommand;
-#[cfg(feature = "request-response")]
-use crate::events::ReqRespEvent;
-#[cfg(feature = "gossipsub")]
-use crate::{commands::GossipCommand, events::GossipEvent};
 use crate::{
     commands::{Command, QueryP2PStateCommand},
-    events::GossipEvent,
-    score_manager::{
-        ScoreManager, DEFAULT_DECAY_FACTOR, DEFAULT_GOSSIP_APP_SCORE, DEFAULT_REQ_RESP_APP_SCORE,
-    },
+    score_manager::{ScoreManager, DEFAULT_DECAY_FACTOR},
     signer::ApplicationSigner,
-    swarm::{
-        dial_manager::DialManager,
-        message::{GossipMessage, RequestMessage, ResponseMessage, SignedMessage},
-        setup::events::SetupBehaviourEvent,
-    },
-    validator::{
-        DefaultP2PValidator, Message as MessageType, PenaltyPeerStorage, PenaltyType, Validator,
-        DEFAULT_BAN_PERIOD,
-    },
+    swarm::{dial_manager::DialManager, setup::events::SetupBehaviourEvent},
+    validator::{DefaultP2PValidator, PenaltyPeerStorage, Validator},
+};
+#[cfg(any(feature = "gossipsub", feature = "request-response"))]
+use crate::{
+    swarm::message::SignedMessage,
+    validator::{Message as MessageType, PenaltyType, DEFAULT_BAN_PERIOD},
 };
 
 pub mod behavior;
@@ -75,9 +76,11 @@ pub mod setup;
 use libp2p::tcp;
 
 /// Global topic name for gossipsub messages.
+#[cfg(feature = "gossipsub")]
 static TOPIC: LazyLock<Sha256Topic> = LazyLock::new(|| Sha256Topic::new("bitvm2"));
 
 /// Global MAX_TRANSMIT_SIZE for gossipsub messages.
+#[cfg(feature = "gossipsub")]
 const MAX_TRANSMIT_SIZE: usize = 512 * 1024;
 
 /// Global name of the protocol
@@ -152,6 +155,7 @@ pub struct P2PConfig {
     /// If `None`, the default parameters will be used.
     /// Use this to fine-tune how peers are scored for message delivery, invalid messages, etc.
     /// See [`PeerScoreParams`] for all available options.
+    #[cfg(feature = "gossipsub")]
     pub gossipsub_score_params: Option<PeerScoreParams>,
 
     /// Gossipsub peer score thresholds.
@@ -159,6 +163,7 @@ pub struct P2PConfig {
     /// If `None`, the default thresholds will be used.
     /// These thresholds determine when peers are muted, graylisted, or banned based on their
     /// score. See [`PeerScoreThresholds`] for details.
+    #[cfg(feature = "gossipsub")]
     pub gossipsub_score_thresholds: Option<PeerScoreThresholds>,
 }
 
@@ -213,6 +218,10 @@ where
     allowlist: HashSet<PublicKey>,
 
     /// Application signer for signing setup messages.
+    #[cfg_attr(
+        not(any(feature = "gossipsub", feature = "request-response")),
+        allow(dead_code)
+    )]
     signer: S,
 
     /// Manages dial sequences and address queues for multiaddress connections.
@@ -244,43 +253,40 @@ where
         cancel: CancellationToken,
         mut swarm: Swarm<Behaviour<S>>,
         allowlist: Vec<PublicKey>,
-        channel_size: Option<usize>,
+        #[cfg(feature = "gossipsub")] channel_size: Option<usize>,
         signer: S,
     ) -> P2PResult<P2PWithReqRespHandle<S, V>> {
-        swarm
-            .listen_on(cfg.listening_addr.clone())
-            .map_err(ProtocolError::Listen)?;
+        for addr in &cfg.listening_addrs {
+            swarm
+                .listen_on(addr.clone())
+                .map_err(ProtocolError::Listen)?;
+        }
 
-        let channel_size = channel_size.unwrap_or(256);
-        #[cfg(feature = "gossipsub")]
-        let (gossip_events_tx, _gossip_events_rx) = broadcast::channel(channel_size);
-        #[cfg(feature = "request-response")]
-        let (req_resp_event_tx, req_resp_event_rx) = mpsc::channel(64);
+        // Core components setup
         let (cmds_tx, cmds_rx) = mpsc::channel(64);
         let score_manager = ScoreManager::new(cfg.decay_factor.unwrap_or(DEFAULT_DECAY_FACTOR));
         let peer_penalty_storage = PenaltyPeerStorage::new();
 
         // Request-response setup
-        let (req_resp_event_tx, req_resp_event_rx) = mpsc::channel(64);
+        let (req_resp_event_tx, req_resp_event_rx) = mpsc::channel::<ReqRespEvent>(64);
         let (req_resp_cmds_tx, req_resp_cmds_rx) = mpsc::channel(64);
 
         // Conditionally setup gossipsub channels
         #[cfg(feature = "gossipsub")]
-        let (gossip_events_tx, _gossip_events_rx) = broadcast::channel(channel_size);
-        #[cfg(feature = "gossipsub")]
-        let (gossip_cmds_tx, gossip_cmds_rx) = mpsc::channel(64);
+        let (gossip_events_tx, gossip_cmds_tx, gossip_cmds_rx) = {
+            let channel_size = channel_size.unwrap_or(256);
+            let (gossip_events_tx, _gossip_events_rx) = broadcast::channel(channel_size);
+            let (gossip_cmds_tx, gossip_cmds_rx) = mpsc::channel(64);
+            (gossip_events_tx, gossip_cmds_tx, gossip_cmds_rx)
+        };
 
         Ok((
             P2P::<S, V> {
                 swarm,
                 #[cfg(feature = "gossipsub")]
                 gossip_events: gossip_events_tx,
-                #[cfg(feature = "request-response")]
                 req_resp_events: req_resp_event_tx,
                 request_response_commands: req_resp_cmds_rx,
-                // Conditional gossipsub fields
-                #[cfg(feature = "gossipsub")]
-                gossip_events: gossip_events_tx,
                 #[cfg(feature = "gossipsub")]
                 gossip_commands: gossip_cmds_rx,
                 #[cfg(feature = "gossipsub")]
@@ -309,37 +315,42 @@ where
         cancel: CancellationToken,
         mut swarm: Swarm<Behaviour<S>>,
         allowlist: Vec<PublicKey>,
-        channel_size: Option<usize>,
+        #[cfg(feature = "gossipsub")] channel_size: Option<usize>,
         signer: S,
-    ) -> P2PResult<P2P> {
+    ) -> P2PResult<P2P<S, V>> {
         for addr in &cfg.listening_addrs {
             swarm
                 .listen_on(addr.clone())
                 .map_err(ProtocolError::Listen)?;
         }
 
-        let channel_size = channel_size.unwrap_or(256);
+        // Gossipsub setup
         #[cfg(feature = "gossipsub")]
-        let (gossip_events_tx, _gossip_events_rx) = broadcast::channel(channel_size);
-        let (cmds_tx, cmds_rx) = mpsc::channel(64);
-        let score_manager = ScoreManager::new(cfg.decay_factor.unwrap_or(DEFAULT_DECAY_FACTOR));
-        let peer_penalty_storage = PenaltyPeerStorage::new();
+        let (gossip_events_tx, gossip_cmds_tx, gossip_cmds_rx) = {
+            let channel_size = channel_size.unwrap_or(256);
+            let (gossip_events_tx, _gossip_events_rx) = broadcast::channel(channel_size);
+            let (gossip_cmds_tx, gossip_cmds_rx) = mpsc::channel(64);
+            (gossip_events_tx, gossip_cmds_tx, gossip_cmds_rx)
+        };
+
+        // Core components setup
+        let (cmds_tx, cmds_rx, score_manager, peer_penalty_storage) = {
+            let (cmds_tx, cmds_rx) = mpsc::channel(64);
+            let score_manager = ScoreManager::new(cfg.decay_factor.unwrap_or(DEFAULT_DECAY_FACTOR));
+            let peer_penalty_storage = PenaltyPeerStorage::new();
+            (cmds_tx, cmds_rx, score_manager, peer_penalty_storage)
+        };
 
         Ok(P2P::<S, V> {
             swarm,
-            #[cfg(feature = "gossipsub")]
-            gossip_events: gossip_events_tx,
-            commands: cmds_rx,
-            commands_sender: cmds_tx.clone(),
-
-            // Conditional gossipsub fields
             #[cfg(feature = "gossipsub")]
             gossip_events: gossip_events_tx,
             #[cfg(feature = "gossipsub")]
             gossip_commands: gossip_cmds_rx,
             #[cfg(feature = "gossipsub")]
             gossip_commands_sender: gossip_cmds_tx.clone(),
-
+            commands: cmds_rx,
+            commands_sender: cmds_tx.clone(),
             cancellation_token: cancel,
             config: cfg,
             allowlist: HashSet::from_iter(allowlist),
@@ -452,7 +463,10 @@ where
             debug!(topic=%TOPIC.to_string(), %num_retries, %max_retry_count, "finished trying to subscribe to topic");
         }
 
+        #[cfg(feature = "gossipsub")]
         let mut subscriptions = 0;
+        #[cfg(not(feature = "gossipsub"))]
+        let subscriptions = 0;
         let start_time = Instant::now();
         let mut next_check = Instant::now();
 
@@ -557,26 +571,11 @@ where
     ///
     /// This method should be spawned in separate async task or polled periodically
     /// to advance handling of new messages, event or commands.
+    #[cfg(all(feature = "gossipsub", feature = "request-response"))]
     pub async fn listen(mut self) {
         let mut heartbeat = tokio::time::interval(Duration::from_secs(30));
         loop {
-            // Prepare futures for each branch; disabled features use a pending future
-            let cancel_fut = self.cancellation_token.cancelled();
-            let swarm_fut = self.swarm.select_next_some();
-            let cmd_fut = self.commands.recv();
-
-            #[cfg(feature = "gossipsub")]
-            let gossip_fut = self.gossip_commands.recv();
-            #[cfg(not(feature = "gossipsub"))]
-            let gossip_fut = pending::<Option<GossipCommand>>();
-
-            #[cfg(feature = "request-response")]
-            let reqresp_fut = self.request_response_commands.recv();
-            #[cfg(not(feature = "request-response"))]
-            let reqresp_fut = pending::<Option<RequestResponseCommand>>();
-
-            // Select over all branches; disabled futures never complete
-            let result = select! {
+            let result = tokio::select! {
                 _ = heartbeat.tick() => {
                     self.score_manager.apply_decay();
                     info!("Score decay is applied");
@@ -586,20 +585,109 @@ where
                     debug!("Received cancellation, stopping listening");
                     return;
                 }
-                event = swarm_fut => {
+                event = self.swarm.select_next_some() => {
                     self.handle_swarm_event(event).await
                 }
-                Some(cmd) = cmd_fut => {
+                Some(cmd) = self.commands.recv() => {
                     self.handle_command(cmd).await
                 }
-                Some(gossip_cmd) = gossip_fut => {
+                Some(gossip_cmd) = self.gossip_commands.recv() => {
                     self.handle_gossip_command(gossip_cmd).await
                 }
-                Some(req_cmd) = reqresp_fut => {
+                Some(req_cmd) = self.request_response_commands.recv() => {
                     self.handle_request_response_command(req_cmd).await
                 }
             };
+            if let Err(err) = result {
+                error!(%err, "Stopping... encountered error...");
+                return;
+            }
+        }
+    }
 
+    #[cfg(all(feature = "gossipsub", not(feature = "request-response")))]
+    pub async fn listen(mut self) {
+        let mut heartbeat = tokio::time::interval(Duration::from_secs(30));
+        loop {
+            let result = tokio::select! {
+                _ = heartbeat.tick() => {
+                    self.score_manager.apply_decay();
+                    info!("Score decay is applied");
+                    Ok(())
+                }
+                _ = self.cancellation_token.cancelled() => {
+                    debug!("Received cancellation, stopping listening");
+                    return;
+                }
+                event = self.swarm.select_next_some() => {
+                    self.handle_swarm_event(event).await
+                }
+                Some(cmd) = self.commands.recv() => {
+                    self.handle_command(cmd).await
+                }
+                Some(gossip_cmd) = self.gossip_commands.recv() => {
+                    self.handle_gossip_command(gossip_cmd).await
+                }
+            };
+            if let Err(err) = result {
+                error!(%err, "Stopping... encountered error...");
+                return;
+            }
+        }
+    }
+
+    #[cfg(all(not(feature = "gossipsub"), feature = "request-response"))]
+    pub async fn listen(mut self) {
+        let mut heartbeat = tokio::time::interval(Duration::from_secs(30));
+        loop {
+            let result = tokio::select! {
+                _ = heartbeat.tick() => {
+                    self.score_manager.apply_decay();
+                    info!("Score decay is applied");
+                    Ok(())
+                }
+                _ = self.cancellation_token.cancelled() => {
+                    debug!("Received cancellation, stopping listening");
+                    return;
+                }
+                event = self.swarm.select_next_some() => {
+                    self.handle_swarm_event(event).await
+                }
+                Some(cmd) = self.commands.recv() => {
+                    self.handle_command(cmd).await
+                }
+                Some(req_cmd) = self.request_response_commands.recv() => {
+                    self.handle_request_response_command(req_cmd).await
+                }
+            };
+            if let Err(err) = result {
+                error!(%err, "Stopping... encountered error...");
+                return;
+            }
+        }
+    }
+
+    #[cfg(all(not(feature = "gossipsub"), not(feature = "request-response")))]
+    pub async fn listen(mut self) {
+        let mut heartbeat = tokio::time::interval(Duration::from_secs(30));
+        loop {
+            let result = tokio::select! {
+                _ = heartbeat.tick() => {
+                    self.score_manager.apply_decay();
+                    info!("Score decay is applied");
+                    Ok(())
+                }
+                _ = self.cancellation_token.cancelled() => {
+                    debug!("Received cancellation, stopping listening");
+                    return;
+                }
+                event = self.swarm.select_next_some() => {
+                    self.handle_swarm_event(event).await
+                }
+                Some(cmd) = self.commands.recv() => {
+                    self.handle_command(cmd).await
+                }
+            };
             if let Err(err) = result {
                 error!(%err, "Stopping... encountered error...");
                 return;
@@ -608,6 +696,7 @@ where
     }
 
     // Apply penalties for peer
+    #[cfg(any(feature = "gossipsub", feature = "request-response"))]
     async fn apply_penalty(&mut self, peer_id: &PeerId, penalty: PenaltyType) {
         match penalty {
             PenaltyType::Ignore => (),
@@ -652,25 +741,43 @@ where
         }
     }
 
+    #[cfg(any(feature = "gossipsub", feature = "request-response"))]
     fn get_all_scores(&self, peer_id: &PeerId) -> (f64, f64, f64) {
-        #[cfg(feature = "gossipsub")]
-        let gossip_internal_score = self
-            .swarm
-            .behaviour()
-            .gossipsub
-            .peer_score(peer_id)
-            .unwrap_or(0.0);
-        #[cfg(not(feature = "gossipsub"))]
-        let gossip_internal_score = 0.0;
+        let (gossip_internal_score, gossip_app_score) = {
+            #[cfg(feature = "gossipsub")]
+            {
+                let internal = self
+                    .swarm
+                    .behaviour()
+                    .gossipsub
+                    .peer_score(peer_id)
+                    .unwrap_or(0.0);
 
-        let gossip_app_score = self
-            .score_manager
-            .get_gossipsub_app_score(peer_id)
-            .unwrap_or(DEFAULT_GOSSIP_APP_SCORE);
-        let reqresp_app_score = self
-            .score_manager
-            .get_req_resp_score(peer_id)
-            .unwrap_or(DEFAULT_REQ_RESP_APP_SCORE);
+                let app = self
+                    .score_manager
+                    .get_gossipsub_app_score(peer_id)
+                    .unwrap_or(DEFAULT_GOSSIP_APP_SCORE);
+
+                (internal, app)
+            }
+
+            #[cfg(not(feature = "gossipsub"))]
+            (0.0, 0.0)
+        };
+
+        let reqresp_app_score = {
+            #[cfg(feature = "request-response")]
+            {
+                self.score_manager
+                    .get_req_resp_score(peer_id)
+                    .unwrap_or(DEFAULT_REQ_RESP_APP_SCORE)
+            }
+
+            #[cfg(not(feature = "request-response"))]
+            {
+                0.0
+            }
+        };
 
         (gossip_internal_score, gossip_app_score, reqresp_app_score)
     }
@@ -1029,11 +1136,11 @@ where
     #[cfg(feature = "gossipsub")]
     async fn handle_gossip_command(&mut self, cmd: GossipCommand) -> P2PResult<()> {
         debug!("Publishing message");
-        trace!(?data, "Publishing message");
+        trace!(?cmd.data, "Publishing message");
 
         let signed_gossip_message: SignedMessage = match SignedMessage::new_signed_gossip(
             self.config.app_public_key.clone(),
-            data,
+            cmd.data,
             &self.signer,
         ) {
             Ok(signed_msg) => signed_msg,
@@ -1090,26 +1197,50 @@ where
         &mut self,
         cmd: RequestResponseCommand,
     ) -> P2PResult<()> {
-        let request_target_peer_id = cmd.target_app_public_key.to_peer_id();
-        debug!(%request_target_peer_id, "Got request message");
+        debug!(?cmd.target_app_public_key, "Got request message");
         trace!(?cmd.data, "Got request message");
 
-        if self.swarm.is_connected(&request_target_peer_id) {
-            self.swarm
-                .behaviour_mut()
-                .request_response
-                .send_request(&request_target_peer_id, cmd.data);
-            return Ok(());
-        }
+        let option_request_target_peer_id = self
+            .swarm
+            .behaviour()
+            .setup
+            .get_transport_id_by_application_key(&cmd.target_app_public_key);
 
-        // TODO(Arniiiii) : rewrite this part so it sends to gossipsub instead of the
-        // manual floodsub via manual request-response to everyone.
-        let connected_peers = self.swarm.connected_peers().cloned().collect::<Vec<_>>();
-        for peer in connected_peers {
-            self.swarm
-                .behaviour_mut()
-                .request_response
-                .send_request(&peer, cmd.data.clone());
+        let signed_request_message: SignedMessage = match SignedMessage::new_signed_request(
+            self.config.app_public_key.clone(),
+            cmd.data,
+            &self.signer,
+        ) {
+            Ok(signed_msg) => signed_msg,
+            Err(e) => {
+                error!(?e, "Failed to create signed request message");
+                return Ok(());
+            }
+        };
+
+        let signed_request_message_data = match serde_json::to_vec(&signed_request_message) {
+            Ok(data) => data,
+            Err(e) => {
+                error!(?e, "Failed to serialize signed request message");
+                return Ok(());
+            }
+        };
+
+        match option_request_target_peer_id {
+            Some(request_target_peer_id) => {
+                if self.swarm.is_connected(&request_target_peer_id) {
+                    self.swarm
+                        .behaviour_mut()
+                        .request_response
+                        .send_request(&request_target_peer_id, signed_request_message_data);
+                    return Ok(());
+                }
+            }
+            None => {
+                error!(
+                    "Logic error: Request response is attempted on a peer we haven't done Setup yet."
+                )
+            }
         }
 
         Ok(())
@@ -1174,6 +1305,12 @@ where
             request_response::Message::Request {
                 request, channel, ..
             } => {
+                // Score/penalty logic for request
+                if self.peer_penalty_storage.is_req_resp_muted(&peer_id) {
+                    warn!("Peer(peer_id={}) is muted for request/response", peer_id);
+                    return Ok(());
+                }
+
                 let signed_message = match SignedMessage::from_json_bytes(&request) {
                     Ok(signed_msg) => signed_msg,
                     Err(e) => {
@@ -1200,12 +1337,6 @@ where
 
                 if !is_valid {
                     warn!(%peer_id, "Invalid signature for request message");
-                    return Ok(());
-                }
-
-                // Score/penalty logic for request
-                if self.peer_penalty_storage.is_req_resp_muted(&peer_id) {
-                    warn!("Peer(peer_id={}) is muted for request/response", peer_id);
                     return Ok(());
                 }
 
@@ -1442,7 +1573,9 @@ macro_rules! finish_swarm {
                     PROTOCOL_NAME,
                     &$cfg.transport_keypair,
                     &$cfg.app_public_key,
+                    #[cfg(feature = "gossipsub")]
                     &$cfg.gossipsub_score_params,
+                    #[cfg(feature = "gossipsub")]
                     &$cfg.gossipsub_score_thresholds,
                     $signer.clone(),
                 )
@@ -1496,16 +1629,20 @@ pub fn with_default_transport<S: ApplicationSigner>(
                 PROTOCOL_NAME,
                 &config.transport_keypair,
                 &config.app_public_key,
-                signer,
+                #[cfg(feature = "gossipsub")]
+                &config.gossipsub_score_params,
+                #[cfg(feature = "gossipsub")]
+                &config.gossipsub_score_thresholds,
+                signer.clone(),
             )
         })
         .map_err(|e| ProtocolError::BehaviourInitialization(e.into()))?
-        .with_swarm_config(|c| c.with_idle_connection_timeout(Duration::from_secs(60)))
+        .with_swarm_config(|c| c.with_idle_connection_timeout(config.idle_connection_timeout))
         .build();
     #[cfg(not(feature = "quic"))]
     let swarm = finish_swarm!(
         builder.with_tcp(
-            Default::default(),
+            tcp::Config::default(),
             noise::Config::new,
             yamux::Config::default,
         ),
