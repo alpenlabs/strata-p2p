@@ -1,6 +1,6 @@
 //! Request-Response [`Behaviour`] and [`NetworkBehaviour`] for the P2P protocol.
 
-use std::{collections::HashSet, num::{NonZero}};
+use std::{collections::HashSet, num::NonZero};
 
 #[cfg(feature = "request-response")]
 use libp2p::request_response::{
@@ -13,13 +13,12 @@ use libp2p::{
         WhitelistSubscriptionFilter,
     },
     identify::{Behaviour as Identify, Config},
-    kad,
     identity::{Keypair, PublicKey},
-    request_response::{
-        Behaviour as RequestResponse, Config as RequestResponseConfig, ProtocolSupport,
-    },
+    kad,
     swarm::NetworkBehaviour,
 };
+
+const DEFAULT_KAD_PROTOCOL_NAME: StreamProtocol = StreamProtocol::new("/kad/strata/0.0.1");
 
 #[cfg(feature = "request-response")]
 use super::codec_raw;
@@ -61,12 +60,17 @@ impl<S: ApplicationSigner> Behaviour<S> {
         transport_keypair: &Keypair,
         app_public_key: &PublicKey,
         signer: S,
-        kad_protocol_name: StreamProtocol,
+        kad_protocol_name: &Option<StreamProtocol>,
     ) -> Self {
         let mut filter = HashSet::new();
         filter.insert(TOPIC.hash());
 
-        let mut kad_cfg = kad::Config::new(kad_protocol_name);
+        let mut kad_cfg = kad::Config::new(
+            kad_protocol_name
+                .as_ref()
+                .unwrap_or(&DEFAULT_KAD_PROTOCOL_NAME)
+                .clone(),
+        );
 
         // it is expected that there's going to be manual validation of records
         kad_cfg.set_record_filtering(kad::StoreInserts::FilterBoth);

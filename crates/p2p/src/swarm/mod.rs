@@ -53,12 +53,12 @@ use crate::{
     signer::ApplicationSigner,
 };
 
-
 use libp2p::tcp;
-    swarm::{
 
-        message_dht::{RecordData, SignedRecordData},
-        dial_manager::DialManager, setup::events::SetupBehaviourEvent},
+use crate::swarm::{
+    dial_manager::DialManager,
+    message_dht::{RecordData, SignedRecordData},
+    setup::events::SetupBehaviourEvent,
 };
 
 mod behavior;
@@ -141,6 +141,7 @@ pub struct P2PConfig {
 
     /// Kademlia protocol name
     pub kad_protocol_name: Option<StreamProtocol>,
+
     /// Timeout for channel operations (e.g., sending/receiving on channels).
     #[cfg(feature = "request-response")]
     pub channel_timeout: Option<Duration>,
@@ -406,14 +407,14 @@ impl<S: ApplicationSigner> P2P<S> {
             .await
             {
                 Ok(Ok(_)) => {
-                    info!(topic=%TOPIC.to_string(), %num_retries, %max_retry_count, local_addr=%self.config.listening_addr, "subscribed to topic successfully");
+                    info!(topic=%TOPIC.to_string(), %num_retries, %max_retry_count, local_addr=?self.config.listening_addrs, "subscribed to topic successfully");
                     break;
                 }
                 Ok(Err(err)) => {
-                    error!(topic=%TOPIC.to_string(), %err, %num_retries, %max_retry_count,local_addr=%self.config.listening_addr, "failed to subscribe to topic, retrying...");
+                    error!(topic=%TOPIC.to_string(), %err, %num_retries, %max_retry_count,local_addr=?self.config.listening_addrs, "failed to subscribe to topic, retrying...");
                 }
                 Err(_) => {
-                    error!(topic=%TOPIC.to_string(), %num_retries, %max_retry_count, local_addr=%self.config.listening_addr, "failed to subscribe to topic, retrying...");
+                    error!(topic=%TOPIC.to_string(), %num_retries, %max_retry_count, local_addr=?self.config.listening_addrs, "failed to subscribe to topic, retrying...");
                 }
             }
 
@@ -662,10 +663,12 @@ impl<S: ApplicationSigner> P2P<S> {
                 info,
             } => {
                 trace!("{connection_id:?} {peer_id} {info:?} identify::Event::Received");
-                self.swarm
-                    .behaviour_mut()
-                    .kademlia
-                    .add_address(&peer_id, info.listen_addrs[0].clone());
+                if !info.listen_addrs.is_empty() {
+                    self.swarm
+                        .behaviour_mut()
+                        .kademlia
+                        .add_address(&peer_id, info.listen_addrs[0].clone());
+                }
             }
             identify::Event::Sent {
                 connection_id,
@@ -1278,7 +1281,7 @@ impl<S: ApplicationSigner> P2P<S> {
 
         trace!("Returning a record");
         Some(record)
-}
+    }
 
     /// Handles gossip command sent through GossipHandle.
     #[cfg(feature = "gossipsub")]
@@ -1531,9 +1534,7 @@ macro_rules! finish_swarm {
                     &$cfg.transport_keypair,
                     &$cfg.app_public_key,
                     $signer.clone(),
-                    $cfg.kad_protocol_name
-                        .clone()
-                        .unwrap_or(StreamProtocol::new("/ipfs/kad_strata-p2p/0.0.1")),
+                    &$cfg.kad_protocol_name,
                 )
             })
             .map_err(|e| ProtocolError::BehaviourInitialization(e.into()))?
@@ -1586,6 +1587,7 @@ pub fn with_default_transport<S: ApplicationSigner>(
                 &config.transport_keypair,
                 &config.app_public_key,
                 signer,
+                &config.kad_protocol_name,
             )
         })
         .map_err(|e| ProtocolError::BehaviourInitialization(e.into()))?

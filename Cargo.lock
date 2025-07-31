@@ -2845,7 +2845,6 @@ dependencies = [
  "dashmap",
  "futures",
  "libp2p",
- "rand 0.9.1",
  "serde",
  "serde_json",
  "thiserror 2.0.12",

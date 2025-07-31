@@ -261,8 +261,8 @@ impl Setup {
                 app_keypair.clone(),
                 transport_keypair.clone(),
                 limited_other_addrs.to_vec(),
-                addr.clone(),
                 other_app_pk.to_vec(),
+                vec![addr.clone()],
                 cancel.child_token(),
                 MockApplicationSigner {
                     app_keypair: app_keypair.clone(),

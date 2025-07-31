@@ -15,9 +15,6 @@ pub(crate) mod quic;
 #[cfg(feature = "request-response")]
 pub(crate) mod request_response;
 
-pub(crate) mod setup;
-pub(crate) mod setup_invalid_signature;
-
 #[cfg(all(feature = "request-response", feature = "kademlia"))]
 pub(crate) mod dht_request_response;
 

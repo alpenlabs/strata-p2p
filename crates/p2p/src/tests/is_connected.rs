@@ -1,7 +1,6 @@
 use std::time::Duration;
 
 use anyhow::bail;
-use libp2p::PeerId;
 use tokio::{
     sync::oneshot,
     time::{sleep, timeout},
@@ -29,7 +28,7 @@ async fn test_is_connected() -> anyhow::Result<()> {
         tasks,
     } = Setup::all_to_all(USERS_NUM, MULTIADDR_MEMORY_ID_OFFSET_TEST_IS_CONNECTED).await?;
 
-    let _ = sleep(Duration::from_secs(1)).await;
+    let _ = sleep(Duration::from_secs(2)).await;
 
     // Verify user 0 is connected to user 1
     let user1_app_pk = user_handles[1].app_keypair.public();
@@ -90,6 +89,8 @@ async fn test_manually_get_all_peers() -> anyhow::Result<()> {
         MULTIADDR_MEMORY_ID_OFFSET_TEST_MANUALLY_GET_ALL_PEERS,
     )
     .await?;
+
+    let _ = sleep(Duration::from_secs(2)).await;
 
     let (tx, rx) = oneshot::channel::<Vec<PublicKey>>();
 

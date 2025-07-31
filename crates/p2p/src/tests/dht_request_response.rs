@@ -8,10 +8,11 @@ use tokio::time::sleep;
 
 use super::common::Setup;
 use crate::{
-    commands::Command,
+    commands::RequestResponseCommand,
     events::ReqRespEvent,
     tests::common::{MULTIADDR_MEMORY_ID_OFFSET_TEST_REQUEST_RESPONSE_DHT, init_tracing},
 };
+use futures::SinkExt;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 #[ignore = "Because this test is impossible to run on my 12 thread laptop without getting `OutboundUpgradeError(Timeout)` from any behaviour, even when worker threads are 12 and timeouts set to 10secs. To run this test you need a threadripper beast and smth like 100 GB of RAM."]
@@ -42,13 +43,15 @@ async fn test_request_response_dht() -> anyhow::Result<()> {
     // because distance between first and last guys in DHT's space can be small because the
     // distance depends on xor(hash(app_public_key),hash(app_public_key)), not on what order we
     // created them. This is unfortunate.
-    user_handles[0]
-        .command
-        .send_command(Command::RequestMessage {
-            app_public_key: user_handles[USERS_NUM - 1].app_keypair.public(),
+    let (first, others) = user_handles.split_at_mut(1);
+    first[0]
+        .reqresp
+        .send(RequestResponseCommand {
+            target_app_public_key: others[USERS_NUM - 2].app_keypair.public(),
             data: "hello".into(),
         })
-        .await;
+        .await
+        .expect("Failed to send request message");
 
     match user_handles[USERS_NUM - 1].reqresp.next_event().await {
         Some(event) => {
