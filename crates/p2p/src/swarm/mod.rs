@@ -1143,38 +1143,42 @@ impl<S: ApplicationSigner> P2P<S> {
         Ok(())
     }
 
+    async fn queue_connections(
+        &mut self,
+        target_app_public_key: &PublicKey,
+        mut addresses: Vec<Multiaddr>,
+    ) {
+        if addresses.is_empty() {
+            warn!("No addresses provided to dial");
+        }
+
+        if self.dial_manager.has_app_public_key(target_app_public_key) {
+            error!(
+                "Already dialing peer with app_public_key: {:?}",
+                target_app_public_key
+            );
+        }
+
+        addresses.sort_by_key(|addr| !addr.protocol_stack().any(|proto| proto.contains("quic")));
+
+        let mut queue = VecDeque::from(addresses);
+
+        let first_addr = queue.pop_front().unwrap(); // can use unwrap() here thus we have at least one element
+
+        self.config.connect_to.push(first_addr.clone());
+        self.dial_manager
+            .insert_queue(target_app_public_key.clone(), queue);
+        self.dial_and_map(first_addr, target_app_public_key.clone()).await;
+    }
+
     /// Handles command sent through channel by P2P implementation user.
     async fn handle_command(&mut self, cmd: Command) -> P2PResult<()> {
         match cmd {
             Command::ConnectToPeer {
                 app_public_key,
-                mut addresses,
+                addresses,
             } => {
-                if addresses.is_empty() {
-                    warn!("No addresses provided to dial");
-                    return Ok(());
-                }
-
-                if self.dial_manager.has_app_public_key(&app_public_key) {
-                    error!(
-                        "Already dialing peer with app_public_key: {:?}",
-                        app_public_key
-                    );
-                    return Ok(());
-                }
-
-                addresses
-                    .sort_by_key(|addr| !addr.protocol_stack().any(|proto| proto.contains("quic")));
-
-                let mut queue = VecDeque::from(addresses);
-
-                let first_addr = queue.pop_front().unwrap(); // can use unwrap() here thus we have at least one element
-
-                self.config.connect_to.push(first_addr.clone());
-                self.dial_manager
-                    .insert_queue(app_public_key.clone(), queue);
-                self.dial_and_map(first_addr, app_public_key).await;
-
+                self.queue_connections(&app_public_key, addresses).await;
                 Ok(())
             }
             Command::DisconnectFromPeer {
