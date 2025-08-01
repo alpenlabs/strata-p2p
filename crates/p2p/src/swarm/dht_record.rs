@@ -7,10 +7,9 @@ use serde::{Deserialize, Serialize};
 use tracing::{trace, warn};
 
 use crate::swarm::{
-    errors::DHTError,
     serializing::{
-        pubkey_serialization::pubkey_serializer, signature_serialization::signature_serializer,
-    },
+        pubkey_serialization::pubkey_serializer,
+    }, signed_data::SignedData,
 };
 
 /// Protocol version for DHT records.
@@ -18,16 +17,6 @@ pub(crate) const DHT_PROTOCOL_VERSION: u8 = 0;
 
 /// Protocol identifier for DHT records.
 pub(crate) const DHT_PROTOCOL_ID: u8 = 0;
-
-/// Wrapper for signed record.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub(crate) struct SignedRecordData {
-    /// The serialized record data.
-    pub record: Vec<u8>,
-    /// The signature of the record.
-    #[serde(with = "signature_serializer")]
-    pub signature: [u8; 64],
-}
 
 /// Record structure for DHT.
 /// (De)serializable via serde.
@@ -70,50 +59,6 @@ impl RecordData {
     }
 }
 
-impl SignedRecordData {
-    /// Creates a new signed message with the given signer.
-    pub(crate) fn new<T, S>(
-        something_serializable: T,
-        signer: &S,
-        app_public_key: PublicKey,
-    ) -> Result<Self, DHTError>
-    where
-        T: Serialize,
-        S: crate::signer::ApplicationSigner,
-    {
-        let message_bytes = serde_json::to_vec(&something_serializable)
-            .map_err(|e| DHTError::JsonCodec(e.into()))?;
-        let signature = signer
-            .sign(&message_bytes, app_public_key)
-            .map_err(DHTError::SignedMessageCreation)?;
-
-        Ok(Self {
-            record: message_bytes,
-            signature,
-        })
-    }
-
-    /// Deserializes a signed record from JSON bytes.
-    #[expect(dead_code)]
-    pub(crate) fn from_json_bytes(data: &[u8]) -> Result<Self, DHTError> {
-        serde_json::from_slice(data).map_err(|e| DHTError::DeserializationFailed(e.into()))
-    }
-}
-
-impl SignedRecordData {
-    /// Creates a new signed record with the given signer.
-    pub(crate) fn new_signed_record<S: crate::signer::ApplicationSigner>(
-        app_public_key: PublicKey,
-        transport_id: PeerId,
-        multiadresses: Vec<Multiaddr>,
-        signer: &S,
-    ) -> Result<Self, DHTError> {
-        let setup_message = RecordData::new(app_public_key.clone(), transport_id, multiadresses);
-
-        SignedRecordData::new(setup_message, signer, app_public_key)
-    }
-}
-
 pub(crate) fn deserialize_and_validate_dht_record(data: &[u8]) -> Option<RecordData> {
     let str = match String::from_utf8(data.to_owned()) {
         Ok(s) => s,
@@ -126,7 +71,7 @@ pub(crate) fn deserialize_and_validate_dht_record(data: &[u8]) -> Option<RecordD
 
     trace!(%str, "We got a record.");
 
-    let signed_data: SignedRecordData = match serde_json::from_str(&str) {
+    let signed_data: SignedData = match serde_json::from_str(&str) {
         Ok(data) => data,
         Err(e) => {
             warn!(%e, "Tried to get record from DHT, but we failed deserializing its signature.");
@@ -134,10 +79,10 @@ pub(crate) fn deserialize_and_validate_dht_record(data: &[u8]) -> Option<RecordD
         }
     };
 
-    let str_record = match String::from_utf8(signed_data.record.clone()) {
+    let str_record = match String::from_utf8(signed_data.raw_data.clone()) {
         Ok(s) => s,
         Err(e) => {
-            warn!(%e, record = %String::from_utf8_lossy(&signed_data.record),
+            warn!(%e, record = %String::from_utf8_lossy(&signed_data.raw_data),
             "Tried to get record from DHT, but it seems to have a string for multiaddress to be invalid UTF-8."
             );
             return None;
@@ -154,7 +99,7 @@ pub(crate) fn deserialize_and_validate_dht_record(data: &[u8]) -> Option<RecordD
 
     if !record
         .app_public_key
-        .verify(&signed_data.record, &signed_data.signature)
+        .verify(&signed_data.raw_data, &signed_data.signature)
     {
         warn!("Tried to get record from DHT, but it has bad signature.");
         return None;

@@ -8,7 +8,7 @@ use crate::swarm::serializing::signature_serialization::signature_serializer;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SignedData {
     /// The serialized message content.
-    pub message: Vec<u8>,
+    pub raw_data: Vec<u8>,
     /// The signature of the message.
     #[serde(with = "signature_serializer")]
     pub signature: [u8; 64],
@@ -32,14 +32,14 @@ impl SignedData {
             .map_err(SetupUpgradeError::SignedMessageCreation)?;
 
         Ok(Self {
-            message: message_bytes,
+            raw_data: message_bytes,
             signature,
         })
     }
 
     /// Verifies the signature of this message.
     pub(crate) fn verify_signature(&self, app_public_key: &PublicKey) -> Result<bool, SetupError> {
-        Ok(app_public_key.verify(&self.message, &self.signature))
+        Ok(app_public_key.verify(&self.raw_data, &self.signature))
     }
 
     /// Deserializes the inner message.
@@ -47,7 +47,7 @@ impl SignedData {
     where
         T: for<'de> serde::Deserialize<'de>,
     {
-        serde_json::from_slice(&self.message)
+        serde_json::from_slice(&self.raw_data)
             .map_err(|e| SetupError::DeserializationFailed(e.into()))
     }
 

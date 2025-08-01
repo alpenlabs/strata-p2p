@@ -106,7 +106,7 @@ impl<S: ApplicationSigner> ConnectionHandler for SetupHandler<S> {
                     Err(e) => {
                         trace!(
                             "Failed to deserialize a message {}",
-                            String::from_utf8(setup_msg.message).unwrap()
+                            String::from_utf8(setup_msg.raw_data).unwrap()
                         );
                         self.pending_events
                             .push(ConnectionHandlerEvent::NotifyBehaviour(

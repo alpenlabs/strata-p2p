@@ -52,9 +52,10 @@ use crate::{
     commands::{Command, QueryP2PStateCommand},
     signer::ApplicationSigner,
     swarm::{
-        dht_record::{RecordData, SignedRecordData, deserialize_and_validate_dht_record},
+        dht_record::{RecordData, deserialize_and_validate_dht_record},
         dial_manager::DialManager,
         setup::events::SetupBehaviourEvent,
+        signed_data::SignedData,
     },
 };
 
@@ -70,7 +71,6 @@ pub(crate) mod signed_data;
 
 mod message;
 pub mod setup;
-
 
 #[cfg(feature = "kademlia")]
 pub mod dht_record;
@@ -1029,11 +1029,14 @@ impl<S: ApplicationSigner> P2P<S> {
                 if !self.kademlia_is_initial_record_already_posted
                     && self.swarm.connected_peers().count() > self.config.kademlia_threshold
                 {
-                    let maybe_signed_record_data = SignedRecordData::new_signed_record(
-                        self.config.app_public_key.clone(),
-                        *self.swarm.local_peer_id(),
-                        self.swarm.external_addresses().cloned().collect::<Vec<_>>(),
+                    let maybe_signed_record_data = SignedData::new(
+                        RecordData::new(
+                            self.config.app_public_key.clone(),
+                            *self.swarm.local_peer_id(),
+                            self.swarm.external_addresses().cloned().collect::<Vec<_>>(),
+                        ),
                         &self.signer,
+                        self.config.app_public_key.clone(),
                     );
 
                     match maybe_signed_record_data {
