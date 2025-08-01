@@ -719,20 +719,37 @@ impl<S: ApplicationSigner> P2P<S> {
                 libp2p::kad::InboundRequest::PutRecord {
                     source,
                     connection,
-                    record,
+                    record: maybe_record,
                 } => {
                     trace!(
-                        %source, %connection, ?record, "InboundRequest::PutRecord"
+                        %source, %connection, ?maybe_record, "InboundRequest::PutRecord"
                     );
-                    // TODO(Arniiiii) : do filtering
-                    let res = self
-                        .swarm
-                        .behaviour_mut()
-                        .kademlia
-                        .store_mut()
-                        .put(record.unwrap());
-                    if res.is_err() {
-                        info!(err = %res.unwrap_err(),"Someone has asked as to put a record that is too big. Refusing to do so.")
+                    match maybe_record {
+                        Some(ref record_data) => {
+                            let maybe_our_record_data =
+                                deserialize_and_validate_dht_record(&record_data.value);
+                            match maybe_our_record_data {
+                                Some(_) => {
+                                    let res = self
+                                        .swarm
+                                        .behaviour_mut()
+                                        .kademlia
+                                        .store_mut()
+                                        .put(maybe_record.unwrap());
+                                    if res.is_err() {
+                                        info!(err = %res.unwrap_err(),"Someone has asked as to put a record that is too big. Refusing to do so.")
+                                    }
+                                }
+                                None => {
+                                    info!(
+                                        "Someone asked us to put either not valid or not properly signed record. Refusing to keep it."
+                                    )
+                                }
+                            }
+                        }
+                        None => {
+                            info!("Someone asked us to put empty record. Refusing to keep it.");
+                        }
                     }
                     Ok(())
                 }
