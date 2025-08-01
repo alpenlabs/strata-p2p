@@ -52,8 +52,8 @@ use crate::{
     commands::{Command, QueryP2PStateCommand},
     signer::ApplicationSigner,
     swarm::{
+        dht_record::{RecordData, SignedRecordData, deserialize_and_validate_dht_record},
         dial_manager::DialManager,
-        message_dht::{RecordData, SignedRecordData, deserialize_and_validate_dht_record},
         setup::events::SetupBehaviourEvent,
     },
 };
@@ -71,7 +71,7 @@ mod message;
 pub mod setup;
 
 #[cfg(feature = "kademlia")]
-pub mod message_dht;
+pub mod dht_record;
 
 /// Global topic name for gossipsub messages.
 static TOPIC: LazyLock<Sha256Topic> = LazyLock::new(|| Sha256Topic::new("bitvm2"));
