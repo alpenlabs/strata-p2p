@@ -14,7 +14,7 @@ use libp2p::{
 
 use crate::{
     signer::ApplicationSigner,
-    swarm::{errors::SetupUpgradeError, signed_data::SignedData},
+    swarm::{errors::SetupUpgradeError, message::SetupMessage, signed_data::SignedData},
 };
 
 /// Inbound upgrade for handling incoming setup requests.
@@ -100,11 +100,14 @@ impl<S: ApplicationSigner> OutboundUpgrade<Stream> for OutboundSetupUpgrade<S> {
 
     fn upgrade_outbound(self, stream: Stream, _: Self::Info) -> Self::Future {
         Box::pin(async move {
-            let setup_message = SignedData::new_signed_setup(
-                self.app_public_key.clone(),
-                self.local_transport_id,
-                self.remote_transport_id,
+            let setup_message = SignedData::new(
+                SetupMessage::new(
+                    self.app_public_key.clone(),
+                    self.local_transport_id,
+                    self.remote_transport_id,
+                ),
                 &self.signer,
+                self.app_public_key,
             )
             .map_err(|e| SetupUpgradeError::SignedMessageCreation(e.into()))?;
 

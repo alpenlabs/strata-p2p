@@ -1,9 +1,8 @@
 use serde::{Deserialize, Serialize};
 
-use libp2p::{PeerId, identity::PublicKey};
+use libp2p::identity::PublicKey;
 use super::errors::{SetupError, SetupUpgradeError};
 use crate::swarm::serializing::signature_serialization::signature_serializer;
-use crate::swarm::message::SetupMessage;
 
 /// Wrapper for signed messages.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -56,23 +55,5 @@ impl SignedData {
     #[expect(dead_code)]
     pub(crate) fn from_json_bytes(data: &[u8]) -> Result<Self, SetupError> {
         serde_json::from_slice(data).map_err(|e| SetupError::DeserializationFailed(e.into()))
-    }
-}
-
-impl SignedData {
-    /// Creates a new signed setup message with the given signer.
-    pub(crate) fn new_signed_setup<S: crate::signer::ApplicationSigner>(
-        app_public_key: PublicKey,
-        local_transport_id: PeerId,
-        remote_transport_id: PeerId,
-        signer: &S,
-    ) -> Result<Self, SetupUpgradeError> {
-        let setup_message = SetupMessage::new(
-            app_public_key.clone(),
-            local_transport_id,
-            remote_transport_id,
-        );
-
-        SignedData::new(setup_message, signer, app_public_key)
     }
 }
