@@ -666,6 +666,7 @@ impl<S: ApplicationSigner> P2P<S> {
                 self.handle_request_response_event(event).await
             }
             BehaviourEvent::Setup(event) => self.handle_setup_event(event).await,
+            #[cfg(feature = "kademlia")]
             BehaviourEvent::Kademlia(event) => self.handle_kademlia_event(event).await,
             BehaviourEvent::Identify(event) => self.handle_identify_event(event).await,
         }
@@ -678,7 +679,7 @@ impl<S: ApplicationSigner> P2P<S> {
                 peer_id,
                 info,
             } => {
-                trace!("{connection_id:?} {peer_id} {info:?} identify::Event::Received");
+                trace!(?connection_id, %peer_id, ?info, "identify::Event::Received");
                 if !info.listen_addrs.is_empty() {
                     self.swarm
                         .behaviour_mut()
@@ -690,21 +691,21 @@ impl<S: ApplicationSigner> P2P<S> {
                 connection_id,
                 peer_id,
             } => {
-                trace!("{connection_id:?} {peer_id} identify::Event::Sent");
+                trace!(?connection_id, %peer_id, "identify::Event::Sent");
             }
             identify::Event::Pushed {
                 connection_id,
                 peer_id,
                 info,
             } => {
-                trace!("{connection_id:?} {peer_id} {info:?} identify::Event::Pushed");
+                trace!(?connection_id, %peer_id, ?info, "identify::Event::Pushed");
             }
             identify::Event::Error {
                 connection_id,
                 peer_id,
                 error,
             } => {
-                trace!("{connection_id:?} {peer_id} {error} identify::Event::Error");
+                trace!(?connection_id, %peer_id, %error, "identify::Event::Error");
             }
         };
         Ok(())
@@ -715,7 +716,7 @@ impl<S: ApplicationSigner> P2P<S> {
         match event {
             KademliaEvent::InboundRequest { request } => match request {
                 libp2p::kad::InboundRequest::FindNode { num_closer_peers } => {
-                    trace!("{num_closer_peers} InboundRequest::FindNode");
+                    trace!(%num_closer_peers, "InboundRequest::FindNode");
                     Ok(())
                 }
                 libp2p::kad::InboundRequest::PutRecord {
@@ -724,8 +725,7 @@ impl<S: ApplicationSigner> P2P<S> {
                     record,
                 } => {
                     trace!(
-                        "{} {} {:?} InboundRequest::PutRecord",
-                        source, connection, record
+                        %source, %connection, ?record, "InboundRequest::PutRecord"
                     );
                     // TODO(Arniiiii) : do filtering
                     let res = self
@@ -744,7 +744,7 @@ impl<S: ApplicationSigner> P2P<S> {
                     present_locally,
                 } => {
                     trace!(
-                        "{num_closer_peers} {present_locally} libp2p::kad::InboundRequest::GetRecord"
+                        %num_closer_peers, %present_locally, "libp2p::kad::InboundRequest::GetRecord"
                     );
                     Ok(())
                 }
@@ -753,12 +753,12 @@ impl<S: ApplicationSigner> P2P<S> {
                     num_provider_peers,
                 } => {
                     trace!(
-                        "{num_closer_peers} {num_provider_peers} libp2p::kad::InboundRequest::GetProvider"
+                        %num_closer_peers, %num_provider_peers, "libp2p::kad::InboundRequest::GetProvider"
                     );
                     Ok(())
                 }
                 libp2p::kad::InboundRequest::AddProvider { record } => {
-                    trace!("{record:?} libp2p::kad::InboundRequest::AddProvider");
+                    trace!(?record, "libp2p::kad::InboundRequest::AddProvider");
                     Ok(())
                 }
             },
@@ -774,7 +774,7 @@ impl<S: ApplicationSigner> P2P<S> {
                     num_remaining,
                 })) => {
                     trace!(
-                        "{id} {stats:?} {step:?} {peer} {num_remaining} QueryResult::Bootstrap(Ok(BootstrapOk "
+                        %id, ?stats, ?step, %peer, %num_remaining, "QueryResult::Bootstrap(Ok(BootstrapOk "
                     );
                     Ok(())
                 }
@@ -783,7 +783,7 @@ impl<S: ApplicationSigner> P2P<S> {
                     num_remaining,
                 })) => {
                     trace!(
-                        "{id} {stats:?} {step:?} {peer} {num_remaining:?} QueryResult::Bootstrap(Err(BootstrapErr "
+                        %id, ?stats, ?step, %peer, ?num_remaining, "QueryResult::Bootstrap(Err(BootstrapErr "
                     );
                     Ok(())
                 }
@@ -812,7 +812,7 @@ impl<S: ApplicationSigner> P2P<S> {
                     libp2p::kad::GetRecordOk::FinishedWithNoAdditionalRecord { cache_candidates },
                 )) => {
                     trace!(
-                        "{id} {stats:?} {step:?} {cache_candidates:?} QueryResult::GetRecord(Ok(libp2p::kad::GetRecordOk::FinishedWithNoAdditionalRecord"
+                        %id, ?stats, ?step, ?cache_candidates, "QueryResult::GetRecord(Ok(libp2p::kad::GetRecordOk::FinishedWithNoAdditionalRecord"
                     );
                     if self.kademlia_postponed_get_action.contains_key(&id) {
                         let _ = match self.kademlia_postponed_get_action.remove(&id).unwrap() {
@@ -828,7 +828,7 @@ impl<S: ApplicationSigner> P2P<S> {
                 }
                 QueryResult::GetRecord(Err(libp2p::kad::GetRecordError::Timeout { key })) => {
                     trace!(
-                        "{id} {stats:?} {step:?} {key:?} QueryResult::GetRecord(Err(libp2p::kad::GetRecordError::Timeout"
+                        %id, ?stats, ?step, ?key, "QueryResult::GetRecord(Err(libp2p::kad::GetRecordError::Timeout"
                     );
                     if self.kademlia_postponed_get_action.contains_key(&id) {
                         let _ = match self.kademlia_postponed_get_action.remove(&id).unwrap() {
@@ -847,7 +847,7 @@ impl<S: ApplicationSigner> P2P<S> {
                     closest_peers,
                 })) => {
                     trace!(
-                        "{id} {stats:?} {step:?} {key:?} {closest_peers:?} QueryResult::GetRecord(Err(libp2p::kad::GetRecordError::NotFound"
+                        %id, ?stats, ?step, ?key, ?closest_peers, "QueryResult::GetRecord(Err(libp2p::kad::GetRecordError::NotFound"
                     );
                     if self.kademlia_postponed_get_action.contains_key(&id) {
                         let _ = match self.kademlia_postponed_get_action.remove(&id).unwrap() {
@@ -867,7 +867,7 @@ impl<S: ApplicationSigner> P2P<S> {
                     quorum,
                 })) => {
                     trace!(
-                        "{id} {stats:?} {step:?} {key:?} {records:?} {quorum} QueryResult::GetRecord(Err(libp2p::kad::GetRecordError::QuorumFailed"
+                        %id, ?stats, ?step, ?key, ?records, %quorum, "QueryResult::GetRecord(Err(libp2p::kad::GetRecordError::QuorumFailed"
                     );
                     if self.kademlia_postponed_get_action.contains_key(&id) {
                         let _ = match self.kademlia_postponed_get_action.remove(&id).unwrap() {
@@ -882,7 +882,7 @@ impl<S: ApplicationSigner> P2P<S> {
                     Ok(())
                 }
                 QueryResult::PutRecord(Ok(PutRecordOk { key })) => {
-                    trace!("{id} {stats:?} {step:?} {key:?} QueryResult::PutRecord(Ok(PutRecordOk");
+                    trace!(%id, ?stats, ?step, ?key, "QueryResult::PutRecord(Ok(PutRecordOk");
                     Ok(())
                 }
                 QueryResult::PutRecord(Err(PutRecordError::QuorumFailed {
@@ -891,7 +891,7 @@ impl<S: ApplicationSigner> P2P<S> {
                     quorum,
                 })) => {
                     trace!(
-                        "{id} {stats:?} {step:?} {key:?} {success_peerids:?} {quorum} QueryResult::PutRecord(Err(PutRecordError::QuorumFailed"
+                        %id, ?stats, ?step, ?key, ?success_peerids, %quorum, "QueryResult::PutRecord(Err(PutRecordError::QuorumFailed"
                     );
                     Ok(())
                 }
@@ -901,7 +901,7 @@ impl<S: ApplicationSigner> P2P<S> {
                     quorum,
                 })) => {
                     trace!(
-                        "{id} {stats:?} {step:?} {key:?} {success_peerids:?} {quorum} QueryResult::PutRecord(Err(PutRecordError::Timeout"
+                        %id, ?stats, ?step, ?key, ?success_peerids, %quorum, "QueryResult::PutRecord(Err(PutRecordError::Timeout"
                     );
                     Ok(())
                 }
@@ -910,7 +910,7 @@ impl<S: ApplicationSigner> P2P<S> {
                     providers,
                 })) => {
                     trace!(
-                        "{id} {stats:?} {step:?} {key:?} {providers:?} QueryResult::GetProviders(Ok(libp2p::kad::GetProvidersOk::FoundProviders"
+                        %id, ?stats, ?step, ?key, ?providers, "QueryResult::GetProviders(Ok(libp2p::kad::GetProvidersOk::FoundProviders"
                     );
                     Ok(())
                 }
@@ -918,7 +918,7 @@ impl<S: ApplicationSigner> P2P<S> {
                     libp2p::kad::GetProvidersOk::FinishedWithNoAdditionalRecord { closest_peers },
                 )) => {
                     trace!(
-                        "{id} {stats:?} {step:?} {closest_peers:?} QueryResult::GetProviders(Ok(libp2p::kad::GetProvidersOk::FinishedWithNoAdditionalRecord"
+                        %id, ?stats, ?step, ?closest_peers, "QueryResult::GetProviders(Ok(libp2p::kad::GetProvidersOk::FinishedWithNoAdditionalRecord"
                     );
                     Ok(())
                 }
@@ -927,13 +927,13 @@ impl<S: ApplicationSigner> P2P<S> {
                     closest_peers,
                 })) => {
                     trace!(
-                        "{id} {stats:?} {step:?} {key:?} {closest_peers:?} QueryResult::GetProviders(Err(GetProvidersError::Timeout"
+                        %id, ?stats, ?step, ?key, ?closest_peers, "QueryResult::GetProviders(Err(GetProvidersError::Timeout"
                     );
                     Ok(())
                 }
                 QueryResult::GetClosestPeers(Ok(GetClosestPeersOk { key, peers })) => {
                     trace!(
-                        "{id} {stats:?} {step:?} {key:?} {peers:?} QueryResult::GetClosestPeers(Ok(GetClosestPeersOk"
+                        %id, ?stats, ?step, ?key, ?peers, "QueryResult::GetClosestPeers(Ok(GetClosestPeersOk"
                     );
                     // since we are manually adding peers, here's a filtering could be implemented
                     for peer in peers {
@@ -944,25 +944,25 @@ impl<S: ApplicationSigner> P2P<S> {
                 }
                 QueryResult::GetClosestPeers(Err(GetClosestPeersError::Timeout { key, peers })) => {
                     trace!(
-                        "{id} {stats:?} {step:?} {key:?} {peers:?} QueryResult::GetClosestPeers(Ok(GetClosestPeersOk"
+                        %id, ?stats, ?step, ?key, ?peers, "QueryResult::GetClosestPeers(Ok(GetClosestPeersOk"
                     );
                     Ok(())
                 }
                 QueryResult::StartProviding(Ok(AddProviderOk { key })) => {
                     trace!(
-                        "{id} {stats:?} {step:?} {key:?} QueryResult::StartProviding(Ok(AddProviderOk"
+                        %id, ?stats, ?step, ?key, "QueryResult::StartProviding(Ok(AddProviderOk"
                     );
                     Ok(())
                 }
                 QueryResult::StartProviding(Err(AddProviderError::Timeout { key })) => {
                     trace!(
-                        "{id} {stats:?} {step:?} {key:?} QueryResult::StartProviding(Err(AddProviderError::Timeout"
+                        %id, ?stats, ?step, ?key, "QueryResult::StartProviding(Err(AddProviderError::Timeout"
                     );
                     Ok(())
                 }
                 QueryResult::RepublishRecord(Ok(PutRecordOk { key })) => {
                     trace!(
-                        "{id} {stats:?} {step:?} {key:?} QueryResult::RepublishRecord(Ok(PutRecordOk"
+                        %id, ?stats, ?step, ?key, "QueryResult::RepublishRecord(Ok(PutRecordOk"
                     );
                     Ok(())
                 }
@@ -972,7 +972,7 @@ impl<S: ApplicationSigner> P2P<S> {
                     quorum,
                 })) => {
                     trace!(
-                        "{id} {stats:?} {step:?} {key:?} {success:?} {quorum:?} QueryResult::RepublishRecord(Err(PutRecordError::QuorumFailed"
+                        %id, ?stats, ?step, ?key, ?success, ?quorum, "QueryResult::RepublishRecord(Err(PutRecordError::QuorumFailed"
                     );
                     Ok(())
                 }
@@ -982,19 +982,19 @@ impl<S: ApplicationSigner> P2P<S> {
                     quorum,
                 })) => {
                     trace!(
-                        "{id} {stats:?} {step:?} {key:?} {success:?} {quorum} QueryResult::RepublishRecord(Err(PutRecordError::QuorumFailed"
+                        %id, ?stats, ?step, ?key, ?success, %quorum, "QueryResult::RepublishRecord(Err(PutRecordError::QuorumFailed"
                     );
                     Ok(())
                 }
                 QueryResult::RepublishProvider(Ok(AddProviderOk { key })) => {
                     trace!(
-                        "{id} {stats:?} {step:?} {key:?} QueryResult::RepublishProvider(Ok(AddProviderOk"
+                        %id, ?stats, ?step, ?key, "QueryResult::RepublishProvider(Ok(AddProviderOk"
                     );
                     Ok(())
                 }
                 QueryResult::RepublishProvider(Err(AddProviderError::Timeout { key })) => {
                     trace!(
-                        "{id} {stats:?} {step:?} {key:?} QueryResult::RepublishProvider(Err(AddProviderError::Timeout"
+                        %id, ?stats, ?step, ?key, "QueryResult::RepublishProvider(Err(AddProviderError::Timeout"
                     );
                     Ok(())
                 }
@@ -1008,7 +1008,12 @@ impl<S: ApplicationSigner> P2P<S> {
                 old_peer,
             } => {
                 trace!(
-                    "{peer:?} {is_new_peer:?} {addresses:?} {bucket_range:?} {old_peer:?} KademliaEvent::RoutingUpdated"
+                    ?peer,
+                    ?is_new_peer,
+                    ?addresses,
+                    ?bucket_range,
+                    ?old_peer,
+                    "KademliaEvent::RoutingUpdated"
                 );
                 trace!(
                     res = %(!self.kademlia_is_initial_record_already_posted
@@ -1061,20 +1066,20 @@ impl<S: ApplicationSigner> P2P<S> {
                 Ok(())
             }
             KademliaEvent::RoutablePeer { peer, address } => {
-                trace!("{peer:?} {address:?} KademliaEvent::RoutablePeer");
+                trace!(?peer, ?address, "KademliaEvent::RoutablePeer");
                 Ok(())
             }
             KademliaEvent::UnroutablePeer { peer } => {
-                trace!("{peer:?} KademliaEvent::UnroutablePeer");
+                trace!(?peer, "KademliaEvent::UnroutablePeer");
                 Ok(())
             }
 
             KademliaEvent::PendingRoutablePeer { peer, address } => {
-                trace!("{peer:?} {address:?} KademliaEvent::PendingRoutablePeer");
+                trace!(?peer, ?address, "KademliaEvent::PendingRoutablePeer");
                 Ok(())
             }
             KademliaEvent::ModeChanged { new_mode } => {
-                trace!("{new_mode:?} KademliaEvent::ModeChanged");
+                trace!(?new_mode, "KademliaEvent::ModeChanged");
                 Ok(())
             }
         }
