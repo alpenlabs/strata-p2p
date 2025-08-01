@@ -66,9 +66,11 @@ pub mod errors;
 pub mod handle;
 
 pub(crate) mod serializing;
+pub(crate) mod signed_data;
 
 mod message;
 pub mod setup;
+
 
 #[cfg(feature = "kademlia")]
 pub mod dht_record;
@@ -1244,11 +1246,13 @@ impl<S: ApplicationSigner> P2P<S> {
             #[cfg(feature = "kademlia")]
             Command::GetDHTRecord {
                 app_public_key,
-                tx_back,
+                response_sender,
             } => {
                 self.ask_kademlia_get_record(
                     &app_public_key,
-                    ActionOnKademliaGetRecord::JustThroughResultBack { tx: tx_back },
+                    ActionOnKademliaGetRecord::JustThroughResultBack {
+                        tx: response_sender,
+                    },
                 );
                 Ok(())
             }

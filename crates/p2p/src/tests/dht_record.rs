@@ -30,7 +30,7 @@ async fn test_dht_record() -> anyhow::Result<()> {
         .command
         .send_command(Command::GetDHTRecord {
             app_public_key: user_handles[USERS_NUM - 1].app_keypair.public(),
-            tx_back: tx,
+            response_sender: tx,
         })
         .await;
 
