@@ -232,6 +232,11 @@ where
     /// Storage with penalty for peer's penalty
     peer_penalty_storage: PenaltyPeerStorage,
 
+    /// Manages message validation and penalty logic.
+    #[cfg_attr(
+        not(any(feature = "gossipsub", feature = "request-response")),
+        allow(dead_code)
+    )]
     validator: V,
 }
 
@@ -1261,7 +1266,7 @@ where
                 error,
                 ..
             } => {
-                error!(%peer, %error, %request_id, "Outbound failure")
+                warn!(%peer, %error, %request_id, "Outbound failure")
             }
             RequestResponseEvent::InboundFailure {
                 peer,
@@ -1272,8 +1277,8 @@ where
                 warn!(%peer, %error, %request_id, "Inbound failure");
                 // dial the peer
                 let _ = self.swarm.dial(peer).inspect_err(|err| {
-                    error!(%peer, %error, %request_id, "Inbound failure");
-                    error!(%err, "Failed to connect to peer '{peer}'");
+                    warn!(%peer, %error, %request_id, "Inbound failure");
+                    warn!(%err, "Failed to connect to peer '{peer}'");
                 });
             }
             RequestResponseEvent::ResponseSent {
@@ -1425,7 +1430,7 @@ where
                                 })
                     }
                     Ok(Err(err)) => {
-                        error!("Received error in response: {err:?}");
+                        warn!("Received error in response: {err:?}");
                         Ok(())
                     }
                     Err(_) => {

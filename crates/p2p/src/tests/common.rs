@@ -78,6 +78,7 @@ pub(crate) struct User<
 }
 
 impl<S: ApplicationSigner, V: Validator> User<S, V> {
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         app_keypair: Keypair,
         transport_keypair: Keypair,
@@ -136,7 +137,7 @@ impl<S: ApplicationSigner, V: Validator> User<S, V> {
             Some(validator),
         )?;
         #[cfg(not(feature = "request-response"))]
-        let p2p = P2P::<S>::from_config(
+        let p2p = P2P::from_config(
             config,
             cancel,
             swarm,
@@ -144,6 +145,7 @@ impl<S: ApplicationSigner, V: Validator> User<S, V> {
             #[cfg(feature = "gossipsub")]
             None,
             signer,
+            Some(validator),
         )?;
         #[cfg(feature = "gossipsub")]
         let gossip = p2p.new_gossip_handle();
@@ -302,6 +304,7 @@ impl Setup {
         })
     }
 
+    #[cfg(feature = "gossipsub")]
     pub(crate) async fn all_to_all_with_custom_validator<V: Validator>(
         n: usize,
         validator: V,

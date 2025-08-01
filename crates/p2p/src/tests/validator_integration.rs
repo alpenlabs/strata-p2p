@@ -10,9 +10,11 @@ use tokio::{
 use tracing::info;
 
 use super::common::{init_tracing, Setup};
+#[cfg(feature = "request-response")]
+use crate::{commands::RequestResponseCommand, events::ReqRespEvent};
 use crate::{
-    commands::{GossipCommand, QueryP2PStateCommand, RequestResponseCommand},
-    events::{GossipEvent, ReqRespEvent},
+    commands::{GossipCommand, QueryP2PStateCommand},
+    events::GossipEvent,
     validator::{Message, PenaltyType, Validator},
 };
 
@@ -97,7 +99,7 @@ async fn test_gossipsub_mute_penalty() -> anyhow::Result<()> {
             }
             info!(?data, "Received different message");
         }
-        Ok(Err(e)) => panic!("Error receiving message: {}", e),
+        Ok(Err(e)) => panic!("Error receiving message: {e}"),
     }
 
     sleep(Duration::from_secs(4)).await;
@@ -144,11 +146,9 @@ async fn test_reqresp_mute_penalty() -> anyhow::Result<()> {
         })
         .await?;
 
-    if let Some(event) = user1[0].reqresp.next_event().await {
-        if let ReqRespEvent::ReceivedRequest(data, _) = event {
-            assert_eq!(data, b"normal request");
-            info!("Normal request received");
-        }
+    if let Some(ReqRespEvent::ReceivedRequest(data, _)) = user1[0].reqresp.next_event().await {
+        assert_eq!(data, b"normal request");
+        info!("Normal request received");
     }
     user0[0]
         .reqresp
@@ -191,13 +191,11 @@ async fn test_reqresp_mute_penalty() -> anyhow::Result<()> {
         })
         .await?;
 
-    if let Some(event) = user1[0].reqresp.next_event().await {
-        if let ReqRespEvent::ReceivedRequest(data, _) = event {
-            assert_eq!(data, b"after mute expired");
-            info!("Request sent successfully after mute expired");
-        } else {
-            panic!("Expected ReceivedRequest");
-        }
+    if let Some(ReqRespEvent::ReceivedRequest(data, _)) = user1[0].reqresp.next_event().await {
+        assert_eq!(data, b"after mute expired");
+        info!("Request sent successfully after mute expired");
+    } else {
+        panic!("Expected ReceivedRequest");
     }
 
     cancel.cancel();
