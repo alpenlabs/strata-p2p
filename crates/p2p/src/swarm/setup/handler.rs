@@ -18,8 +18,8 @@ use tracing::trace;
 use crate::{
     signer::ApplicationSigner,
     swarm::{
+        dto::message::SetupMessage,
         errors::SetupError,
-        message::SetupMessage,
         setup::{
             events::SetupHandlerEvent,
             upgrade::{InboundSetupUpgrade, OutboundSetupUpgrade},

@@ -14,7 +14,10 @@ use libp2p::{
 
 use crate::{
     signer::ApplicationSigner,
-    swarm::{errors::SetupUpgradeError, message::SetupMessage, signed_data::SignedData},
+    swarm::{
+        dto::{message::SetupMessage, signed_data::SignedData},
+        errors::SetupUpgradeError,
+    },
 };
 
 /// Inbound upgrade for handling incoming setup requests.

@@ -1,8 +1,10 @@
 use libp2p::identity::PublicKey;
 use serde::{Deserialize, Serialize};
 
-use super::errors::{SetupError, SetupUpgradeError};
-use crate::swarm::serializing::signature_serialization::signature_serializer;
+use crate::swarm::{
+    errors::{SetupError, SetupUpgradeError},
+    serializing::signature_serialization::signature_serializer,
+};
 
 /// Wrapper for signed messages.
 #[derive(Debug, Clone, Serialize, Deserialize)]

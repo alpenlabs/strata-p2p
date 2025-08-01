@@ -6,7 +6,9 @@ use libp2p::{Multiaddr, PeerId, identity::PublicKey};
 use serde::{Deserialize, Serialize};
 use tracing::{trace, warn};
 
-use crate::swarm::{serializing::pubkey_serialization::pubkey_serializer, signed_data::SignedData};
+use crate::swarm::{
+    dto::signed_data::SignedData, serializing::pubkey_serialization::pubkey_serializer,
+};
 
 /// Protocol version for DHT records.
 pub(crate) const DHT_PROTOCOL_VERSION: u8 = 0;
