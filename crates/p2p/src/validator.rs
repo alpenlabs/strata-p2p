@@ -3,7 +3,7 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-use libp2p::PeerId;
+use libp2p::identity::PublicKey;
 
 pub const DEFAULT_BAN_PERIOD: Duration = Duration::from_secs(60 * 60 * 24 * 30);
 
@@ -55,7 +55,7 @@ impl PenaltyInfo {
 
 #[derive(Debug, Default)]
 pub struct PenaltyPeerStorage {
-    penalties: HashMap<PeerId, PenaltyInfo>,
+    penalties: HashMap<PublicKey, PenaltyInfo>,
 }
 
 pub trait Validator {
@@ -95,35 +95,35 @@ impl PenaltyPeerStorage {
             penalties: HashMap::new(),
         }
     }
-    pub fn is_gossip_muted(&self, peer_id: &PeerId) -> bool {
+    pub fn is_gossip_muted(&self, app_public_key: &PublicKey) -> bool {
         self.penalties
-            .get(peer_id)
+            .get(app_public_key)
             .and_then(|penalty| penalty.mute_gossip_until)
             .is_some_and(|timestamp| timestamp > SystemTime::now())
     }
 
-    pub fn is_req_resp_muted(&self, peer_id: &PeerId) -> bool {
+    pub fn is_req_resp_muted(&self, app_public_key: &PublicKey) -> bool {
         self.penalties
-            .get(peer_id)
+            .get(app_public_key)
             .and_then(|penalty| penalty.mute_req_resp_until)
             .is_some_and(|timestamp| timestamp > SystemTime::now())
     }
 
-    pub fn is_banned(&self, peer_id: &PeerId) -> bool {
+    pub fn is_banned(&self, app_public_key: &PublicKey) -> bool {
         self.penalties
-            .get(peer_id)
+            .get(app_public_key)
             .and_then(|penalty| penalty.ban_until)
             .is_some_and(|timestamp| timestamp > SystemTime::now())
     }
 
     pub fn mute_peer_gossip(
         &mut self,
-        peer_id: &PeerId,
+        app_public_key: &PublicKey,
         until: SystemTime,
     ) -> Result<(), &'static str> {
         let penalty = self
             .penalties
-            .entry(*peer_id)
+            .entry(app_public_key.clone())
             .or_insert_with(|| PenaltyInfo::new(None, None, None));
 
         if let Some(mute_until) = penalty.mute_gossip_until {
@@ -138,12 +138,12 @@ impl PenaltyPeerStorage {
 
     pub fn mute_peer_req_resp(
         &mut self,
-        peer_id: &PeerId,
+        app_public_key: &PublicKey,
         until: SystemTime,
     ) -> Result<(), &'static str> {
         let penalty = self
             .penalties
-            .entry(*peer_id)
+            .entry(app_public_key.clone())
             .or_insert_with(|| PenaltyInfo::new(None, None, None));
 
         if let Some(mute_until) = penalty.mute_req_resp_until {
@@ -156,10 +156,14 @@ impl PenaltyPeerStorage {
         Ok(())
     }
 
-    pub fn ban_peer(&mut self, peer_id: &PeerId, until: SystemTime) -> Result<(), &'static str> {
+    pub fn ban_peer(
+        &mut self,
+        app_public_key: &PublicKey,
+        until: SystemTime,
+    ) -> Result<(), &'static str> {
         let penalty = self
             .penalties
-            .entry(*peer_id)
+            .entry(app_public_key.clone())
             .or_insert_with(|| PenaltyInfo::new(None, None, None));
 
         if let Some(ban_until) = penalty.ban_until {

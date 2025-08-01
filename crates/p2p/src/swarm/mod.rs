@@ -637,65 +637,95 @@ where
 
     // Apply penalties for peer
     #[cfg(any(feature = "gossipsub", feature = "request-response"))]
-    async fn apply_penalty(&mut self, peer_id: &PeerId, penalty: PenaltyType) {
+    async fn apply_penalty(&mut self, app_public_key: &PublicKey, penalty: PenaltyType) {
         match penalty {
             PenaltyType::Ignore => (),
             PenaltyType::MuteGossip(time_amount) => {
                 let until = SystemTime::now() + time_amount;
-                match self.peer_penalty_storage.mute_peer_gossip(peer_id, until) {
-                    Ok(()) => info!(%peer_id, ?until, "Peer muted for Gossipsub"),
-                    Err(e) => error!(%peer_id, ?e, "Failed to mute peer"),
+                match self
+                    .peer_penalty_storage
+                    .mute_peer_gossip(app_public_key, until)
+                {
+                    Ok(()) => info!(?app_public_key, ?until, "Peer muted for Gossipsub"),
+                    Err(e) => error!(?app_public_key, ?e, "Failed to mute peer"),
                 }
             }
             PenaltyType::MuteReqresp(time_amount) => {
                 let until = SystemTime::now() + time_amount;
-                match self.peer_penalty_storage.mute_peer_req_resp(peer_id, until) {
-                    Ok(()) => info!(%peer_id, ?until, "Peer muted for RequestResponse"),
-                    Err(e) => error!(%peer_id, ?e, "Failed to mute peer"),
+                match self
+                    .peer_penalty_storage
+                    .mute_peer_req_resp(app_public_key, until)
+                {
+                    Ok(()) => info!(?app_public_key, ?until, "Peer muted for RequestResponse"),
+                    Err(e) => error!(?app_public_key, ?e, "Failed to mute peer"),
                 }
             }
             PenaltyType::MuteBoth(time_amount) => {
                 let until = SystemTime::now() + time_amount;
-                let gossip_mute_result = self.peer_penalty_storage.mute_peer_gossip(peer_id, until);
-                let req_resp_mute_result =
-                    self.peer_penalty_storage.mute_peer_req_resp(peer_id, until);
+                let gossip_mute_result = self
+                    .peer_penalty_storage
+                    .mute_peer_gossip(app_public_key, until);
+                let req_resp_mute_result = self
+                    .peer_penalty_storage
+                    .mute_peer_req_resp(app_public_key, until);
                 match (gossip_mute_result, req_resp_mute_result) {
                     (Ok(()), Ok(())) => {
-                        info!(%peer_id, ?until, "Peer muted for both Gossipsub and RequestResponse")
+                        info!(
+                            ?app_public_key,
+                            ?until,
+                            "Peer muted for both Gossipsub and RequestResponse"
+                        )
                     }
                     (Err(e1), Err(e2)) => {
-                        error!(%peer_id, ?e1, ?e2, "Failed to mute peer for both protocols")
+                        error!(
+                            ?app_public_key,
+                            ?e1,
+                            ?e2,
+                            "Failed to mute peer for both protocols"
+                        )
                     }
                     (Err(e), _) | (_, Err(e)) => {
-                        error!(%peer_id, ?e, "Failed to mute peer for one protocol")
+                        error!(?app_public_key, ?e, "Failed to mute peer for one protocol")
                     }
                 }
             }
             PenaltyType::Ban(opt_time_amount) => {
                 let until = SystemTime::now() + opt_time_amount.unwrap_or(DEFAULT_BAN_PERIOD);
-                match self.peer_penalty_storage.ban_peer(peer_id, until) {
-                    Ok(()) => info!(%peer_id, ?until, "Peer banned"),
-                    Err(e) => error!(%peer_id, ?e, "Failed to ban peer"),
+                match self.peer_penalty_storage.ban_peer(app_public_key, until) {
+                    Ok(()) => info!(?app_public_key, ?until, "Peer banned"),
+                    Err(e) => error!(?app_public_key, ?e, "Failed to ban peer"),
                 }
             }
         }
     }
 
     #[cfg(any(feature = "gossipsub", feature = "request-response"))]
-    fn get_all_scores(&self, peer_id: &PeerId) -> (f64, f64, f64) {
+    fn get_all_scores(&self, app_public_key: &PublicKey) -> (f64, f64, f64) {
         let (gossip_internal_score, gossip_app_score) = {
             #[cfg(feature = "gossipsub")]
             {
+                let peer_id = self
+                    .swarm
+                    .behaviour()
+                    .setup
+                    .get_transport_id_by_application_key(app_public_key);
+                let peer_id = match peer_id {
+                    Some(peer_id) => peer_id,
+                    None => {
+                        warn!(?app_public_key, "No transport ID found for app public key");
+                        return (0.0, 0.0, 0.0);
+                    }
+                };
                 let internal = self
                     .swarm
                     .behaviour()
                     .gossipsub
-                    .peer_score(peer_id)
+                    .peer_score(&peer_id)
                     .unwrap_or(0.0);
 
                 let app = self
                     .score_manager
-                    .get_gossipsub_app_score(peer_id)
+                    .get_gossipsub_app_score(app_public_key)
                     .unwrap_or(DEFAULT_GOSSIP_APP_SCORE);
 
                 (internal, app)
@@ -709,7 +739,7 @@ where
             #[cfg(feature = "request-response")]
             {
                 self.score_manager
-                    .get_req_resp_score(peer_id)
+                    .get_req_resp_score(app_public_key)
                     .unwrap_or(DEFAULT_REQ_RESP_APP_SCORE)
             }
 
@@ -832,10 +862,20 @@ where
         trace!(?message.data, "Got message");
 
         // Score/penalty logic for gossipsub
-        if self
-            .peer_penalty_storage
-            .is_gossip_muted(&propagation_source)
+        let app_public_key = match self
+            .swarm
+            .behaviour()
+            .setup
+            .get_app_public_key_by_transport_id(&propagation_source)
         {
+            Some(key) => key,
+            None => {
+                warn!(%propagation_source, "No app public key found for peer");
+                return Ok(());
+            }
+        };
+
+        if self.peer_penalty_storage.is_gossip_muted(&app_public_key) {
             warn!(
                 %propagation_source, "Peer is muted for Gossipsub"
             );
@@ -921,7 +961,7 @@ where
 
         let old_app_score = self
             .score_manager
-            .get_gossipsub_app_score(&propagation_source)
+            .get_gossipsub_app_score(&app_public_key)
             .unwrap_or(DEFAULT_GOSSIP_APP_SCORE);
 
         let updated_score = DefaultP2PValidator::validate_msg(
@@ -930,10 +970,10 @@ where
         );
 
         self.score_manager
-            .update_gossipsub_app_score(&propagation_source, updated_score);
+            .update_gossipsub_app_score(&app_public_key, updated_score);
 
         let (gossip_internal_score, gossip_app_score, reqresp_app_score) =
-            self.get_all_scores(&propagation_source);
+            self.get_all_scores(&app_public_key);
 
         if let Some(penalty) = DefaultP2PValidator::get_penalty(
             &MessageType::Gossipsub(gossip_message.message.clone()),
@@ -941,7 +981,7 @@ where
             gossip_app_score,
             reqresp_app_score,
         ) {
-            self.apply_penalty(&propagation_source, penalty).await;
+            self.apply_penalty(&app_public_key, penalty).await;
             return Ok(());
         }
 
@@ -1241,12 +1281,24 @@ where
             .config
             .channel_timeout
             .unwrap_or(DEFAULT_CHANNEL_TIMEOUT);
+        let app_public_key = match self
+            .swarm
+            .behaviour()
+            .setup
+            .get_app_public_key_by_transport_id(&peer_id)
+        {
+            Some(key) => key,
+            None => {
+                warn!(%peer_id, "No app public key found for peer");
+                return Ok(());
+            }
+        };
         match msg {
             request_response::Message::Request {
                 request, channel, ..
             } => {
                 // Score/penalty logic for request
-                if self.peer_penalty_storage.is_req_resp_muted(&peer_id) {
+                if self.peer_penalty_storage.is_req_resp_muted(&app_public_key) {
                     warn!("Peer(peer_id={}) is muted for request/response", peer_id);
                     return Ok(());
                 }
@@ -1282,7 +1334,7 @@ where
 
                 let old_app_score = self
                     .score_manager
-                    .get_req_resp_score(&peer_id)
+                    .get_req_resp_score(&app_public_key)
                     .unwrap_or(DEFAULT_REQ_RESP_APP_SCORE);
 
                 let updated_score = DefaultP2PValidator::validate_msg(
@@ -1291,10 +1343,10 @@ where
                 );
 
                 self.score_manager
-                    .update_req_resp_app_score(&peer_id, updated_score);
+                    .update_req_resp_app_score(&app_public_key, updated_score);
 
                 let (gossip_internal_score, gossip_app_score, reqresp_app_score) =
-                    self.get_all_scores(&peer_id);
+                    self.get_all_scores(&app_public_key);
 
                 if let Some(penalty) = DefaultP2PValidator::get_penalty(
                     &MessageType::Request(request.message.clone()),
@@ -1302,7 +1354,7 @@ where
                     gossip_app_score,
                     reqresp_app_score,
                 ) {
-                    self.apply_penalty(&peer_id, penalty).await;
+                    self.apply_penalty(&app_public_key, penalty).await;
                     return Ok(());
                 }
 
@@ -1369,7 +1421,7 @@ where
             }
             request_response::Message::Response { response, .. } => {
                 // Score/penalty logic for response
-                if self.peer_penalty_storage.is_req_resp_muted(&peer_id) {
+                if self.peer_penalty_storage.is_req_resp_muted(&app_public_key) {
                     warn!(%peer_id, "Peer is muted for request/response");
                     return Ok(());
                 }
@@ -1407,7 +1459,7 @@ where
 
                 let old_app_score = self
                     .score_manager
-                    .get_req_resp_score(&peer_id)
+                    .get_req_resp_score(&app_public_key)
                     .unwrap_or(DEFAULT_REQ_RESP_APP_SCORE);
 
                 let updated_score = DefaultP2PValidator::validate_msg(
@@ -1416,10 +1468,10 @@ where
                 );
 
                 self.score_manager
-                    .update_req_resp_app_score(&peer_id, updated_score);
+                    .update_req_resp_app_score(&app_public_key, updated_score);
 
                 let (gossip_internal_score, gossip_app_score, reqresp_app_score) =
-                    self.get_all_scores(&peer_id);
+                    self.get_all_scores(&app_public_key);
 
                 if let Some(penalty) = DefaultP2PValidator::get_penalty(
                     &MessageType::Response(response.message.clone()),
@@ -1427,7 +1479,7 @@ where
                     gossip_app_score,
                     reqresp_app_score,
                 ) {
-                    self.apply_penalty(&peer_id, penalty).await;
+                    self.apply_penalty(&app_public_key, penalty).await;
                     return Ok(());
                 }
 
@@ -1457,7 +1509,7 @@ where
                 transport_id: peer_id,
                 app_public_key,
             } => {
-                if self.peer_penalty_storage.is_banned(&peer_id) {
+                if self.peer_penalty_storage.is_banned(&app_public_key) {
                     info!(%peer_id, "Received app public key from banned peer. Disconnecting.");
                     let _ = self.swarm.disconnect_peer_id(peer_id);
                     return Ok(());
