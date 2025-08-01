@@ -1,5 +1,6 @@
 use std::{
     collections::HashMap,
+    fmt::Debug,
     time::{Duration, SystemTime},
 };
 
@@ -58,12 +59,13 @@ pub struct PenaltyPeerStorage {
     penalties: HashMap<PublicKey, PenaltyInfo>,
 }
 
-pub trait Validator {
+pub trait Validator: Debug + Send + Sync + Clone + Default + 'static {
     /// Validates data using the generic validator.
-    fn validate_msg(msg: &Message, old_app_score: f64) -> f64 /* new_app_score */;
+    fn validate_msg(&self, msg: &Message, old_app_score: f64) -> f64 /* new_app_score */;
 
     /// Logic where we analyze the message and decide what to do with it.
     fn get_penalty(
+        &self,
         msg: &Message,
         gossip_internal_score: f64,
         gossip_app_score: f64,
@@ -71,15 +73,16 @@ pub trait Validator {
     ) -> Option<PenaltyType>;
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct DefaultP2PValidator;
 
 impl Validator for DefaultP2PValidator {
-    fn validate_msg(_msg: &Message, _old_app_score: f64) -> f64 {
+    fn validate_msg(&self, _msg: &Message, _old_app_score: f64) -> f64 {
         0.0
     }
 
     fn get_penalty(
+        &self,
         _msg: &Message,
         _gossip_internal_score: f64,
         _gossip_app_score: f64,

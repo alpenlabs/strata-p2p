@@ -1,0 +1,324 @@
+//! Integration tests for the validator and score manager.
+
+use std::time::Duration;
+
+use futures::SinkExt;
+use tokio::{
+    sync::oneshot,
+    time::{sleep, timeout},
+};
+use tracing::info;
+
+use super::common::{init_tracing, Setup};
+use crate::{
+    commands::{GossipCommand, QueryP2PStateCommand, RequestResponseCommand},
+    events::{GossipEvent, ReqRespEvent},
+    validator::{Message, PenaltyType, Validator},
+};
+
+#[derive(Debug, Default, Clone)]
+struct TestValidator;
+
+impl Validator for TestValidator {
+    fn validate_msg(&self, _msg: &Message, _old_app_score: f64) -> f64 {
+        0.0
+    }
+
+    fn get_penalty(
+        &self,
+        msg: &Message,
+        _gossip_internal_score: f64,
+        _gossip_app_score: f64,
+        _reqresp_app_score: f64,
+    ) -> Option<PenaltyType> {
+        match msg {
+            Message::Gossipsub(data) | Message::Request(data) | Message::Response(data) => {
+                let content = String::from_utf8_lossy(data);
+                match content.as_ref() {
+                    "ignore me" => Some(PenaltyType::Ignore),
+                    "mute gossip" => Some(PenaltyType::MuteGossip(Duration::from_secs(4))),
+                    "mute reqresp" => Some(PenaltyType::MuteReqresp(Duration::from_secs(4))),
+                    "mute both" => Some(PenaltyType::MuteBoth(Duration::from_secs(4))),
+                    "ban me" => Some(PenaltyType::Ban(Some(Duration::from_secs(30)))),
+                    _ => None,
+                }
+            }
+        }
+    }
+}
+
+#[cfg(feature = "gossipsub")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn test_gossipsub_mute_penalty() -> anyhow::Result<()> {
+    init_tracing();
+    const USERS_NUM: usize = 2;
+
+    let Setup {
+        mut user_handles,
+        cancel,
+        tasks,
+    } = Setup::all_to_all_with_custom_validator(USERS_NUM, TestValidator).await?;
+
+    sleep(Duration::from_millis(500)).await;
+
+    user_handles[0]
+        .gossip
+        .send(GossipCommand {
+            data: "normal message".into(),
+        })
+        .await?;
+
+    let GossipEvent::ReceivedMessage(data) = user_handles[1].gossip.next_event().await?;
+    assert_eq!(data, b"normal message");
+    info!("Normal message received before mute");
+    user_handles[0]
+        .gossip
+        .send(GossipCommand {
+            data: "mute gossip".into(),
+        })
+        .await?;
+
+    sleep(Duration::from_millis(200)).await;
+    user_handles[0]
+        .gossip
+        .send(GossipCommand {
+            data: "this should be muted".into(),
+        })
+        .await?;
+
+    let result = timeout(Duration::from_secs(1), user_handles[1].gossip.next_event()).await;
+
+    match result {
+        Err(_) => info!("Timeout occurred - peer is correctly muted for gossip"),
+        Ok(Ok(event)) => {
+            let GossipEvent::ReceivedMessage(data) = event;
+            if data == b"this should be muted" {
+                panic!("Received muted message - muting failed!");
+            }
+            info!(?data, "Received different message");
+        }
+        Ok(Err(e)) => panic!("Error receiving message: {}", e),
+    }
+
+    sleep(Duration::from_secs(4)).await;
+
+    user_handles[0]
+        .gossip
+        .send(GossipCommand {
+            data: "after mute expired".into(),
+        })
+        .await?;
+
+    let GossipEvent::ReceivedMessage(data) = user_handles[1].gossip.next_event().await?;
+    assert_eq!(data, b"after mute expired");
+    info!("Message sent successfully after mute expired");
+
+    cancel.cancel();
+    tasks.wait().await;
+    Ok(())
+}
+
+#[cfg(feature = "request-response")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn test_reqresp_mute_penalty() -> anyhow::Result<()> {
+    init_tracing();
+    const USERS_NUM: usize = 2;
+
+    let Setup {
+        mut user_handles,
+        cancel,
+        tasks,
+    } = Setup::all_to_all_with_custom_validator(USERS_NUM, TestValidator).await?;
+
+    sleep(Duration::from_millis(500)).await;
+
+    // Split user_handles to avoid borrow checker issues
+    let (user0, user1) = user_handles.split_at_mut(1);
+    let target_public_key = user1[0].app_keypair.public().clone();
+
+    user0[0]
+        .reqresp
+        .send(RequestResponseCommand {
+            target_app_public_key: target_public_key.clone(),
+            data: "normal request".into(),
+        })
+        .await?;
+
+    if let Some(event) = user1[0].reqresp.next_event().await {
+        if let ReqRespEvent::ReceivedRequest(data, _) = event {
+            assert_eq!(data, b"normal request");
+            info!("Normal request received");
+        }
+    }
+    user0[0]
+        .reqresp
+        .send(RequestResponseCommand {
+            target_app_public_key: target_public_key.clone(),
+            data: "mute reqresp".into(),
+        })
+        .await?;
+
+    sleep(Duration::from_millis(200)).await;
+    user0[0]
+        .reqresp
+        .send(RequestResponseCommand {
+            target_app_public_key: target_public_key.clone(),
+            data: "this should be muted".into(),
+        })
+        .await?;
+
+    let result = timeout(Duration::from_millis(1000), user1[0].reqresp.next_event()).await;
+
+    match result {
+        Err(_) => info!("Timeout occurred - peer is correctly muted for req/resp"),
+        Ok(Some(event)) => {
+            if let ReqRespEvent::ReceivedRequest(data, _) = event {
+                if data == b"this should be muted" {
+                    panic!("Received muted request - muting failed!");
+                }
+            }
+        }
+        Ok(None) => info!("No event received - peer is correctly muted"),
+    }
+
+    sleep(Duration::from_secs(4)).await;
+
+    user0[0]
+        .reqresp
+        .send(RequestResponseCommand {
+            target_app_public_key: target_public_key,
+            data: "after mute expired".into(),
+        })
+        .await?;
+
+    if let Some(event) = user1[0].reqresp.next_event().await {
+        if let ReqRespEvent::ReceivedRequest(data, _) = event {
+            assert_eq!(data, b"after mute expired");
+            info!("Request sent successfully after mute expired");
+        } else {
+            panic!("Expected ReceivedRequest");
+        }
+    }
+
+    cancel.cancel();
+    tasks.wait().await;
+    Ok(())
+}
+
+#[cfg(feature = "gossipsub")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn test_gossipsub_ban_penalty() -> anyhow::Result<()> {
+    init_tracing();
+    const USERS_NUM: usize = 2;
+
+    let Setup {
+        mut user_handles,
+        cancel,
+        tasks,
+    } = Setup::all_to_all_with_custom_validator(USERS_NUM, TestValidator).await?;
+
+    let _ = sleep(Duration::from_millis(500)).await;
+
+    let (tx, rx) = oneshot::channel();
+    let is_connected_query = QueryP2PStateCommand::IsConnected {
+        app_public_key: user_handles[1].app_keypair.public(),
+        response_sender: tx,
+    };
+
+    user_handles[0]
+        .command
+        .send_command(is_connected_query)
+        .await;
+    let is_connected = rx.await.expect("Failed to check connection status");
+    info!(?is_connected, "connection status");
+    assert!(is_connected);
+
+    user_handles[0]
+        .gossip
+        .send(GossipCommand {
+            data: "ban me".into(),
+        })
+        .await
+        .expect("Failed to send ban message");
+
+    let _ = sleep(Duration::from_millis(100)).await;
+
+    let (tx, rx) = oneshot::channel();
+    let is_connected_query = QueryP2PStateCommand::IsConnected {
+        app_public_key: user_handles[1].app_keypair.public(),
+        response_sender: tx,
+    };
+
+    user_handles[0]
+        .command
+        .send_command(is_connected_query)
+        .await;
+    let is_connected = rx.await.expect("Failed to check connection status");
+    info!(?is_connected, "connection status");
+    assert!(!is_connected);
+
+    cancel.cancel();
+    tasks.wait().await;
+
+    Ok(())
+}
+
+#[cfg(feature = "request-response")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn test_reqresp_ban_penalty() -> anyhow::Result<()> {
+    init_tracing();
+    const USERS_NUM: usize = 2;
+
+    let Setup {
+        mut user_handles,
+        cancel,
+        tasks,
+    } = Setup::all_to_all_with_custom_validator(USERS_NUM, TestValidator).await?;
+
+    let _ = sleep(Duration::from_millis(500)).await;
+
+    let (tx, rx) = oneshot::channel();
+    let is_connected_query = QueryP2PStateCommand::IsConnected {
+        app_public_key: user_handles[1].app_keypair.public(),
+        response_sender: tx,
+    };
+
+    user_handles[0]
+        .command
+        .send_command(is_connected_query)
+        .await;
+    let is_connected = rx.await.expect("Failed to check connection status");
+    info!(?is_connected, "connection status");
+    assert!(is_connected);
+
+    // Split user_handles to avoid borrow checker issues
+    let (user0, user1) = user_handles.split_at_mut(1);
+    let target_public_key = user1[0].app_keypair.public().clone();
+
+    user0[0]
+        .reqresp
+        .send(RequestResponseCommand {
+            target_app_public_key: target_public_key,
+            data: "ban me".into(),
+        })
+        .await
+        .expect("Failed to send ban message");
+
+    let _ = sleep(Duration::from_millis(100)).await;
+
+    let (tx, rx) = oneshot::channel();
+    let is_connected_query = QueryP2PStateCommand::IsConnected {
+        app_public_key: user1[0].app_keypair.public(),
+        response_sender: tx,
+    };
+
+    user0[0].command.send_command(is_connected_query).await;
+    let is_connected = rx.await.expect("Failed to check connection status");
+    info!(?is_connected, "connection status");
+    assert!(!is_connected);
+
+    cancel.cancel();
+    tasks.wait().await;
+
+    Ok(())
+}

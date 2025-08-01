@@ -20,6 +20,7 @@ use crate::swarm::handle::ReqRespHandle;
 use crate::{
     signer::ApplicationSigner,
     swarm::{self, handle::CommandHandle, P2PConfig, P2P},
+    validator::{DefaultP2PValidator, Validator},
 };
 
 /// Only attempt to start tracing once
@@ -62,8 +63,11 @@ impl ApplicationSigner for MockApplicationSigner {
     }
 }
 
-pub(crate) struct User<S: ApplicationSigner = MockApplicationSigner> {
-    pub(crate) p2p: P2P<S>,
+pub(crate) struct User<
+    S: ApplicationSigner = MockApplicationSigner,
+    V: Validator = DefaultP2PValidator,
+> {
+    pub(crate) p2p: P2P<S, V>,
     #[cfg(feature = "gossipsub")]
     pub(crate) gossip: GossipHandle,
     #[cfg(feature = "request-response")]
@@ -73,7 +77,7 @@ pub(crate) struct User<S: ApplicationSigner = MockApplicationSigner> {
     pub(crate) transport_keypair: Keypair,
 }
 
-impl<S: ApplicationSigner> User<S> {
+impl<S: ApplicationSigner, V: Validator> User<S, V> {
     pub(crate) fn new(
         app_keypair: Keypair,
         transport_keypair: Keypair,
@@ -82,6 +86,7 @@ impl<S: ApplicationSigner> User<S> {
         listening_addrs: Vec<Multiaddr>,
         cancel: CancellationToken,
         signer: S,
+        validator: V,
     ) -> anyhow::Result<Self> {
         debug!(
             ?listening_addrs,
@@ -128,6 +133,7 @@ impl<S: ApplicationSigner> User<S> {
             #[cfg(feature = "gossipsub")]
             None,
             signer.clone(),
+            Some(validator),
         )?;
         #[cfg(not(feature = "request-response"))]
         let p2p = P2P::<S>::from_config(
@@ -221,6 +227,7 @@ impl Setup {
                 MockApplicationSigner {
                     app_keypair: app_keypair.clone(),
                 },
+                DefaultP2PValidator,
             )?;
 
             users.push(user);
@@ -280,6 +287,62 @@ impl Setup {
                 MockApplicationSigner {
                     app_keypair: app_keypair.clone(),
                 },
+                DefaultP2PValidator,
+            )?;
+
+            users.push(user);
+        }
+
+        let (users, tasks) = Self::start_users(users).await;
+
+        Ok(Self {
+            cancel,
+            tasks,
+            user_handles: users,
+        })
+    }
+
+    pub(crate) async fn all_to_all_with_custom_validator<V: Validator>(
+        n: usize,
+        validator: V,
+    ) -> anyhow::Result<Self> {
+        let SetupInitialData {
+            app_keypairs,
+            transport_keypairs,
+            peer_ids,
+            multiaddresses,
+        } = Self::setup_keys_ids_addrs_of_n_users(n);
+
+        let cancel = CancellationToken::new();
+        let mut users = Vec::new();
+
+        for (idx, ((app_keypair, transport_keypair), addr)) in app_keypairs
+            .iter()
+            .zip(&transport_keypairs)
+            .zip(&multiaddresses)
+            .enumerate()
+        {
+            let mut other_addrs = multiaddresses.clone();
+            other_addrs.remove(idx);
+            let mut other_peerids = peer_ids.clone();
+            other_peerids.remove(idx);
+            let mut other_app_pk = app_keypairs
+                .iter()
+                .map(|kp| kp.public())
+                .collect::<Vec<_>>();
+            other_app_pk.remove(idx);
+
+            let user = User::new(
+                app_keypair.clone(),
+                transport_keypair.clone(),
+                other_addrs,
+                other_app_pk,
+                vec![addr.clone()],
+                cancel.child_token(),
+                MockApplicationSigner {
+                    app_keypair: app_keypair.clone(),
+                },
+                validator.clone(),
             )?;
 
             users.push(user);
@@ -343,7 +406,9 @@ impl Setup {
 
     /// Wait until all users established connections with other users,
     /// and then spawn [`P2P::listen`]s in separate tasks using [`TaskTracker`].
-    async fn start_users(mut users: Vec<User>) -> (Vec<UserHandle>, TaskTracker) {
+    async fn start_users<S: ApplicationSigner, V: Validator>(
+        mut users: Vec<User<S, V>>,
+    ) -> (Vec<UserHandle>, TaskTracker) {
         // wait until all of them established connections and subscriptions
         join_all(
             users

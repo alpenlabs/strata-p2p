@@ -4,7 +4,6 @@
 use std::time::SystemTime;
 use std::{
     collections::{HashSet, VecDeque},
-    marker::PhantomData,
     time::{Duration, Instant},
 };
 
@@ -168,7 +167,7 @@ pub struct P2PConfig {
 pub struct P2P<S, V = DefaultP2PValidator>
 where
     S: ApplicationSigner,
-    V: Validator + Send + Sync + 'static,
+    V: Validator,
 {
     /// The swarm that handles the networking.
     swarm: Swarm<Behaviour<S>>,
@@ -233,8 +232,7 @@ where
     /// Storage with penalty for peer's penalty
     peer_penalty_storage: PenaltyPeerStorage,
 
-    // PhantomData
-    _phantom_data: PhantomData<V>,
+    validator: V,
 }
 
 /// Alias for [`P2P`] and [`ReqRespHandle`] tuple.
@@ -244,7 +242,7 @@ pub type P2PWithReqRespHandle<S, V> = (P2P<S, V>, ReqRespHandle);
 impl<S, V> P2P<S, V>
 where
     S: ApplicationSigner,
-    V: Validator + Send + Sync + 'static,
+    V: Validator,
 {
     /// Creates a new P2P instance from the given configuration.
     #[cfg(feature = "request-response")]
@@ -255,6 +253,7 @@ where
         allowlist: Vec<PublicKey>,
         #[cfg(feature = "gossipsub")] channel_size: Option<usize>,
         signer: S,
+        validator: Option<V>,
     ) -> P2PResult<P2PWithReqRespHandle<S, V>> {
         for addr in &cfg.listening_addrs {
             swarm
@@ -280,6 +279,8 @@ where
             (gossip_events_tx, gossip_cmds_tx, gossip_cmds_rx)
         };
 
+        let validator = validator.unwrap_or_default();
+
         Ok((
             P2P::<S, V> {
                 swarm,
@@ -301,7 +302,7 @@ where
                 dial_manager: DialManager::new(),
                 score_manager,
                 peer_penalty_storage,
-                _phantom_data: PhantomData,
+                validator,
             },
             #[cfg(feature = "request-response")]
             ReqRespHandle::new(req_resp_event_rx, req_resp_cmds_tx),
@@ -317,6 +318,7 @@ where
         allowlist: Vec<PublicKey>,
         #[cfg(feature = "gossipsub")] channel_size: Option<usize>,
         signer: S,
+        validator: Option<V>,
     ) -> P2PResult<P2P<S, V>> {
         for addr in &cfg.listening_addrs {
             swarm
@@ -341,6 +343,8 @@ where
             (cmds_tx, cmds_rx, score_manager, peer_penalty_storage)
         };
 
+        let validator = validator.unwrap_or_default();
+
         Ok(P2P::<S, V> {
             swarm,
             #[cfg(feature = "gossipsub")]
@@ -358,7 +362,7 @@ where
             dial_manager: DialManager::new(),
             score_manager,
             peer_penalty_storage,
-            _phantom_data: PhantomData,
+            validator,
         })
     }
 
@@ -692,7 +696,19 @@ where
             PenaltyType::Ban(opt_time_amount) => {
                 let until = SystemTime::now() + opt_time_amount.unwrap_or(DEFAULT_BAN_PERIOD);
                 match self.peer_penalty_storage.ban_peer(app_public_key, until) {
-                    Ok(()) => info!(?app_public_key, ?until, "Peer banned"),
+                    Ok(()) => {
+                        info!(?app_public_key, ?until, "Peer banned");
+                        let peer_id = self
+                            .swarm
+                            .behaviour()
+                            .setup
+                            .get_transport_id_by_application_key(app_public_key);
+                        if let Some(peer_id) = peer_id {
+                            let _ = self.swarm.disconnect_peer_id(peer_id);
+                        } else {
+                            warn!(?app_public_key, "No transport ID found for app public key");
+                        }
+                    }
                     Err(e) => error!(?app_public_key, ?e, "Failed to ban peer"),
                 }
             }
@@ -964,7 +980,7 @@ where
             .get_gossipsub_app_score(&app_public_key)
             .unwrap_or(DEFAULT_GOSSIP_APP_SCORE);
 
-        let updated_score = DefaultP2PValidator::validate_msg(
+        let updated_score = self.validator.validate_msg(
             &MessageType::Gossipsub(gossip_message.message.clone()),
             old_app_score,
         );
@@ -975,7 +991,7 @@ where
         let (gossip_internal_score, gossip_app_score, reqresp_app_score) =
             self.get_all_scores(&app_public_key);
 
-        if let Some(penalty) = DefaultP2PValidator::get_penalty(
+        if let Some(penalty) = self.validator.get_penalty(
             &MessageType::Gossipsub(gossip_message.message.clone()),
             gossip_internal_score,
             gossip_app_score,
@@ -1337,7 +1353,7 @@ where
                     .get_req_resp_score(&app_public_key)
                     .unwrap_or(DEFAULT_REQ_RESP_APP_SCORE);
 
-                let updated_score = DefaultP2PValidator::validate_msg(
+                let updated_score = self.validator.validate_msg(
                     &MessageType::Request(request.message.clone()),
                     old_app_score,
                 );
@@ -1348,7 +1364,7 @@ where
                 let (gossip_internal_score, gossip_app_score, reqresp_app_score) =
                     self.get_all_scores(&app_public_key);
 
-                if let Some(penalty) = DefaultP2PValidator::get_penalty(
+                if let Some(penalty) = self.validator.get_penalty(
                     &MessageType::Request(request.message.clone()),
                     gossip_internal_score,
                     gossip_app_score,
@@ -1462,7 +1478,7 @@ where
                     .get_req_resp_score(&app_public_key)
                     .unwrap_or(DEFAULT_REQ_RESP_APP_SCORE);
 
-                let updated_score = DefaultP2PValidator::validate_msg(
+                let updated_score = self.validator.validate_msg(
                     &MessageType::Response(response.message.clone()),
                     old_app_score,
                 );
@@ -1473,7 +1489,7 @@ where
                 let (gossip_internal_score, gossip_app_score, reqresp_app_score) =
                     self.get_all_scores(&app_public_key);
 
-                if let Some(penalty) = DefaultP2PValidator::get_penalty(
+                if let Some(penalty) = self.validator.get_penalty(
                     &MessageType::Response(response.message.clone()),
                     gossip_internal_score,
                     gossip_app_score,

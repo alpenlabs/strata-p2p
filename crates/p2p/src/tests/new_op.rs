@@ -12,6 +12,7 @@ use crate::{
     commands::{Command, GossipCommand, QueryP2PStateCommand},
     events::GossipEvent,
     tests::common::{init_tracing, MockApplicationSigner, User},
+    validator::DefaultP2PValidator,
 };
 
 /// Tests sending a gossipsub message from a new user to all existing users.
@@ -74,6 +75,7 @@ async fn gossip_new_user() -> anyhow::Result<()> {
         vec![local_addr.clone()],
         cancel.child_token(),
         MockApplicationSigner::new(new_user_app_keypair.clone()),
+        DefaultP2PValidator,
     )?;
 
     // Wait for existing users to fully initialize
