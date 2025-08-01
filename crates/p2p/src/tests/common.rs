@@ -35,9 +35,6 @@ pub(crate) const MULTIADDR_MEMORY_ID_OFFSET_TEST_SETUP_WITH_INVALID_SIGNATURE: u
 #[cfg(feature = "kademlia")]
 pub(crate) const MULTIADDR_MEMORY_ID_OFFSET_TEST_DHT_RECORD: u64 = 800;
 
-#[cfg(all(feature = "request-response", feature = "kademlia"))]
-pub(crate) const MULTIADDR_MEMORY_ID_OFFSET_TEST_REQUEST_RESPONSE_DHT: u64 = 1000;
-
 /// Only attempt to start tracing once
 ///
 /// it is needed for supporting plain `cargo test`
@@ -209,59 +206,6 @@ impl Setup {
                 transport_keypair.clone(),
                 other_addrs,
                 other_app_pk,
-                vec![addr.clone()],
-                cancel.child_token(),
-                MockApplicationSigner {
-                    app_keypair: app_keypair.clone(),
-                },
-            )?;
-
-            users.push(user);
-        }
-
-        let (users, tasks) = Self::start_users(users).await;
-
-        Ok(Self {
-            cancel,
-            tasks,
-            user_handles: users,
-        })
-    }
-
-    pub(crate) async fn all_to_all_limited(
-        n: usize,
-        init_limit: usize,
-        offset: u64,
-    ) -> anyhow::Result<Self> {
-        let SetupInitialData {
-            app_keypairs,
-            transport_keypairs,
-            multiaddresses,
-        } = Self::setup_keys_ids_addrs_of_n_users(n, offset);
-
-        let cancel = CancellationToken::new();
-        let mut users = Vec::new();
-
-        for (idx, ((app_keypair, transport_keypair), addr)) in app_keypairs
-            .iter()
-            .zip(&transport_keypairs)
-            .zip(&multiaddresses)
-            .enumerate()
-        {
-            let mut other_addrs = multiaddresses.clone();
-            other_addrs.remove(idx);
-            let limited_other_addrs = &other_addrs[0..init_limit];
-            let mut other_app_pk = app_keypairs
-                .iter()
-                .map(|kp| kp.public())
-                .collect::<Vec<_>>();
-            other_app_pk.remove(idx);
-
-            let user = User::new(
-                app_keypair.clone(),
-                transport_keypair.clone(),
-                limited_other_addrs.to_vec(),
-                other_app_pk.to_vec(),
                 vec![addr.clone()],
                 cancel.child_token(),
                 MockApplicationSigner {

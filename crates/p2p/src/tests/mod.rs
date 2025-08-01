@@ -15,8 +15,5 @@ pub(crate) mod quic;
 #[cfg(feature = "request-response")]
 pub(crate) mod request_response;
 
-#[cfg(all(feature = "request-response", feature = "kademlia"))]
-pub(crate) mod dht_request_response;
-
 #[cfg(feature = "kademlia")]
 pub(crate) mod dht_record;
