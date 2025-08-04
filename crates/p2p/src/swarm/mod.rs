@@ -65,7 +65,7 @@ use crate::{
     swarm::{dial_manager::DialManager, setup::events::SetupBehaviourEvent},
 };
 
-/// a non exchaustive enum.
+/// a non exhaustive enum.
 #[cfg(feature = "kad")]
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -615,7 +615,7 @@ impl<S: ApplicationSigner> P2P<S> {
             };
 
             if let Err(err) = result {
-                error!(%err, "Stopping... encountered error...");
+                error!(%err, "Stopping... Encountered error...");
                 return;
             }
         }
