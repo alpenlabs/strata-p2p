@@ -39,7 +39,7 @@ use libp2p::{
         Quorum, Record, RecordKey, store::RecordStore,
     },
 };
-#[cfg(feature = "request-response")]
+#[cfg(any(feature = "request-response", feature = "kad"))]
 use tokio::sync::oneshot;
 use tokio::{
     sync::{broadcast, mpsc},
@@ -110,7 +110,7 @@ enum ActionOnKademliaGetRecord {
     /// Action related to [`Command::GetDHTRecord`].
     JustThrowResultBack {
         /// `tx` that we got from [`Command::GetDHTRecord`].
-        tx: tokio::sync::oneshot::Sender<Option<RecordData>>,
+        tx: oneshot::Sender<Option<RecordData>>,
     },
 }
 

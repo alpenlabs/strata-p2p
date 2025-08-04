@@ -34,7 +34,7 @@ pub enum Command {
         /// Key for DHT record: a remote node's application public key.
         app_public_key: PublicKey,
         /// One shot channel for sending result back.
-        response_sender: tokio::sync::oneshot::Sender<Option<RecordData>>,
+        response_sender: oneshot::Sender<Option<RecordData>>,
     },
 }
 
