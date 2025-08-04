@@ -449,7 +449,7 @@ impl<S: ApplicationSigner> P2P<S> {
                     break;
                 }
                 Ok(Err(err)) => {
-                    error!(topic=%TOPIC.to_string(), %err, %num_retries, %max_retry_count,local_addr=?self.config.listening_addrs, "failed to subscribe to topic, retrying...");
+                    error!(topic=%TOPIC.to_string(), %err, %num_retries, %max_retry_count, local_addr=?self.config.listening_addrs, "failed to subscribe to topic, retrying...");
                 }
                 Err(_) => {
                     error!(topic=%TOPIC.to_string(), %num_retries, %max_retry_count, local_addr=?self.config.listening_addrs, "failed to subscribe to topic, retrying...");
