@@ -13,7 +13,7 @@ use crate::{
 };
 
 /// Test QUIC and TCP connectivity on IPv4 and IPv6.
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_quic_and_tcp_connectivity_ipv4_ipv6() {
     init_tracing();
     let tcp4_base: Multiaddr = "/ip4/127.0.0.1/tcp/0".parse().unwrap();
@@ -129,7 +129,7 @@ async fn test_quic_and_tcp_connectivity_ipv4_ipv6() {
 }
 
 /// Test TCP fallback when QUIC connection fails.
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_tcp_fallback_on_quic_failure() {
     init_tracing();
 

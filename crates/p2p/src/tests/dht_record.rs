@@ -8,7 +8,7 @@ use tokio::{sync::oneshot, time::sleep};
 use super::common::Setup;
 use crate::{commands::Command, tests::common::init_tracing};
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 10)]
 async fn test_dht_record() -> anyhow::Result<()> {
     init_tracing();
     const USERS_NUM: usize = 10;
@@ -34,10 +34,12 @@ async fn test_dht_record() -> anyhow::Result<()> {
     match rx.await {
         Ok(smth) => {
             if smth.is_none() {
-                bail!("We haven't posted record. That's unfortunate.");
+                bail!(
+                    "Last user haven't posted a valid record, from first user's point of view. That's unfortunate."
+                );
             };
         }
-        Err(e) => bail!("smth is wrong: {e}"),
+        Err(e) => bail!("Something is wrong: {e}"),
     }
 
     cancel.cancel();

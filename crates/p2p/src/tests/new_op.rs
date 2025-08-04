@@ -16,7 +16,7 @@ use crate::{
 
 /// Tests sending a gossipsub message from a new user to all existing users.
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 10)]
 #[ignore = "Because filtering in another PR"]
 async fn gossip_new_user() -> anyhow::Result<()> {
     init_tracing();

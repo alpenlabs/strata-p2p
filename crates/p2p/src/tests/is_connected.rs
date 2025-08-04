@@ -14,7 +14,7 @@ use crate::{
     tests::common::init_tracing,
 };
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_is_connected() -> anyhow::Result<()> {
     const USERS_NUM: usize = 2;
     init_tracing();
@@ -71,7 +71,7 @@ async fn test_is_connected() -> anyhow::Result<()> {
 }
 
 /// Tests the gossip protocol in an all to all connected network with multiple IDs.
-#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 6)]
 async fn test_manually_get_all_peers() -> anyhow::Result<()> {
     init_tracing();
     const USERS_NUM: usize = 6;
