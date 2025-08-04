@@ -453,8 +453,10 @@ impl<S: ApplicationSigner> P2P<S> {
 
                 match event {
                     SwarmEvent::Behaviour(BehaviourEvent::Gossipsub(
-                        GossipsubEvent::Subscribed { peer_id: _, .. },
-                    )) => {}
+                        GossipsubEvent::Subscribed { peer_id, .. },
+                    )) => {
+                        debug!(%peer_id, %subscriptions, "got subscription from a peer");
+                    }
                     SwarmEvent::ConnectionEstablished {
                         peer_id, endpoint, ..
                     } => {
