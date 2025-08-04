@@ -6,7 +6,7 @@ use anyhow::bail;
 use futures::SinkExt;
 use tokio::time::sleep;
 
-use super::common::{MULTIADDR_MEMORY_ID_OFFSET_GOSSIP_BASIC, Setup};
+use super::common::{ Setup};
 use crate::{commands::GossipCommand, events::GossipEvent, tests::common::init_tracing};
 
 /// Tests the gossip protocol in an all to all connected network with multiple IDs.
@@ -19,7 +19,7 @@ async fn gossip_basic() -> anyhow::Result<()> {
         mut user_handles,
         cancel,
         tasks,
-    } = Setup::all_to_all(USERS_NUM, MULTIADDR_MEMORY_ID_OFFSET_GOSSIP_BASIC).await?;
+    } = Setup::all_to_all(USERS_NUM).await?;
 
     let _ = sleep(Duration::from_secs(1)).await;
 

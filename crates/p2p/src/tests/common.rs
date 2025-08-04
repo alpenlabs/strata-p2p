@@ -20,21 +20,6 @@ use crate::{
     swarm::{self, P2P, P2PConfig, handle::CommandHandle},
 };
 
-// this is here in one place.
-pub(crate) const MULTIADDR_MEMORY_ID_OFFSET_GOSSIP_BASIC: u64 = 120;
-pub(crate) const MULTIADDR_MEMORY_ID_OFFSET_TEST_IS_CONNECTED: u64 = 150;
-pub(crate) const MULTIADDR_MEMORY_ID_OFFSET_GOSSIP_NEW_USER: u64 = 200;
-
-#[cfg(feature = "request-response")]
-pub(crate) const MULTIADDR_MEMORY_ID_OFFSET_REQUEST_RESPONSE_BASIC: u64 = 300;
-
-pub(crate) const MULTIADDR_MEMORY_ID_OFFSET_TEST_MANUALLY_GET_ALL_PEERS: u64 = 500;
-pub(crate) const MULTIADDR_MEMORY_ID_OFFSET_TEST_CONNECTION_BY_APP_PUBLIC_KEY: u64 = 600;
-pub(crate) const MULTIADDR_MEMORY_ID_OFFSET_TEST_SETUP_WITH_INVALID_SIGNATURE: u64 = 700;
-
-#[cfg(feature = "kademlia")]
-pub(crate) const MULTIADDR_MEMORY_ID_OFFSET_TEST_DHT_RECORD: u64 = 800;
-
 /// Only attempt to start tracing once
 ///
 /// it is needed for supporting plain `cargo test`
@@ -177,12 +162,12 @@ pub(crate) struct SetupInitialData {
 impl Setup {
     /// Spawn `n` users that are connected "all-to-all" with handles to them, task tracker
     /// to stop control async tasks they are spawned in.
-    pub(crate) async fn all_to_all(n: usize, offset: u64) -> anyhow::Result<Self> {
+    pub(crate) async fn all_to_all(n: usize) -> anyhow::Result<Self> {
         let SetupInitialData {
             app_keypairs,
             transport_keypairs,
             multiaddresses,
-        } = Self::setup_keys_ids_addrs_of_n_users(n, offset);
+        } = Self::setup_keys_ids_addrs_of_n_users(n);
 
         let cancel = CancellationToken::new();
         let mut users = Vec::new();
@@ -227,9 +212,7 @@ impl Setup {
 
     /// Create `n` random keypairs, transport ids from them and sequential in-memory
     /// addresses.
-    /// If offset is 1234567890, then addresses will be /memory/1234567890 for n=1, for n=2
-    /// /memory/1234567890 and /memory/1234567891 and so on.
-    fn setup_keys_ids_addrs_of_n_users(n: usize, offset: u64) -> SetupInitialData {
+    fn setup_keys_ids_addrs_of_n_users(n: usize) -> SetupInitialData {
         let app_keypairs = (0..n)
             .map(|_| Keypair::generate_ed25519())
             .collect::<Vec<_>>();
@@ -244,7 +227,7 @@ impl Setup {
             transport_keypairs.len()
         );
 
-        let multiaddresses = (offset..(offset + u64::try_from(n).unwrap()))
+        let multiaddresses = (1..(1 + u64::try_from(n).unwrap()))
             .map(|idx| build_multiaddr!(Memory(idx)))
             .collect::<Vec<_>>();
 

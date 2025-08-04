@@ -6,7 +6,7 @@ use tokio::time::sleep;
 use tracing::info;
 
 use crate::tests::common::{
-    MULTIADDR_MEMORY_ID_OFFSET_TEST_CONNECTION_BY_APP_PUBLIC_KEY, Setup, init_tracing,
+     Setup, init_tracing,
 };
 
 /// Test that peers can connect and are identified by their app public keys after setup phase.
@@ -19,8 +19,7 @@ async fn test_connection_by_app_public_key() {
     info!("Starting connection by app public key test");
 
     let setup = Setup::all_to_all(
-        USERS_NUM,
-        MULTIADDR_MEMORY_ID_OFFSET_TEST_CONNECTION_BY_APP_PUBLIC_KEY,
+        USERS_NUM
     )
     .await
     .unwrap();

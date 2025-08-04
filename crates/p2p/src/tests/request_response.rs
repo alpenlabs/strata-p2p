@@ -10,7 +10,7 @@ use super::common::Setup;
 use crate::{
     commands::RequestResponseCommand,
     events::ReqRespEvent,
-    tests::common::{MULTIADDR_MEMORY_ID_OFFSET_REQUEST_RESPONSE_BASIC, init_tracing},
+    tests::common::{init_tracing},
 };
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
@@ -22,7 +22,7 @@ async fn test_reqresp_basic() -> anyhow::Result<()> {
         cancel,
         mut user_handles,
         tasks,
-    } = Setup::all_to_all(USERS_NUM, MULTIADDR_MEMORY_ID_OFFSET_REQUEST_RESPONSE_BASIC).await?;
+    } = Setup::all_to_all(USERS_NUM).await?;
 
     let _ = sleep(Duration::from_secs(1)).await;
 

@@ -12,8 +12,8 @@ use super::common::Setup;
 use crate::{
     commands::{Command, QueryP2PStateCommand},
     tests::common::{
-        MULTIADDR_MEMORY_ID_OFFSET_TEST_IS_CONNECTED,
-        MULTIADDR_MEMORY_ID_OFFSET_TEST_MANUALLY_GET_ALL_PEERS, init_tracing,
+        
+         init_tracing,
     },
 };
 
@@ -26,7 +26,7 @@ async fn test_is_connected() -> anyhow::Result<()> {
         user_handles,
         cancel,
         tasks,
-    } = Setup::all_to_all(USERS_NUM, MULTIADDR_MEMORY_ID_OFFSET_TEST_IS_CONNECTED).await?;
+    } = Setup::all_to_all(USERS_NUM).await?;
 
     let _ = sleep(Duration::from_secs(2)).await;
 
@@ -85,8 +85,7 @@ async fn test_manually_get_all_peers() -> anyhow::Result<()> {
         cancel,
         tasks,
     } = Setup::all_to_all(
-        USERS_NUM,
-        MULTIADDR_MEMORY_ID_OFFSET_TEST_MANUALLY_GET_ALL_PEERS,
+        USERS_NUM
     )
     .await?;
 

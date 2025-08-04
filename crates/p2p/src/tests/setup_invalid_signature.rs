@@ -13,10 +13,7 @@ use tracing::info;
 use crate::{
     commands::{Command, QueryP2PStateCommand},
     signer::ApplicationSigner,
-    tests::common::{
-        MULTIADDR_MEMORY_ID_OFFSET_TEST_SETUP_WITH_INVALID_SIGNATURE, MockApplicationSigner, User,
-        init_tracing,
-    },
+    tests::common::{MockApplicationSigner, User, init_tracing},
 };
 
 #[derive(Debug, Clone)]
@@ -48,12 +45,8 @@ async fn test_setup_with_invalid_signature() {
     let app_keypair_good2 = Keypair::generate_ed25519();
     let transport_keypair_good1 = Keypair::generate_ed25519();
     let transport_keypair_good2 = Keypair::generate_ed25519();
-    let local_addr_good1 = build_multiaddr!(Memory(
-        MULTIADDR_MEMORY_ID_OFFSET_TEST_SETUP_WITH_INVALID_SIGNATURE
-    ));
-    let local_addr_good2 = build_multiaddr!(Memory(
-        MULTIADDR_MEMORY_ID_OFFSET_TEST_SETUP_WITH_INVALID_SIGNATURE + 1
-    ));
+    let local_addr_good1 = build_multiaddr!(Memory(1u64));
+    let local_addr_good2 = build_multiaddr!(Memory(2u64));
     let cancel_good1 = CancellationToken::new();
     let cancel_good2 = CancellationToken::new();
 
@@ -96,9 +89,7 @@ async fn test_setup_with_invalid_signature() {
 
     let app_keypair_bad = Keypair::generate_ed25519();
     let transport_keypair_bad = Keypair::generate_ed25519();
-    let local_addr_bad = build_multiaddr!(Memory(
-        MULTIADDR_MEMORY_ID_OFFSET_TEST_SETUP_WITH_INVALID_SIGNATURE + 2
-    ));
+    let local_addr_bad = build_multiaddr!(Memory(3u64));
     let cancel_bad = CancellationToken::new();
 
     let bad_user = User::new(

@@ -12,7 +12,7 @@ use crate::{
     commands::{Command, GossipCommand, QueryP2PStateCommand},
     events::GossipEvent,
     tests::common::{
-        MULTIADDR_MEMORY_ID_OFFSET_GOSSIP_NEW_USER, MockApplicationSigner, User, init_tracing,
+         MockApplicationSigner, User, init_tracing,
     },
 };
 
@@ -33,7 +33,7 @@ async fn gossip_new_user() -> anyhow::Result<()> {
         mut user_handles,
         cancel,
         tasks,
-    } = Setup::all_to_all(USERS_NUM, MULTIADDR_MEMORY_ID_OFFSET_GOSSIP_NEW_USER).await?;
+    } = Setup::all_to_all(USERS_NUM).await?;
 
     // Get connection addresses of old users for the new user to connect to.
     info!("Getting listening addresses for new user");

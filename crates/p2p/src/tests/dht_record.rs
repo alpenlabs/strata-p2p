@@ -8,7 +8,7 @@ use tokio::{sync::oneshot, time::sleep};
 use super::common::Setup;
 use crate::{
     commands::Command,
-    tests::common::{MULTIADDR_MEMORY_ID_OFFSET_TEST_DHT_RECORD, init_tracing},
+    tests::common::{ init_tracing},
 };
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
@@ -20,7 +20,7 @@ async fn test_dht_record() -> anyhow::Result<()> {
         user_handles,
         cancel,
         tasks,
-    } = Setup::all_to_all(USERS_NUM, MULTIADDR_MEMORY_ID_OFFSET_TEST_DHT_RECORD).await?;
+    } = Setup::all_to_all(USERS_NUM).await?;
 
     sleep(Duration::from_secs(5)).await;
 
