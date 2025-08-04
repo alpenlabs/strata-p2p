@@ -98,7 +98,7 @@ impl<S: ApplicationSigner> User<S> {
             listening_addrs,
             connect_to,
             #[cfg(feature = "kad")]
-            kad_protocol_name: Some(KadProtocol::StrataV1),
+            kad_protocol_name: Some(KadProtocol::V1),
             #[cfg(feature = "request-response")]
             channel_timeout: None,
             #[cfg(feature = "kad")]

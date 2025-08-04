@@ -68,14 +68,14 @@ use crate::{
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum KadProtocol {
     /// first version of DHT
-    StrataV1,
+    V1,
 }
 
 #[cfg(feature = "kad")]
 impl From<KadProtocol> for StreamProtocol {
     fn from(protocol: KadProtocol) -> Self {
         match protocol {
-            KadProtocol::StrataV1 => StreamProtocol::new("/kad/strata/0.0.1"),
+            KadProtocol::V1 => StreamProtocol::new("/kad/strata/0.0.1"),
         }
     }
 }

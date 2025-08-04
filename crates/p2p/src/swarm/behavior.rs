@@ -66,7 +66,7 @@ fn configure_kademlia_behaviour(
     let mut kad_cfg = kad::Config::new(
         kad_protocol_name
             .as_ref()
-            .unwrap_or(&KadProtocol::StrataV1)
+            .unwrap_or(&KadProtocol::V1)
             .clone()
             .into(),
     );
