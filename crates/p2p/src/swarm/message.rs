@@ -223,7 +223,7 @@ pub(crate) struct GossipMessage {
     pub protocol: u8,
     /// Gossipsub message data
     pub message: Vec<u8>,
-    /// The application public key (Ed25519) - stored as bytes for serialization.
+    /// The application public key (Ed25519).
     #[serde(with = "pubkey_serializer")]
     pub app_public_key: PublicKey,
     /// Timestamp of message creation.
@@ -257,7 +257,7 @@ pub(crate) struct RequestMessage {
     pub protocol: u8,
     /// Request-response message data
     pub message: Vec<u8>,
-    /// The application public key (Ed25519) - stored as bytes for serialization.
+    /// The application public key (Ed25519).
     #[serde(with = "pubkey_serializer")]
     pub app_public_key: PublicKey,
     /// Timestamp of message creation.
@@ -291,7 +291,7 @@ pub(crate) struct ResponseMessage {
     pub protocol: u8,
     /// Response-response message data
     pub message: Vec<u8>,
-    /// The application public key (Ed25519) - stored as bytes for serialization.
+    /// The application public key (Ed25519).
     #[serde(with = "pubkey_serializer")]
     pub app_public_key: PublicKey,
     /// Timestamp of message creation.

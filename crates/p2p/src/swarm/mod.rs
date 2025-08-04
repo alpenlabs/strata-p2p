@@ -1320,7 +1320,7 @@ where
             } => {
                 // Score/penalty logic for request
                 if self.peer_penalty_storage.is_req_resp_muted(&app_public_key) {
-                    warn!("Peer(peer_id={}) is muted for request/response", peer_id);
+                    warn!(%peer_id, "Peer is muted for request/response");
                     return Ok(());
                 }
 
