@@ -4,7 +4,7 @@ use libp2p::{Multiaddr, identity::PublicKey};
 use tokio::sync::oneshot;
 
 #[cfg(feature = "kad")]
-use crate::swarm::dto::dht_record::RecordData;
+use crate::swarm::dto::dht_record::SignedRecord;
 
 /// Commands that users can send to the P2P node.
 #[derive(Debug)]
@@ -34,7 +34,7 @@ pub enum Command {
         /// Key for DHT record: a remote node's application public key.
         app_public_key: PublicKey,
         /// One shot channel for sending result back.
-        response_sender: oneshot::Sender<Option<RecordData>>,
+        response_sender: oneshot::Sender<Option<SignedRecord>>,
     },
 }
 

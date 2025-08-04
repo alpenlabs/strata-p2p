@@ -7,11 +7,8 @@ use serde::{Deserialize, Deserializer, Serialize, de};
 
 use crate::{
     signer::ApplicationSigner,
-    swarm::{
-        dto::signed_data::SignedData,
-        serializing::{
-            pubkey_serialization::pubkey_serializer, signature_serialization::signature_serializer,
-        },
+    swarm::serializing::{
+        pubkey_serialization::pubkey_serializer, signature_serialization::signature_serializer,
     },
 };
 
@@ -74,10 +71,11 @@ pub struct SignedRecord {
 }
 
 impl SignedRecord {
-    #[expect(dead_code)]
-    fn new<S: ApplicationSigner>(
+    /// Create new [`SignedRecord`] from [`RecordData`] and sign via signer that implements
+    /// [`ApplicationSigner`]
+    pub fn new<S: ApplicationSigner>(
         record: RecordData,
-        signer: S,
+        signer: &S,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let signature =
             signer.sign(&serde_json::to_vec(&record)?, record.app_public_key.clone())?;
@@ -90,21 +88,29 @@ impl<'de> Deserialize<'de> for SignedRecord {
     where
         D: Deserializer<'de>,
     {
-        let signed_data: SignedData = serde::Deserialize::deserialize(deserializer)?;
+        #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+        struct SignedRecordHelper {
+            pub record: RecordData,
+            #[serde(with = "signature_serializer")]
+            pub signature: [u8; 64],
+        }
 
-        let record: RecordData =
-            serde_json::from_slice(&signed_data.raw_data).map_err(serde::de::Error::custom)?;
+        let signed_record: SignedRecordHelper = serde::Deserialize::deserialize(deserializer)?;
 
-        if !record
-            .app_public_key
-            .verify(&signed_data.raw_data, &signed_data.signature)
-        {
+        if !signed_record.record.app_public_key.verify(
+            &serde_json::to_vec(&signed_record.record).map_err(|_| {
+                serde::de::Error::custom(
+                    "Failed to serialize deserialized, for signature verification",
+                )
+            })?,
+            &signed_record.signature,
+        ) {
             return Err(de::Error::custom("Signature verification failed"));
         }
 
         Ok(SignedRecord {
-            record,
-            signature: signed_data.signature,
+            record: signed_record.record,
+            signature: signed_record.signature,
         })
     }
 }

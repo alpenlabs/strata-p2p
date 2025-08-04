@@ -53,7 +53,7 @@ use crate::commands::RequestResponseCommand;
 #[cfg(feature = "request-response")]
 use crate::events::ReqRespEvent;
 #[cfg(feature = "kad")]
-use crate::swarm::dto::{dht_record::RecordData, signed_data::SignedData};
+use crate::swarm::dto::{dht_record::RecordData, dht_record::SignedRecord};
 #[cfg(feature = "gossipsub")]
 use crate::{commands::GossipCommand, events::GossipEvent};
 use crate::{
@@ -126,7 +126,7 @@ enum ActionOnKademliaGetRecord {
     /// Action related to [`Command::GetDHTRecord`].
     JustThrowResultBack {
         /// `tx` that we got from [`Command::GetDHTRecord`].
-        tx: oneshot::Sender<Option<RecordData>>,
+        tx: oneshot::Sender<Option<SignedRecord>>,
     },
 }
 
@@ -753,29 +753,30 @@ impl<S: ApplicationSigner> P2P<S> {
                 libp2p::kad::InboundRequest::PutRecord {
                     source,
                     connection,
-                    record: maybe_record,
+                    record: opt_record,
                 } => {
                     trace!(
-                        %source, %connection, ?maybe_record, "InboundRequest::PutRecord"
+                        %source, %connection, ?opt_record, "InboundRequest::PutRecord"
                     );
-                    match maybe_record {
+                    match opt_record {
                         Some(ref record_data) => {
-                            let maybe_our_record_data: Result<SignedRecord, serde_json::Error> =
+                            let res_our_record_data: Result<SignedRecord, serde_json::Error> =
                                 serde_json::from_slice(&record_data.value);
-                            match maybe_our_record_data {
+                            match res_our_record_data {
                                 Ok(_signed_record) => {
                                     let res = self
                                         .swarm
                                         .behaviour_mut()
                                         .kademlia
                                         .store_mut()
-                                        .put(maybe_record.unwrap());
+                                        .put(opt_record.unwrap());
                                     if res.is_err() {
                                         info!(err = %res.unwrap_err(),"Someone has asked as to put a record that is too big. Refusing to do so.")
                                     }
                                 }
                                 Err(e) => {
-                                    info!(%e,
+                                    info!(
+                                        ?e,
                                         "Someone asked us to put either not valid or not properly signed record. Refusing to keep it."
                                     )
                                 }
@@ -840,14 +841,15 @@ impl<S: ApplicationSigner> P2P<S> {
                         %id, ?stats, ?step, peer_key = ?peer_record.record.key, peer_record = %String::from_utf8_lossy(&peer_record.record.value), "QueryResult::GetRecord(Ok(libp2p::kad::GetRecordOk::FoundRecord"
                     );
                     if self.kademlia_postponed_get_action.contains_key(&id) {
-                        let maybe_record = serde_json::from_slice(&peer_record.record.value);
+                        let res_record: Result<SignedRecord, serde_json::Error> =
+                            serde_json::from_slice(&peer_record.record.value);
                         trace!(
-                            ?maybe_record,
+                            ?res_record,
                             "Deserialized and validated. Still can be optional."
                         );
                         match self.kademlia_postponed_get_action.remove(&id).unwrap() {
                             ActionOnKademliaGetRecord::JustThrowResultBack { tx } => {
-                                let _ = tx.send(maybe_record.ok());
+                                let _ = tx.send(res_record.ok());
                             }
                         };
                     }
@@ -1066,14 +1068,13 @@ impl<S: ApplicationSigner> P2P<S> {
                 if !self.kademlia_is_initial_record_already_posted
                     && self.swarm.connected_peers().count() > self.config.kademlia_threshold
                 {
-                    let maybe_signed_record_data = SignedData::new(
+                    let maybe_signed_record_data = SignedRecord::new(
                         RecordData::new(
                             self.config.app_public_key.clone(),
                             *self.swarm.local_peer_id(),
                             self.swarm.external_addresses().cloned().collect::<Vec<_>>(),
                         ),
                         &self.signer,
-                        self.config.app_public_key.clone(),
                     );
 
                     match maybe_signed_record_data {
