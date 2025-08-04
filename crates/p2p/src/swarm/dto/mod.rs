@@ -1,7 +1,5 @@
 //! Some structs that we use + serializing and deserializing.
 
-pub(crate) mod signed_data;
-
 #[cfg(feature = "kad")]
 pub mod dht_record;
 

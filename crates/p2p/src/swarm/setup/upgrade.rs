@@ -15,7 +15,7 @@ use libp2p::{
 use crate::{
     signer::ApplicationSigner,
     swarm::{
-        dto::{message::SetupMessage, signed_data::SignedData},
+        dto::message::{SetupMessage, SignedMessage},
         errors::SetupUpgradeError,
     },
 };
@@ -43,13 +43,13 @@ impl UpgradeInfo for InboundSetupUpgrade {
 }
 
 impl InboundUpgrade<Stream> for InboundSetupUpgrade {
-    type Output = SignedData;
+    type Output = SignedMessage;
     type Error = SetupUpgradeError;
     type Future = Pin<Box<dyn Future<Output = Result<Self::Output, Self::Error>> + Send>>;
 
     fn upgrade_inbound(self, stream: Stream, _: Self::Info) -> Self::Future {
         Box::pin(async move {
-            let mut framed = Framed::new(stream, JsonCodec::<SignedData, SignedData>::new());
+            let mut framed = Framed::new(stream, JsonCodec::<SignedMessage, SignedMessage>::new());
 
             match StreamExt::next(&mut framed).await {
                 Some(Ok(signed_message)) => Ok(signed_message),
@@ -103,18 +103,17 @@ impl<S: ApplicationSigner> OutboundUpgrade<Stream> for OutboundSetupUpgrade<S> {
 
     fn upgrade_outbound(self, stream: Stream, _: Self::Info) -> Self::Future {
         Box::pin(async move {
-            let setup_message = SignedData::new(
+            let setup_message = SignedMessage::new(
                 SetupMessage::new(
                     self.app_public_key.clone(),
                     self.local_transport_id,
                     self.remote_transport_id,
                 ),
                 &self.signer,
-                self.app_public_key,
             )
-            .map_err(|e| SetupUpgradeError::SignedMessageCreation(e.into()))?;
+            .map_err(SetupUpgradeError::SignedMessageCreation)?;
 
-            let mut framed = Framed::new(stream, JsonCodec::<SignedData, SignedData>::new());
+            let mut framed = Framed::new(stream, JsonCodec::<SignedMessage, SignedMessage>::new());
             framed
                 .send(setup_message)
                 .await

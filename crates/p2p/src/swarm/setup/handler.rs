@@ -13,12 +13,10 @@ use libp2p::{
         ConnectionHandler, ConnectionHandlerEvent, SubstreamProtocol, handler::ConnectionEvent,
     },
 };
-use tracing::trace;
 
 use crate::{
     signer::ApplicationSigner,
     swarm::{
-        dto::message::SetupMessage,
         errors::SetupError,
         setup::{
             events::SetupHandlerEvent,
@@ -101,40 +99,11 @@ impl<S: ApplicationSigner> ConnectionHandler for SetupHandler<S> {
             ConnectionEvent::FullyNegotiatedInbound(inbound) => {
                 let setup_msg = inbound.protocol;
 
-                let setup_message: SetupMessage = match setup_msg.deserialize_message() {
-                    Ok(msg) => msg,
-                    Err(e) => {
-                        trace!(
-                            "Failed to deserialize a message {}",
-                            String::from_utf8(setup_msg.raw_data).unwrap()
-                        );
-                        self.pending_events
-                            .push(ConnectionHandlerEvent::NotifyBehaviour(
-                                SetupHandlerEvent::ErrorDuringSetupHandshake(
-                                    SetupError::DeserializationFailed(e.into()),
-                                ),
-                            ));
-                        return;
-                    }
-                };
-
-                let app_public_key = setup_message.app_public_key.clone();
-
-                let signature_valid = setup_msg.verify_signature(&app_public_key).unwrap_or(false);
-
-                if !signature_valid {
-                    self.pending_events
-                        .push(ConnectionHandlerEvent::NotifyBehaviour(
-                            SetupHandlerEvent::ErrorDuringSetupHandshake(
-                                SetupError::SignatureVerificationFailed,
-                            ),
-                        ));
-                    return;
-                }
-
                 self.pending_events
                     .push(ConnectionHandlerEvent::NotifyBehaviour(
-                        SetupHandlerEvent::AppKeyReceived { app_public_key },
+                        SetupHandlerEvent::AppKeyReceived {
+                            app_public_key: setup_msg.message.app_public_key,
+                        },
                     ));
             }
             ConnectionEvent::DialUpgradeError(e) => {
