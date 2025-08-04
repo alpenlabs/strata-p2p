@@ -610,7 +610,7 @@ impl<S: ApplicationSigner> P2P<S> {
             };
 
             if let Err(err) = result {
-                error!(%err, "Stopping `P2P.listen` : encountered error after which we think we can't continue operating.");
+                error!(%err, "Stopping P2P node : encountered error after which we think we can't continue operating or P2P node has been cancelled via cancellation token.");
                 return;
             }
         }
