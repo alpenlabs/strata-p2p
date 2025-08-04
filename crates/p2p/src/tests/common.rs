@@ -24,7 +24,7 @@ use crate::{
 
 /// Only attempt to start tracing once
 ///
-/// it is needed for supporting plain `cargo test`
+/// it was needed for supporting plain `cargo test`
 pub(crate) fn init_tracing() {
     static INIT: Once = Once::new();
 

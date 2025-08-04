@@ -120,8 +120,6 @@ pub const DEFAULT_CHANNEL_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[cfg(feature = "kad")]
 /// What to do when we got event [`libp2p::kad::GetRecordOk`].
-///
-/// As you can see, here's only one action. However in a future we may need it.
 enum ActionOnKademliaGetRecord {
     /// Action related to [`Command::GetDHTRecord`].
     JustThrowResultBack {
