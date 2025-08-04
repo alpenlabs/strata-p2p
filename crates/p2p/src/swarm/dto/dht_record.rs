@@ -26,7 +26,7 @@ pub struct RecordData {
     pub version: u8,
     /// Protocol identifier.
     pub protocol: u8,
-    /// The application public key (Ed25519) - stored as bytes for serialization.
+    /// The application public key (Ed25519).
     #[serde(with = "pubkey_serializer")]
     pub app_public_key: PublicKey,
     /// Transport ID (PeerId).

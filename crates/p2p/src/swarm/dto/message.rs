@@ -26,7 +26,7 @@ pub(crate) struct SetupMessage {
     pub version: u8,
     /// Protocol identifier (setup).
     pub protocol: u8,
-    /// The application public key (Ed25519) - stored as bytes for serialization.
+    /// The application public key (Ed25519).
     #[serde(with = "pubkey_serializer")]
     pub app_public_key: PublicKey,
     /// Local transport ID (PeerId) - our transport ID.
