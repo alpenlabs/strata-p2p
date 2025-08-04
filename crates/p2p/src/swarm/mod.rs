@@ -769,7 +769,7 @@ impl<S: ApplicationSigner> P2P<S> {
                                         .store_mut()
                                         .put(opt_record.unwrap());
                                     if res.is_err() {
-                                        info!(err = %res.unwrap_err(),"Someone has asked as to put a record that is too big. Refusing to do so.")
+                                        info!(err = %res.unwrap_err(), "Someone has asked as to put a record that is too big. Refusing to do so.")
                                     }
                                 }
                                 Err(e) => {
