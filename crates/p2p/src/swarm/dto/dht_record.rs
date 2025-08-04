@@ -78,7 +78,8 @@ impl SignedRecord {
         record: RecordData,
         signer: S,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let signature = signer.sign(&serde_json::to_vec(&record)?, record.app_public_key.clone())?;
+        let signature =
+            signer.sign(&serde_json::to_vec(&record)?, record.app_public_key.clone())?;
         Ok(Self { record, signature })
     }
 }
