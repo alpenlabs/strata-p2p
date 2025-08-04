@@ -74,6 +74,7 @@ pub struct SignedRecord {
 }
 
 impl SignedRecord {
+    #[expect(dead_code)]
     fn new<S: ApplicationSigner>(
         record: RecordData,
         signer: S,
