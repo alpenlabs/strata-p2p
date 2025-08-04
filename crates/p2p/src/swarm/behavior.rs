@@ -21,12 +21,11 @@ use libp2p::{
 #[cfg(feature = "kad")]
 use libp2p::{kad, kad::store::MemoryStore};
 
-#[cfg(feature = "kad")]
-const DEFAULT_KAD_PROTOCOL_NAME: StreamProtocol = StreamProtocol::new("/kad/strata/0.0.1");
-
 #[cfg(feature = "request-response")]
 use super::codec_raw;
 use super::{MAX_TRANSMIT_SIZE, TOPIC};
+#[cfg(feature = "kad")]
+use crate::swarm::KadProtocol;
 use crate::{signer::ApplicationSigner, swarm::setup::behavior::SetupBehaviour};
 
 /// Alias for request-response behaviour with messages serialized by using
@@ -60,13 +59,16 @@ pub struct Behaviour<S: ApplicationSigner> {
 #[cfg(feature = "kad")]
 fn configure_kademlia_behaviour(
     transport_keypair: &Keypair,
-    kad_protocol_name: &Option<StreamProtocol>,
+    kad_protocol_name: &Option<KadProtocol>,
 ) -> libp2p::kad::Behaviour<MemoryStore> {
+    use crate::swarm::KadProtocol;
+
     let mut kad_cfg = kad::Config::new(
         kad_protocol_name
             .as_ref()
-            .unwrap_or(&DEFAULT_KAD_PROTOCOL_NAME)
-            .clone(),
+            .unwrap_or(&KadProtocol::StrataV1)
+            .clone()
+            .into(),
     );
 
     // it is expected that there's going to be manual validation of records
@@ -101,7 +103,7 @@ impl<S: ApplicationSigner> Behaviour<S> {
         transport_keypair: &Keypair,
         app_public_key: &PublicKey,
         signer: S,
-        #[cfg(feature = "kad")] kad_protocol_name: &Option<StreamProtocol>,
+        #[cfg(feature = "kad")] kad_protocol_name: &Option<KadProtocol>,
     ) -> Self {
         let mut filter = HashSet::new();
         filter.insert(TOPIC.hash());

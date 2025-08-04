@@ -3,8 +3,6 @@
 use std::{sync::Once, time::Duration};
 
 use futures::future::join_all;
-#[cfg(feature = "kad")]
-use libp2p::StreamProtocol;
 use libp2p::{
     Multiaddr, PeerId, build_multiaddr,
     identity::{Keypair, PublicKey},
@@ -13,6 +11,8 @@ use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use tracing::{debug, trace};
 use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, util::SubscriberInitExt};
 
+#[cfg(feature = "kad")]
+use crate::swarm::KadProtocol;
 #[cfg(feature = "gossipsub")]
 use crate::swarm::handle::GossipHandle;
 #[cfg(feature = "request-response")]
@@ -98,7 +98,7 @@ impl<S: ApplicationSigner> User<S> {
             listening_addrs,
             connect_to,
             #[cfg(feature = "kad")]
-            kad_protocol_name: Some(StreamProtocol::new("/ipfs/kad_strata-p2p/0.0.1")),
+            kad_protocol_name: Some(KadProtocol::StrataV1),
             #[cfg(feature = "request-response")]
             channel_timeout: None,
             #[cfg(feature = "kad")]

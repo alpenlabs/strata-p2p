@@ -64,6 +64,25 @@ use crate::{
     signer::ApplicationSigner,
     swarm::{dial_manager::DialManager, setup::events::SetupBehaviourEvent},
 };
+
+/// a non exchaustive enum.
+#[cfg(feature = "kad")]
+#[non_exhaustive]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum KadProtocol {
+    /// first version of DHT
+    StrataV1,
+}
+
+#[cfg(feature = "kad")]
+impl From<KadProtocol> for StreamProtocol {
+    fn from(protocol: KadProtocol) -> Self {
+        match protocol {
+            KadProtocol::StrataV1 => StreamProtocol::new("/kad/strata/0.0.1"),
+        }
+    }
+}
+
 mod behavior;
 #[cfg(feature = "request-response")]
 mod codec_raw;
@@ -154,7 +173,7 @@ pub struct P2PConfig {
 
     /// Kademlia protocol name
     #[cfg(feature = "kad")]
-    pub kad_protocol_name: Option<StreamProtocol>,
+    pub kad_protocol_name: Option<KadProtocol>,
 
     /// How many peers we should connect to before trying to put our signed [`RecordData`] for app
     /// public key
