@@ -11,9 +11,7 @@ use super::common::Setup;
 use crate::{
     commands::{Command, GossipCommand, QueryP2PStateCommand},
     events::GossipEvent,
-    tests::common::{
-         MockApplicationSigner, User, init_tracing,
-    },
+    tests::common::{MockApplicationSigner, User, init_tracing},
 };
 
 /// Tests sending a gossipsub message from a new user to all existing users.

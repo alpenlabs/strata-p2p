@@ -5,9 +5,7 @@ use std::time::Duration;
 use tokio::time::sleep;
 use tracing::info;
 
-use crate::tests::common::{
-     Setup, init_tracing,
-};
+use crate::tests::common::{Setup, init_tracing};
 
 /// Test that peers can connect and are identified by their app public keys after setup phase.
 #[tokio::test]
@@ -18,11 +16,7 @@ async fn test_connection_by_app_public_key() {
 
     info!("Starting connection by app public key test");
 
-    let setup = Setup::all_to_all(
-        USERS_NUM
-    )
-    .await
-    .unwrap();
+    let setup = Setup::all_to_all(USERS_NUM).await.unwrap();
 
     sleep(Duration::from_secs(2)).await;
 

@@ -6,10 +6,7 @@ use anyhow::bail;
 use tokio::{sync::oneshot, time::sleep};
 
 use super::common::Setup;
-use crate::{
-    commands::Command,
-    tests::common::{ init_tracing},
-};
+use crate::{commands::Command, tests::common::init_tracing};
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_dht_record() -> anyhow::Result<()> {

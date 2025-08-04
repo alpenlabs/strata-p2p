@@ -7,11 +7,7 @@ use tokio::time::sleep;
 use tracing::info;
 
 use super::common::Setup;
-use crate::{
-    commands::RequestResponseCommand,
-    events::ReqRespEvent,
-    tests::common::{init_tracing},
-};
+use crate::{commands::RequestResponseCommand, events::ReqRespEvent, tests::common::init_tracing};
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_reqresp_basic() -> anyhow::Result<()> {

@@ -11,10 +11,7 @@ use tracing::info;
 use super::common::Setup;
 use crate::{
     commands::{Command, QueryP2PStateCommand},
-    tests::common::{
-        
-         init_tracing,
-    },
+    tests::common::init_tracing,
 };
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
@@ -84,10 +81,7 @@ async fn test_manually_get_all_peers() -> anyhow::Result<()> {
         user_handles,
         cancel,
         tasks,
-    } = Setup::all_to_all(
-        USERS_NUM
-    )
-    .await?;
+    } = Setup::all_to_all(USERS_NUM).await?;
 
     let _ = sleep(Duration::from_secs(2)).await;
 
