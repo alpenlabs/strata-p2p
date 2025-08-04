@@ -103,8 +103,13 @@ pub const DEFAULT_CONNECTION_CHECK_INTERVAL: Duration = Duration::from_millis(50
 pub const DEFAULT_CHANNEL_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[cfg(feature = "kad")]
+/// What to do when we got event [`libp2p::kad::GetRecordOk`].
+///
+/// As you can see, here's only one action. However in a future we may need it.
 enum ActionOnKademliaGetRecord {
-    JustThroughResultBack {
+    /// Action related to [`Command::GetDHTRecord`].
+    JustThrowResultBack {
+        /// `tx` that we got from [`Command::GetDHTRecord`].
         tx: tokio::sync::oneshot::Sender<Option<RecordData>>,
     },
 }
@@ -824,7 +829,7 @@ impl<S: ApplicationSigner> P2P<S> {
                             "Deserialized and validated. Still can be optional."
                         );
                         match self.kademlia_postponed_get_action.remove(&id).unwrap() {
-                            ActionOnKademliaGetRecord::JustThroughResultBack { tx } => {
+                            ActionOnKademliaGetRecord::JustThrowResultBack { tx } => {
                                 let _ = tx.send(maybe_record);
                             }
                         };
@@ -839,7 +844,7 @@ impl<S: ApplicationSigner> P2P<S> {
                     );
                     if self.kademlia_postponed_get_action.contains_key(&id) {
                         match self.kademlia_postponed_get_action.remove(&id).unwrap() {
-                            ActionOnKademliaGetRecord::JustThroughResultBack { tx } => {
+                            ActionOnKademliaGetRecord::JustThrowResultBack { tx } => {
                                 let _ = tx.send(None);
                             }
                         };
@@ -852,7 +857,7 @@ impl<S: ApplicationSigner> P2P<S> {
                     );
                     if self.kademlia_postponed_get_action.contains_key(&id) {
                         match self.kademlia_postponed_get_action.remove(&id).unwrap() {
-                            ActionOnKademliaGetRecord::JustThroughResultBack { tx } => {
+                            ActionOnKademliaGetRecord::JustThrowResultBack { tx } => {
                                 let _ = tx.send(None);
                             }
                         };
@@ -868,7 +873,7 @@ impl<S: ApplicationSigner> P2P<S> {
                     );
                     if self.kademlia_postponed_get_action.contains_key(&id) {
                         match self.kademlia_postponed_get_action.remove(&id).unwrap() {
-                            ActionOnKademliaGetRecord::JustThroughResultBack { tx } => {
+                            ActionOnKademliaGetRecord::JustThrowResultBack { tx } => {
                                 let _ = tx.send(None);
                             }
                         };
@@ -885,7 +890,7 @@ impl<S: ApplicationSigner> P2P<S> {
                     );
                     if self.kademlia_postponed_get_action.contains_key(&id) {
                         match self.kademlia_postponed_get_action.remove(&id).unwrap() {
-                            ActionOnKademliaGetRecord::JustThroughResultBack { tx } => {
+                            ActionOnKademliaGetRecord::JustThrowResultBack { tx } => {
                                 let _ = tx.send(None);
                             }
                         };
@@ -1273,7 +1278,7 @@ impl<S: ApplicationSigner> P2P<S> {
             } => {
                 self.ask_kademlia_get_record(
                     &app_public_key,
-                    ActionOnKademliaGetRecord::JustThroughResultBack {
+                    ActionOnKademliaGetRecord::JustThrowResultBack {
                         tx: response_sender,
                     },
                 );
