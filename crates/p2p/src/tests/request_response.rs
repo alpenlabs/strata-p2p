@@ -9,7 +9,7 @@ use tracing::info;
 use super::common::Setup;
 use crate::{commands::RequestResponseCommand, events::ReqRespEvent, tests::common::init_tracing};
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn test_reqresp_basic() -> anyhow::Result<()> {
     const USERS_NUM: usize = 2;
     init_tracing();

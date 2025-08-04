@@ -8,7 +8,7 @@ use tracing::info;
 use crate::tests::common::{Setup, init_tracing};
 
 /// Test that peers can connect and are identified by their app public keys after setup phase.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn test_connection_by_app_public_key() {
     init_tracing();
 

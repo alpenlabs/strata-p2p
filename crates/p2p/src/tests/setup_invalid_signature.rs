@@ -36,7 +36,7 @@ impl ApplicationSigner for BadApplicationSigner {
     }
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn test_setup_with_invalid_signature() {
     init_tracing();
     let tasks = TaskTracker::new();

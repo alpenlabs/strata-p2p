@@ -10,7 +10,7 @@ use super::common::Setup;
 use crate::{commands::GossipCommand, events::GossipEvent, tests::common::init_tracing};
 
 /// Tests the gossip protocol in an all to all connected network with multiple IDs.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn gossip_basic() -> anyhow::Result<()> {
     init_tracing();
     const USERS_NUM: usize = 2;
