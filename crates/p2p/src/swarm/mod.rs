@@ -1,7 +1,9 @@
 //! Swarm implementation for P2P.
 
+#[cfg(feature = "kad")]
+use std::collections::HashMap;
 use std::{
-    collections::{HashMap, HashSet, VecDeque},
+    collections::{HashSet, VecDeque},
     sync::LazyLock,
     time::{Duration, Instant},
 };
@@ -17,21 +19,25 @@ use handle::ReqRespHandle;
 #[cfg(feature = "request-response")]
 use libp2p::request_response::{self, Event as RequestResponseEvent};
 use libp2p::{
-    Multiaddr, PeerId, StreamProtocol, Swarm, SwarmBuilder, Transport,
+    Multiaddr, PeerId, Swarm, SwarmBuilder, Transport,
     core::{ConnectedPoint, muxing::StreamMuxerBox, transport::MemoryTransport},
     gossipsub::{
         Event as GossipsubEvent, Message, MessageAcceptance, MessageId, PublishError, Sha256Topic,
     },
     identify,
     identity::{Keypair, PublicKey},
+    noise,
+    swarm::{NetworkBehaviour, SwarmEvent, dial_opts::DialOpts},
+    tcp, yamux,
+};
+#[cfg(feature = "kad")]
+use libp2p::{
+    StreamProtocol,
     kad::{
         AddProviderError, AddProviderOk, BootstrapOk, Event as KademliaEvent, GetClosestPeersError,
         GetClosestPeersOk, GetProvidersError, PutRecordError, PutRecordOk, QueryId, QueryResult,
         Quorum, Record, RecordKey, store::RecordStore,
     },
-    noise,
-    swarm::{NetworkBehaviour, SwarmEvent, dial_opts::DialOpts},
-    tcp, yamux,
 };
 #[cfg(feature = "request-response")]
 use tokio::sync::oneshot;
@@ -46,21 +52,18 @@ use tracing::{debug, error, info, instrument, trace, warn};
 use crate::commands::RequestResponseCommand;
 #[cfg(feature = "request-response")]
 use crate::events::ReqRespEvent;
+#[cfg(feature = "kad")]
+use crate::swarm::dto::{
+    dht_record::{RecordData, deserialize_and_validate_dht_record},
+    signed_data::SignedData,
+};
 #[cfg(feature = "gossipsub")]
 use crate::{commands::GossipCommand, events::GossipEvent};
 use crate::{
     commands::{Command, QueryP2PStateCommand},
     signer::ApplicationSigner,
-    swarm::{
-        dial_manager::DialManager,
-        dto::{
-            dht_record::{RecordData, deserialize_and_validate_dht_record},
-            signed_data::SignedData,
-        },
-        setup::events::SetupBehaviourEvent,
-    },
+    swarm::{dial_manager::DialManager, setup::events::SetupBehaviourEvent},
 };
-
 mod behavior;
 #[cfg(feature = "request-response")]
 mod codec_raw;
@@ -99,6 +102,7 @@ pub const DEFAULT_CONNECTION_CHECK_INTERVAL: Duration = Duration::from_millis(50
 /// Global default timeout for channel operations (e.g., sending/receiving on channels).
 pub const DEFAULT_CHANNEL_TIMEOUT: Duration = Duration::from_secs(5);
 
+#[cfg(feature = "kad")]
 enum ActionOnKademliaGetRecord {
     JustThroughResultBack {
         tx: tokio::sync::oneshot::Sender<Option<RecordData>>,
@@ -144,15 +148,17 @@ pub struct P2PConfig {
     pub connect_to: Vec<Multiaddr>,
 
     /// Kademlia protocol name
+    #[cfg(feature = "kad")]
     pub kad_protocol_name: Option<StreamProtocol>,
+
+    /// How many peers we should connect to before trying to put our signed [`RecordData`] for app
+    /// public key
+    #[cfg(feature = "kad")]
+    pub kademlia_threshold: usize,
 
     /// Timeout for channel operations (e.g., sending/receiving on channels).
     #[cfg(feature = "request-response")]
     pub channel_timeout: Option<Duration>,
-
-    /// How many peers we should connect to before trying to put our signed [`RecordData`] for app
-    /// public key
-    pub kademlia_threshold: usize,
 }
 
 /// Implementation of P2P protocol data exchange.
@@ -202,6 +208,7 @@ pub struct P2P<S: ApplicationSigner> {
     allowlist: HashSet<PublicKey>,
 
     /// Application signer for signing setup messages.
+    #[cfg(any(feature = "kad", feature = "request-response", feature = "gossipsub"))]
     signer: S,
 
     /// It is used to put record only if we connected to at least
@@ -271,6 +278,7 @@ impl<S: ApplicationSigner> P2P<S> {
                 cancellation_token: cancel,
                 allowlist: HashSet::from_iter(allowlist),
                 config: cfg,
+                #[cfg(any(feature = "kad", feature = "request-response", feature = "gossipsub"))]
                 signer,
                 #[cfg(feature = "kad")]
                 kademlia_is_initial_record_already_posted: false,
@@ -678,6 +686,7 @@ impl<S: ApplicationSigner> P2P<S> {
                 info,
             } => {
                 trace!(?connection_id, %peer_id, ?info, "identify::Event::Received");
+                #[cfg(feature = "kad")]
                 if !info.listen_addrs.is_empty() {
                     self.swarm
                         .behaviour_mut()
@@ -1273,6 +1282,7 @@ impl<S: ApplicationSigner> P2P<S> {
         }
     }
 
+    #[cfg(feature = "kad")]
     fn ask_kademlia_get_record(&mut self, app_pk: &PublicKey, action: ActionOnKademliaGetRecord) {
         let queryid = self
             .swarm
@@ -1541,6 +1551,7 @@ macro_rules! finish_swarm {
                     &$cfg.transport_keypair,
                     &$cfg.app_public_key,
                     $signer.clone(),
+                    #[cfg(feature = "kad")]
                     &$cfg.kad_protocol_name,
                 )
             })
@@ -1594,6 +1605,7 @@ pub fn with_default_transport<S: ApplicationSigner>(
                 &config.transport_keypair,
                 &config.app_public_key,
                 signer,
+                #[cfg(feature = "kad")]
                 &config.kad_protocol_name,
             )
         })

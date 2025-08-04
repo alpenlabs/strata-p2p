@@ -3,8 +3,10 @@
 use std::{sync::Once, time::Duration};
 
 use futures::future::join_all;
+#[cfg(feature = "kad")]
+use libp2p::StreamProtocol;
 use libp2p::{
-    Multiaddr, PeerId, StreamProtocol, build_multiaddr,
+    Multiaddr, PeerId, build_multiaddr,
     identity::{Keypair, PublicKey},
 };
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
@@ -95,9 +97,11 @@ impl<S: ApplicationSigner> User<S> {
             connection_check_interval: None,
             listening_addrs,
             connect_to,
+            #[cfg(feature = "kad")]
             kad_protocol_name: Some(StreamProtocol::new("/ipfs/kad_strata-p2p/0.0.1")),
             #[cfg(feature = "request-response")]
             channel_timeout: None,
+            #[cfg(feature = "kad")]
             kademlia_threshold: 2,
         };
 

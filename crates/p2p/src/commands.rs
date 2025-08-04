@@ -3,6 +3,7 @@
 use libp2p::{Multiaddr, identity::PublicKey};
 use tokio::sync::oneshot;
 
+#[cfg(feature = "kad")]
 use crate::swarm::dto::dht_record::RecordData;
 
 /// Commands that users can send to the P2P node.
