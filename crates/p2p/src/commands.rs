@@ -28,7 +28,7 @@ pub enum Command {
 
     /// Try get record in DHT where application public is a key. A record is a [`RecordData`].
     /// Checking of signature is enabled and works via a Signer.
-    #[cfg(feature = "kademlia")]
+    #[cfg(feature = "kad")]
     GetDHTRecord {
         /// Key for DHT record: a remote node's application public key.
         app_public_key: PublicKey,

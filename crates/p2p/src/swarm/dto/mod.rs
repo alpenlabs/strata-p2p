@@ -2,7 +2,7 @@
 
 pub(crate) mod signed_data;
 
-#[cfg(feature = "kademlia")]
+#[cfg(feature = "kad")]
 pub mod dht_record;
 
 pub mod message;

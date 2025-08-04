@@ -206,11 +206,11 @@ pub struct P2P<S: ApplicationSigner> {
 
     /// It is used to put record only if we connected to at least
     /// [`P2PConfig::kademlia_threshold`].
-    #[cfg(feature = "kademlia")]
+    #[cfg(feature = "kad")]
     kademlia_is_initial_record_already_posted: bool,
 
     /// Postponed action: a channel for a query to which send something back.
-    #[cfg(feature = "kademlia")]
+    #[cfg(feature = "kad")]
     kademlia_postponed_get_action: HashMap<QueryId, ActionOnKademliaGetRecord>,
 
     /// Manages dial sequences and address queues for multiaddress connections.
@@ -272,9 +272,9 @@ impl<S: ApplicationSigner> P2P<S> {
                 allowlist: HashSet::from_iter(allowlist),
                 config: cfg,
                 signer,
-                #[cfg(feature = "kademlia")]
+                #[cfg(feature = "kad")]
                 kademlia_is_initial_record_already_posted: false,
-                #[cfg(feature = "kademlia")]
+                #[cfg(feature = "kad")]
                 kademlia_postponed_get_action: HashMap::new(),
                 dial_manager: DialManager::new(),
             },
@@ -324,9 +324,9 @@ impl<S: ApplicationSigner> P2P<S> {
             config: cfg,
             allowlist: HashSet::from_iter(allowlist),
             signer,
-            #[cfg(feature = "kademlia")]
+            #[cfg(feature = "kad")]
             kademlia_is_initial_record_already_posted: false,
-            #[cfg(feature = "kademlia")]
+            #[cfg(feature = "kad")]
             kademlia_postponed_get_action: HashMap::new(),
             addr_store: SharedAddrStore(Arc::new(Mutex::new(HashMap::new()))),
             dial_manager: DialManager::new(),
@@ -664,7 +664,7 @@ impl<S: ApplicationSigner> P2P<S> {
                 self.handle_request_response_event(event).await
             }
             BehaviourEvent::Setup(event) => self.handle_setup_event(event).await,
-            #[cfg(feature = "kademlia")]
+            #[cfg(feature = "kad")]
             BehaviourEvent::Kademlia(event) => self.handle_kademlia_event(event).await,
             BehaviourEvent::Identify(event) => self.handle_identify_event(event).await,
         }
@@ -710,7 +710,7 @@ impl<S: ApplicationSigner> P2P<S> {
     }
 
     /// Handles a [`KademliaEvent`] from the swarm.
-    #[cfg(feature = "kademlia")]
+    #[cfg(feature = "kad")]
     async fn handle_kademlia_event(&mut self, event: KademliaEvent) -> P2PResult<()> {
         match event {
             KademliaEvent::InboundRequest { request } => match request {
@@ -1257,7 +1257,7 @@ impl<S: ApplicationSigner> P2P<S> {
                     Ok(())
                 }
             },
-            #[cfg(feature = "kademlia")]
+            #[cfg(feature = "kad")]
             Command::GetDHTRecord {
                 app_public_key,
                 response_sender,
