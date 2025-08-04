@@ -3,11 +3,16 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use libp2p::{Multiaddr, PeerId, identity::PublicKey};
-use serde::{Deserialize, Serialize};
-use tracing::{trace, warn};
+use serde::{Deserialize, Deserializer, Serialize, de};
 
-use crate::swarm::{
-    dto::signed_data::SignedData, serializing::pubkey_serialization::pubkey_serializer,
+use crate::{
+    signer::ApplicationSigner,
+    swarm::{
+        dto::signed_data::SignedData,
+        serializing::{
+            pubkey_serialization::pubkey_serializer, signature_serialization::signature_serializer,
+        },
+    },
 };
 
 /// Protocol version for DHT records.
@@ -57,52 +62,47 @@ impl RecordData {
     }
 }
 
-pub(crate) fn deserialize_and_validate_dht_record(data: &[u8]) -> Option<RecordData> {
-    let str = match String::from_utf8(data.to_owned()) {
-        Ok(s) => s,
-        Err(e) => {
-            warn!(%e, record = %String::from_utf8_lossy(data),
-                "Tried to get record from DHT, but it seems to have a string for multiaddress to be invalid UTF-8.");
-            return None;
-        }
-    };
+/// Signed DHT record.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct SignedRecord {
+    /// underlying record
+    pub record: RecordData,
+    /// Signature of record by application keypair,
+    /// that can be verified by application public key from record field.
+    #[serde(with = "signature_serializer")]
+    pub signature: [u8; 64],
+}
 
-    trace!(%str, "We got a record.");
-
-    let signed_data: SignedData = match serde_json::from_str(&str) {
-        Ok(data) => data,
-        Err(e) => {
-            warn!(%e, "Tried to get record from DHT, but we failed deserializing its signature.");
-            return None;
-        }
-    };
-
-    let str_record = match String::from_utf8(signed_data.raw_data.clone()) {
-        Ok(s) => s,
-        Err(e) => {
-            warn!(%e, record = %String::from_utf8_lossy(&signed_data.raw_data),
-            "Tried to get record from DHT, but it seems to have a string for multiaddress to be invalid UTF-8."
-            );
-            return None;
-        }
-    };
-
-    let record: RecordData = match serde_json::from_str(&str_record) {
-        Ok(data) => data,
-        Err(e) => {
-            warn!(%e, "Tried to get record from DHT, but we failed deserializing its data.");
-            return None;
-        }
-    };
-
-    if !record
-        .app_public_key
-        .verify(&signed_data.raw_data, &signed_data.signature)
-    {
-        warn!("Tried to get record from DHT, but it has bad signature.");
-        return None;
+impl SignedRecord {
+    fn new<S: ApplicationSigner>(
+        record: RecordData,
+        signer: S,
+    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        let signature = signer.sign(&serde_json::to_vec(&record)?, record.app_public_key.clone())?;
+        Ok(Self { record, signature })
     }
+}
 
-    trace!("Returning a record");
-    Some(record)
+impl<'de> Deserialize<'de> for SignedRecord {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let signed_data: SignedData = serde::Deserialize::deserialize(deserializer)?;
+
+        let record: RecordData =
+            serde_json::from_slice(&signed_data.raw_data).map_err(serde::de::Error::custom)?;
+
+        if !record
+            .app_public_key
+            .verify(&signed_data.raw_data, &signed_data.signature)
+        {
+            return Err(de::Error::custom("Signature verification failed"));
+        }
+
+        Ok(SignedRecord {
+            record,
+            signature: signed_data.signature,
+        })
+    }
 }
