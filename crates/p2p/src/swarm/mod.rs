@@ -3,11 +3,12 @@
 #[cfg(any(feature = "gossipsub", feature = "request-response"))]
 use std::time::SystemTime;
 use std::{
-    collections::{HashSet, VecDeque},
+    collections::HashSet,
     time::{Duration, Instant},
 };
 
 use behavior::{Behaviour, BehaviourEvent};
+use cynosure::site_c::queue::Queue;
 use errors::{P2PResult, ProtocolError};
 #[cfg(not(all(feature = "gossipsub", feature = "request-response")))]
 use futures::future::pending;
@@ -1046,7 +1047,7 @@ where
                 addresses
                     .sort_by_key(|addr| !addr.protocol_stack().any(|proto| proto.contains("quic")));
 
-                let mut queue = VecDeque::from(addresses);
+                let mut queue = Queue::from_iter(addresses.into_iter());
 
                 let first_addr = queue.pop_front().unwrap(); // can use unwrap() here thus we have at least one element
 
