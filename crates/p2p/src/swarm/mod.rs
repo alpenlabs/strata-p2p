@@ -610,7 +610,7 @@ impl<S: ApplicationSigner> P2P<S> {
             };
 
             if let Err(err) = result {
-                error!(%err, "Stopping... Encountered error...");
+                error!(%err, "Stopping `P2P.listen` : encountered error after which we think we can't continue operating.");
                 return;
             }
         }
