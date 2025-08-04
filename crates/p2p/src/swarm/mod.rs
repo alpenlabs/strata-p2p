@@ -1272,8 +1272,6 @@ impl<S: ApplicationSigner> P2P<S> {
     }
 
     fn ask_kademlia_get_record(&mut self, app_pk: &PublicKey, action: ActionOnKademliaGetRecord) {
-        trace!(?app_pk, "We got to ask_kademlia_get_record.");
-
         let queryid = self
             .swarm
             .behaviour_mut()
