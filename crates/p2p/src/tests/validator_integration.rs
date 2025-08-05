@@ -394,3 +394,197 @@ async fn test_reqresp_ban_penalty() -> anyhow::Result<()> {
 
     Ok(())
 }
+
+#[cfg(feature = "gossipsub")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn test_gossipsub_ignore_penalty() -> anyhow::Result<()> {
+    init_tracing();
+    const USERS_NUM: usize = 2;
+
+    let Setup {
+        mut user_handles,
+        cancel,
+        tasks,
+    } = Setup::all_to_all_with_custom_validator(USERS_NUM, TestValidator).await?;
+
+    sleep(Duration::from_millis(500)).await;
+
+    user_handles[0]
+        .gossip
+        .send(GossipCommand {
+            data: "ignore me".into(),
+        })
+        .await?;
+
+    sleep(Duration::from_millis(200)).await;
+
+    user_handles[0]
+        .gossip
+        .send(GossipCommand {
+            data: "normal message after ignore".into(),
+        })
+        .await?;
+
+    let GossipEvent::ReceivedMessage(data) = user_handles[1].gossip.next_event().await?;
+    assert_eq!(data, b"normal message after ignore");
+    info!("Normal message received after ignore penalty - ignore working correctly");
+
+    cancel.cancel();
+    tasks.wait().await;
+    Ok(())
+}
+
+#[cfg(feature = "gossipsub")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn test_gossipsub_mute_both_penalty() -> anyhow::Result<()> {
+    init_tracing();
+    const USERS_NUM: usize = 2;
+
+    let Setup {
+        mut user_handles,
+        cancel,
+        tasks,
+    } = Setup::all_to_all_with_custom_validator(USERS_NUM, TestValidator).await?;
+
+    sleep(Duration::from_millis(500)).await;
+
+    user_handles[0]
+        .gossip
+        .send(GossipCommand {
+            data: "normal message".into(),
+        })
+        .await?;
+
+    let GossipEvent::ReceivedMessage(data) = user_handles[1].gossip.next_event().await?;
+    assert_eq!(data, b"normal message");
+    info!("Normal message received before mute");
+
+    user_handles[0]
+        .gossip
+        .send(GossipCommand {
+            data: "mute both".into(),
+        })
+        .await?;
+
+    sleep(Duration::from_millis(200)).await;
+
+    user_handles[0]
+        .gossip
+        .send(GossipCommand {
+            data: "this should be muted gossip".into(),
+        })
+        .await?;
+
+    let result = timeout(Duration::from_secs(1), user_handles[1].gossip.next_event()).await;
+    match result {
+        Err(_) => info!("Timeout occurred - peer is correctly muted for gossip"),
+        Ok(Ok(event)) => {
+            let GossipEvent::ReceivedMessage(data) = event;
+            if data == b"this should be muted gossip" {
+                panic!("Received muted gossip message - muting failed!");
+            }
+            info!(?data, "Received different message");
+        }
+        Ok(Err(e)) => panic!("Error receiving message: {e}"),
+    }
+
+    sleep(Duration::from_secs(4)).await;
+
+    user_handles[0]
+        .gossip
+        .send(GossipCommand {
+            data: "after mute expired".into(),
+        })
+        .await?;
+
+    let GossipEvent::ReceivedMessage(data) = user_handles[1].gossip.next_event().await?;
+    assert_eq!(data, b"after mute expired");
+    info!("Message sent successfully after mute expired");
+
+    cancel.cancel();
+    tasks.wait().await;
+    Ok(())
+}
+
+#[cfg(all(feature = "request-response", feature = "gossipsub"))]
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn test_reqresp_mute_both_penalty() -> anyhow::Result<()> {
+    init_tracing();
+    const USERS_NUM: usize = 2;
+
+    let Setup {
+        mut user_handles,
+        cancel,
+        tasks,
+    } = Setup::all_to_all_with_custom_validator(USERS_NUM, TestValidator).await?;
+
+    sleep(Duration::from_millis(500)).await;
+
+    let (user0, user1) = user_handles.split_at_mut(1);
+    let target_public_key = user1[0].app_keypair.public().clone();
+
+    user0[0]
+        .reqresp
+        .send(RequestResponseCommand {
+            target_app_public_key: target_public_key.clone(),
+            data: "normal request".into(),
+        })
+        .await?;
+
+    if let Some(ReqRespEvent::ReceivedRequest(data, _)) = user1[0].reqresp.next_event().await {
+        assert_eq!(data, b"normal request");
+        info!("Normal request received");
+    }
+
+    user0[0]
+        .reqresp
+        .send(RequestResponseCommand {
+            target_app_public_key: target_public_key.clone(),
+            data: "mute both".into(),
+        })
+        .await?;
+
+    sleep(Duration::from_millis(200)).await;
+
+    user0[0]
+        .reqresp
+        .send(RequestResponseCommand {
+            target_app_public_key: target_public_key.clone(),
+            data: "this should be muted reqresp".into(),
+        })
+        .await?;
+
+    let result = timeout(Duration::from_millis(1000), user1[0].reqresp.next_event()).await;
+    match result {
+        Err(_) => info!("Timeout occurred - peer is correctly muted for req/resp"),
+        Ok(Some(event)) => {
+            if let ReqRespEvent::ReceivedRequest(data, _) = event
+                && data == b"this should be muted reqresp"
+            {
+                panic!("Received muted request - muting failed!");
+            }
+        }
+        Ok(None) => info!("No event received - peer is correctly muted"),
+    }
+
+    sleep(Duration::from_secs(4)).await;
+
+    user0[0]
+        .reqresp
+        .send(RequestResponseCommand {
+            target_app_public_key: target_public_key,
+            data: "after mute expired".into(),
+        })
+        .await?;
+
+    if let Some(ReqRespEvent::ReceivedRequest(data, _)) = user1[0].reqresp.next_event().await {
+        assert_eq!(data, b"after mute expired");
+        info!("Request sent successfully after mute expired");
+    } else {
+        panic!("Expected ReceivedRequest");
+    }
+
+    cancel.cancel();
+    tasks.wait().await;
+    Ok(())
+}
