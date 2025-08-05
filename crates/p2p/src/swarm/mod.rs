@@ -1092,10 +1092,16 @@ impl<S: ApplicationSigner> P2P<S> {
                     threshold = %self.config.kademlia_threshold,
                     "Routing updated..."
                 );
-                // TODO(Arniiiii): get amount not connected peers but how many nodes we know in
-                // kademlia
                 if !self.kademlia_is_initial_record_already_posted
-                    && self.swarm.connected_peers().count() > self.config.kademlia_threshold
+                    && self
+                        .swarm
+                        .behaviour_mut()
+                        .kademlia
+                        .kbuckets()
+                        .map(|bucket| bucket.num_entries())
+                        .reduce(|x, y| x + y)
+                        .unwrap_or(0)
+                        > self.config.kademlia_threshold
                 {
                     let maybe_signed_record_data = SignedRecord::new(
                         RecordData::new(
