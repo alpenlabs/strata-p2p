@@ -4,7 +4,6 @@
 use std::collections::HashMap;
 use std::{
     collections::{HashSet, VecDeque},
-    sync::LazyLock,
     time::{Duration, Instant},
 };
 
@@ -94,7 +93,20 @@ pub mod dto;
 pub mod setup;
 
 /// Global topic name for gossipsub messages.
-static TOPIC: LazyLock<Sha256Topic> = LazyLock::new(|| Sha256Topic::new("bitvm2"));
+#[non_exhaustive]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum GossipSubTopic {
+    /// second version
+    V2,
+}
+
+impl From<GossipSubTopic> for Sha256Topic {
+    fn from(protocol: GossipSubTopic) -> Self {
+        match protocol {
+            GossipSubTopic::V2 => Sha256Topic::new("bitvm3"),
+        }
+    }
+}
 
 /// Global MAX_TRANSMIT_SIZE for gossipsub messages.
 const MAX_TRANSMIT_SIZE: usize = 512 * 1024;
@@ -438,36 +450,39 @@ impl<S: ApplicationSigner> P2P<S> {
 
         let mut num_retries = 0;
         loop {
-            debug!(topic=%TOPIC.to_string(), %num_retries, %max_retry_count, "attempting to subscribe to topic");
+            debug!(topic=%Into::<Sha256Topic>::into(GossipSubTopic::V2).to_string(), %num_retries, %max_retry_count, "attempting to subscribe to topic");
             match timeout(general_timeout, async {
-                self.swarm.behaviour_mut().gossipsub.subscribe(&TOPIC)
+                self.swarm
+                    .behaviour_mut()
+                    .gossipsub
+                    .subscribe(&Into::<Sha256Topic>::into(GossipSubTopic::V2))
             })
             .await
             {
                 Ok(Ok(_)) => {
-                    info!(topic=%TOPIC.to_string(), %num_retries, %max_retry_count, local_addr=?self.config.listening_addrs, "subscribed to topic successfully");
+                    info!(topic=%Into::<Sha256Topic>::into(GossipSubTopic::V2).to_string(), %num_retries, %max_retry_count, local_addr=?self.config.listening_addrs, "subscribed to topic successfully");
                     break;
                 }
                 Ok(Err(err)) => {
-                    error!(topic=%TOPIC.to_string(), %err, %num_retries, %max_retry_count, local_addr=?self.config.listening_addrs, "failed to subscribe to topic, retrying...");
+                    error!(topic=%Into::<Sha256Topic>::into(GossipSubTopic::V2).to_string(), %err, %num_retries, %max_retry_count, local_addr=?self.config.listening_addrs, "failed to subscribe to topic, retrying...");
                 }
                 Err(_) => {
-                    error!(topic=%TOPIC.to_string(), %num_retries, %max_retry_count, local_addr=?self.config.listening_addrs, "failed to subscribe to topic, retrying...");
+                    error!(topic=%Into::<Sha256Topic>::into(GossipSubTopic::V2).to_string(), %num_retries, %max_retry_count, local_addr=?self.config.listening_addrs, "failed to subscribe to topic, retrying...");
                 }
             }
 
             num_retries += 1;
 
             if num_retries > max_retry_count {
-                error!(topic=%TOPIC.to_string(), %num_retries, %max_retry_count, "failed to subscribe to topic after max retries");
+                error!(topic=%Into::<Sha256Topic>::into(GossipSubTopic::V2).to_string(), %num_retries, %max_retry_count, "failed to subscribe to topic after max retries");
                 break;
             }
 
             // Add a small delay between retries
             tokio::time::sleep(connection_check_interval).await;
-            debug!(topic=%TOPIC.to_string(), %num_retries, %max_retry_count, "attempting to subscribe to topic again");
+            debug!(topic=%Into::<Sha256Topic>::into(GossipSubTopic::V2).to_string(), %num_retries, %max_retry_count, "attempting to subscribe to topic again");
         }
-        debug!(topic=%TOPIC.to_string(), %num_retries, %max_retry_count, "finished trying to subscribe to topic");
+        debug!(topic=%Into::<Sha256Topic>::into(GossipSubTopic::V2).to_string(), %num_retries, %max_retry_count, "finished trying to subscribe to topic");
 
         let subscriptions = 0;
         let start_time = Instant::now();
@@ -1341,7 +1356,10 @@ impl<S: ApplicationSigner> P2P<S> {
             .swarm
             .behaviour_mut()
             .gossipsub
-            .publish(TOPIC.hash(), cmd.data)
+            .publish(
+                Into::<Sha256Topic>::into(GossipSubTopic::V2).hash(),
+                cmd.data,
+            )
             .inspect_err(|err| match err {
                 PublishError::Duplicate => {
                     warn!(%err, "Failed to publish msg through gossipsub, message already exists");

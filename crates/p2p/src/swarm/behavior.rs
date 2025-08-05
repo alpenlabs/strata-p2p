@@ -11,7 +11,7 @@ use libp2p::request_response::{
 use libp2p::{
     PeerId, StreamProtocol,
     gossipsub::{
-        self, Behaviour as Gossipsub, IdentityTransform, MessageAuthenticity,
+        self, Behaviour as Gossipsub, IdentityTransform, MessageAuthenticity, Sha256Topic,
         WhitelistSubscriptionFilter,
     },
     identify::{Behaviour as Identify, Config},
@@ -21,12 +21,15 @@ use libp2p::{
 #[cfg(feature = "kad")]
 use libp2p::{kad, kad::store::MemoryStore};
 
+use super::MAX_TRANSMIT_SIZE;
 #[cfg(feature = "request-response")]
 use super::codec_raw;
-use super::{MAX_TRANSMIT_SIZE, TOPIC};
 #[cfg(feature = "kad")]
 use crate::swarm::KadProtocol;
-use crate::{signer::ApplicationSigner, swarm::setup::behavior::SetupBehaviour};
+use crate::{
+    signer::ApplicationSigner,
+    swarm::{GossipSubTopic, setup::behavior::SetupBehaviour},
+};
 
 /// Alias for request-response behaviour with messages serialized by using
 /// homebrewed codec implementation.
@@ -106,7 +109,7 @@ impl<S: ApplicationSigner> Behaviour<S> {
         #[cfg(feature = "kad")] kad_protocol_name: &Option<KadProtocol>,
     ) -> Self {
         let mut filter = HashSet::new();
-        filter.insert(TOPIC.hash());
+        filter.insert(Into::<Sha256Topic>::into(GossipSubTopic::V2).hash());
 
         #[cfg(feature = "kad")]
         let kademlia_behaviour = configure_kademlia_behaviour(transport_keypair, kad_protocol_name);
