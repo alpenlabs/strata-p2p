@@ -12,7 +12,7 @@ use crate::swarm::serializing::pubkey_serialization::pubkey_serializer;
 #[repr(u8)]
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum DHTProtocol {
+pub enum DHTProtocolVersion {
     /// first version.
     V1,
 }
@@ -22,7 +22,7 @@ pub enum DHTProtocol {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RecordData {
     /// Protocol version.
-    pub version: DHTProtocol,
+    pub version: DHTProtocolVersion,
 
     /// The application public key (Ed25519).
     #[serde(with = "pubkey_serializer")]
@@ -41,7 +41,7 @@ impl RecordData {
             .as_secs();
 
         Self {
-            version: DHTProtocol::V1,
+            version: DHTProtocolVersion::V1,
             app_public_key,
             date: timestamp,
             multiaddresses,
