@@ -908,7 +908,7 @@ where
         let signed_message = match SignedMessage::from_json_bytes(&message.data) {
             Ok(signed_msg) => signed_msg,
             Err(e) => {
-                warn!(%propagation_source, ?e, "Failed to deserialize signed gossipsub message");
+                error!(%propagation_source, ?e, "Failed to deserialize signed gossipsub message");
                 self.swarm
                     .behaviour_mut()
                     .gossipsub
@@ -924,7 +924,7 @@ where
         let gossip_message: GossipMessage = match signed_message.deserialize_message() {
             Ok(msg) => msg,
             Err(e) => {
-                warn!(%propagation_source, ?e, "Failed to deserialize inner gossipsub message");
+                error!(%propagation_source, ?e, "Failed to deserialize inner gossipsub message");
                 self.swarm
                     .behaviour_mut()
                     .gossipsub
@@ -941,7 +941,7 @@ where
             match signed_message.verify_signature(&gossip_message.app_public_key) {
                 Ok(valid) => valid,
                 Err(e) => {
-                    warn!(%propagation_source, ?e, "Error verifying gossipsub message signature");
+                    error!(%propagation_source, ?e, "Error verifying gossipsub message signature");
                     self.swarm
                         .behaviour_mut()
                         .gossipsub
@@ -1268,7 +1268,7 @@ where
                 error,
                 ..
             } => {
-                warn!(%peer, %error, %request_id, "Outbound failure")
+                error!(%peer, %error, %request_id, "Outbound failure")
             }
             RequestResponseEvent::InboundFailure {
                 peer,
@@ -1276,11 +1276,11 @@ where
                 error,
                 connection_id: _,
             } => {
-                warn!(%peer, %error, %request_id, "Inbound failure");
+                error!(%peer, %error, %request_id, "Inbound failure");
                 // dial the peer
                 let _ = self.swarm.dial(peer).inspect_err(|err| {
-                    warn!(%peer, %error, %request_id, "Inbound failure");
-                    warn!(%err, "Failed to connect to peer '{peer}'");
+                    error!(%peer, %error, %request_id, "Inbound failure");
+                    error!(%err, "Failed to connect to peer '{peer}'");
                 });
             }
             RequestResponseEvent::ResponseSent {
@@ -1329,7 +1329,7 @@ where
                 let signed_message = match SignedMessage::from_json_bytes(&request) {
                     Ok(signed_msg) => signed_msg,
                     Err(e) => {
-                        warn!(%peer_id, ?e, "Failed to deserialize signed request message");
+                        error!(%peer_id, ?e, "Failed to deserialize signed request message");
                         return Ok(());
                     }
                 };
@@ -1337,7 +1337,7 @@ where
                 let request: RequestMessage = match signed_message.deserialize_message() {
                     Ok(request) => request,
                     Err(e) => {
-                        warn!(%peer_id, ?e, "Failed to deserialize request message");
+                        error!(%peer_id, ?e, "Failed to deserialize request message");
                         return Ok(());
                     }
                 };
@@ -1345,13 +1345,13 @@ where
                 let is_valid = match signed_message.verify_signature(&request.app_public_key) {
                     Ok(is_valid) => is_valid,
                     Err(e) => {
-                        warn!(%peer_id, ?e, "Failed to verify signature for request message");
+                        error!(%peer_id, ?e, "Failed to verify signature for request message");
                         return Ok(());
                     }
                 };
 
                 if !is_valid {
-                    warn!(%peer_id, "Invalid signature for request message");
+                    error!(%peer_id, "Invalid signature for request message");
                     return Ok(());
                 }
 
@@ -1432,7 +1432,7 @@ where
                                 })
                     }
                     Ok(Err(err)) => {
-                        warn!("Received error in response: {err:?}");
+                        error!("Received error in response: {err:?}");
                         Ok(())
                     }
                     Err(_) => {
@@ -1452,7 +1452,7 @@ where
                 let signed_response_message = match SignedMessage::from_json_bytes(&response) {
                     Ok(signed_msg) => signed_msg,
                     Err(e) => {
-                        warn!(%peer_id, ?e, "Failed to deserialize signed response message");
+                        error!(%peer_id, ?e, "Failed to deserialize signed response message");
                         return Ok(());
                     }
                 };
@@ -1461,7 +1461,7 @@ where
                 {
                     Ok(response) => response,
                     Err(e) => {
-                        warn!(%peer_id, ?e, "Failed to deserialize response message");
+                        error!(%peer_id, ?e, "Failed to deserialize response message");
                         return Ok(());
                     }
                 };
@@ -1470,7 +1470,7 @@ where
                     match signed_response_message.verify_signature(&response.app_public_key) {
                         Ok(is_valid) => is_valid,
                         Err(e) => {
-                            warn!(%peer_id, ?e, "Failed to verify signature for response message");
+                            error!(%peer_id, ?e, "Failed to verify signature for response message");
                             return Ok(());
                         }
                     };

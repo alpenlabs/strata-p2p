@@ -7,11 +7,11 @@
 use std::task::{Context, Poll};
 
 use libp2p::{
+    PeerId,
     identity::PublicKey,
     swarm::{
-        handler::ConnectionEvent, ConnectionHandler, ConnectionHandlerEvent, SubstreamProtocol,
+        ConnectionHandler, ConnectionHandlerEvent, SubstreamProtocol, handler::ConnectionEvent,
     },
-    PeerId,
 };
 use tracing::trace;
 

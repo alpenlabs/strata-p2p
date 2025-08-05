@@ -1,6 +1,6 @@
 //! Commands for P2P implementation from operator implementation.
 
-use libp2p::{identity::PublicKey, Multiaddr};
+use libp2p::{Multiaddr, identity::PublicKey};
 use tokio::sync::oneshot;
 
 /// Commands that users can send to the P2P node.

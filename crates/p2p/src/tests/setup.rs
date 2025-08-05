@@ -5,7 +5,7 @@ use std::time::Duration;
 use tokio::time::sleep;
 use tracing::info;
 
-use crate::tests::common::{init_tracing, Setup};
+use crate::tests::common::{Setup, init_tracing};
 
 /// Test that peers can connect and are identified by their app public keys after setup phase.
 #[tokio::test]

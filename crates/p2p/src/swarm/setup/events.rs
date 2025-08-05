@@ -4,7 +4,7 @@
 //! of peer-to-peer connections, providing information about handshake progress
 //! and key exchange completion.
 
-use libp2p::{identity::PublicKey, PeerId};
+use libp2p::{PeerId, identity::PublicKey};
 
 use crate::swarm::errors::SetupError;
 

@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 
 use cynosure::site_c::queue::Queue;
-use libp2p::{identity::PublicKey, swarm::ConnectionId, Multiaddr};
+use libp2p::{Multiaddr, identity::PublicKey, swarm::ConnectionId};
 
 /// [`DialManager`] is responsible for managing the dial process for each peer.
 #[derive(Debug, Default)]

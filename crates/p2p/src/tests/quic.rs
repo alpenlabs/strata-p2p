@@ -2,14 +2,14 @@
 
 use std::time::Duration;
 
-use libp2p::{identity::Keypair, Multiaddr};
+use libp2p::{Multiaddr, identity::Keypair};
 use tokio::{join, spawn, sync::oneshot, time};
 use tokio_util::sync::CancellationToken;
 use tracing::info;
 
 use crate::{
     commands::{Command, QueryP2PStateCommand},
-    tests::common::{init_tracing, MockApplicationSigner, User},
+    tests::common::{MockApplicationSigner, User, init_tracing},
     validator::DefaultP2PValidator,
 };
 

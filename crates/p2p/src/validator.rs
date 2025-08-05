@@ -1,3 +1,5 @@
+//! Validator for the P2P network.
+
 use std::{
     collections::HashMap,
     fmt::Debug,
@@ -12,8 +14,11 @@ pub const DEFAULT_BAN_PERIOD: Duration = Duration::from_secs(60 * 60 * 24 * 30);
 /// Message types.
 #[derive(Debug)]
 pub enum Message {
+    /// Gossipsub message.
     Gossipsub(Vec<u8>),
+    /// Request message.
     Request(Vec<u8>),
+    /// Response message.
     Response(Vec<u8>),
 }
 
@@ -32,6 +37,7 @@ pub enum PenaltyType {
     Ban(Option<Duration>),
 }
 
+/// Penalty information for a peer.
 #[derive(Debug)]
 pub struct PenaltyInfo {
     /// Timestamp until which the peer is muted for gossipsub.
@@ -56,11 +62,13 @@ impl PenaltyInfo {
     }
 }
 
+/// Storage for peer penalties.
 #[derive(Debug, Default)]
 pub struct PenaltyPeerStorage {
     penalties: HashMap<PublicKey, PenaltyInfo>,
 }
 
+/// Validator trait. Used to validate messages and return penalties.
 pub trait Validator: Debug + Send + Sync + Clone + Default + 'static {
     /// Validates data using the generic validator and returns a new score.
     fn validate_msg(&self, msg: &Message, old_app_score: f64) -> f64;
@@ -75,6 +83,7 @@ pub trait Validator: Debug + Send + Sync + Clone + Default + 'static {
     ) -> Option<PenaltyType>;
 }
 
+/// Default validator.
 #[derive(Debug, Default, Clone)]
 pub struct DefaultP2PValidator;
 
@@ -97,11 +106,14 @@ impl Validator for DefaultP2PValidator {
 }
 
 impl PenaltyPeerStorage {
+    /// Creates a new [`PenaltyPeerStorage`].
     pub fn new() -> Self {
         Self {
             penalties: HashMap::new(),
         }
     }
+
+    /// Checks if the peer is muted for gossip.
     pub fn is_gossip_muted(&self, app_public_key: &PublicKey) -> bool {
         self.penalties
             .get(app_public_key)
@@ -109,6 +121,7 @@ impl PenaltyPeerStorage {
             .is_some_and(|timestamp| timestamp > SystemTime::now())
     }
 
+    /// Checks if the peer is muted for request/response.
     pub fn is_req_resp_muted(&self, app_public_key: &PublicKey) -> bool {
         self.penalties
             .get(app_public_key)
@@ -116,6 +129,7 @@ impl PenaltyPeerStorage {
             .is_some_and(|timestamp| timestamp > SystemTime::now())
     }
 
+    /// Checks if the peer is banned.
     pub fn is_banned(&self, app_public_key: &PublicKey) -> bool {
         self.penalties
             .get(app_public_key)
@@ -123,6 +137,7 @@ impl PenaltyPeerStorage {
             .is_some_and(|timestamp| timestamp > SystemTime::now())
     }
 
+    /// Mutes the peer for gossip for the given duration.
     pub fn mute_peer_gossip(
         &mut self,
         app_public_key: &PublicKey,
@@ -143,6 +158,7 @@ impl PenaltyPeerStorage {
         Ok(())
     }
 
+    /// Mutes the peer for request/response for the given duration.
     pub fn mute_peer_req_resp(
         &mut self,
         app_public_key: &PublicKey,
@@ -163,6 +179,7 @@ impl PenaltyPeerStorage {
         Ok(())
     }
 
+    /// Bans the peer for the given duration.
     pub fn ban_peer(
         &mut self,
         app_public_key: &PublicKey,

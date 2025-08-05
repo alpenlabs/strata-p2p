@@ -1,3 +1,5 @@
+//! Score manager for the P2P network.
+
 use std::collections::HashMap;
 
 use libp2p::identity::PublicKey;

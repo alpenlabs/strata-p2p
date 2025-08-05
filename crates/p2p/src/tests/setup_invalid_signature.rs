@@ -13,7 +13,7 @@ use tracing::info;
 use crate::{
     commands::{Command, QueryP2PStateCommand},
     signer::ApplicationSigner,
-    tests::common::{init_tracing, MockApplicationSigner, User},
+    tests::common::{MockApplicationSigner, User, init_tracing},
     validator::DefaultP2PValidator,
 };
 
