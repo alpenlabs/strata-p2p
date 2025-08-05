@@ -773,7 +773,9 @@ impl<S: ApplicationSigner> P2P<S> {
                                             info!(err = %res.unwrap_err(), "Someone has asked as to put a record that is too big. Refusing to do so.")
                                         }
                                     } else {
-                                        info!("Someone asked us to put a record with invalid signature. Refusing to keep it.")
+                                        info!(
+                                            "Someone asked us to put a record with invalid signature. Refusing to keep it."
+                                        )
                                     }
                                 }
                                 Err(e) => {
@@ -845,7 +847,7 @@ impl<S: ApplicationSigner> P2P<S> {
                     if self.kademlia_postponed_get_action.contains_key(&id) {
                         let res_record: Result<SignedRecord, serde_json::Error> =
                             serde_json::from_slice(&peer_record.record.value);
-                        
+
                         let verified_record = res_record.ok().and_then(|record| {
                             if let Ok(true) = record.verify() {
                                 Some(record)
@@ -854,7 +856,7 @@ impl<S: ApplicationSigner> P2P<S> {
                                 None
                             }
                         });
-                        
+
                         trace!(
                             ?verified_record,
                             "Deserialized and validated. Still can be optional."

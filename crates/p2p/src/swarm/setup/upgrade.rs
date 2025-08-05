@@ -15,7 +15,7 @@ use libp2p::{
 use crate::{
     signer::ApplicationSigner,
     swarm::{
-        dto::message::{SetupMessage, SignedSetupMessage},
+        dto::setup::{SetupMessage, SignedSetupMessage},
         errors::SetupUpgradeError,
     },
 };
@@ -49,7 +49,10 @@ impl InboundUpgrade<Stream> for InboundSetupUpgrade {
 
     fn upgrade_inbound(self, stream: Stream, _: Self::Info) -> Self::Future {
         Box::pin(async move {
-            let mut framed = Framed::new(stream, JsonCodec::<SignedSetupMessage, SignedSetupMessage>::new());
+            let mut framed = Framed::new(
+                stream,
+                JsonCodec::<SignedSetupMessage, SignedSetupMessage>::new(),
+            );
 
             match StreamExt::next(&mut framed).await {
                 Some(Ok(signed_message)) => Ok(signed_message),
@@ -113,7 +116,10 @@ impl<S: ApplicationSigner> OutboundUpgrade<Stream> for OutboundSetupUpgrade<S> {
             )
             .map_err(SetupUpgradeError::SignedMessageCreation)?;
 
-            let mut framed = Framed::new(stream, JsonCodec::<SignedSetupMessage, SignedSetupMessage>::new());
+            let mut framed = Framed::new(
+                stream,
+                JsonCodec::<SignedSetupMessage, SignedSetupMessage>::new(),
+            );
             framed
                 .send(setup_message)
                 .await

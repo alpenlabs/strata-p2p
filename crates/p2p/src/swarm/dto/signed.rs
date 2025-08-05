@@ -4,8 +4,7 @@ use libp2p::identity::PublicKey;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    signer::ApplicationSigner,
-    swarm::serializing::signature_serialization::signature_serializer,
+    signer::ApplicationSigner, swarm::serializing::signature_serialization::signature_serializer,
 };
 
 /// Trait for messages that can provide their application public key.
@@ -50,6 +49,9 @@ where
     /// Verify the signature of the message.
     pub fn verify(&self) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
         let serialized = serde_json::to_vec(&self.message)?;
-        Ok(self.message.app_public_key().verify(&serialized, &self.signature))
+        Ok(self
+            .message
+            .app_public_key()
+            .verify(&serialized, &self.signature))
     }
 }

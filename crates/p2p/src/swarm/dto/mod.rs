@@ -3,5 +3,5 @@
 #[cfg(feature = "kad")]
 pub mod dht_record;
 
-pub mod message;
+pub mod setup;
 pub mod signed;

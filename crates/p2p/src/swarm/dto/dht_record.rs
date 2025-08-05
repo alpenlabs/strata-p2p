@@ -5,9 +5,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use libp2p::{Multiaddr, identity::PublicKey};
 use serde::{Deserialize, Serialize};
 
-use crate::swarm::serializing::pubkey_serialization::pubkey_serializer;
-
 use super::signed::{HasAppPublicKey, SignedMessage};
+use crate::swarm::serializing::pubkey_serialization::pubkey_serializer;
 
 /// Protocol version for DHT records.
 pub(crate) const DHT_PROTOCOL_VERSION: u8 = 0;
