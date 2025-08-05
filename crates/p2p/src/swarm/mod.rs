@@ -80,6 +80,7 @@ pub mod setup;
 use libp2p::tcp;
 
 /// Global topic name for gossipsub messages.
+// TODO: make this configurable later
 #[cfg(feature = "gossipsub")]
 static TOPIC: LazyLock<Sha256Topic> = LazyLock::new(|| Sha256Topic::new("bitvm2"));
 
@@ -88,7 +89,7 @@ static TOPIC: LazyLock<Sha256Topic> = LazyLock::new(|| Sha256Topic::new("bitvm2"
 const MAX_TRANSMIT_SIZE: usize = 512 * 1024;
 
 /// Global name of the protocol
-// TODO(Velnbur): make this configurable later
+// TODO: make this configurable later
 const PROTOCOL_NAME: &str = "/strata-bitvm2";
 
 /// Global default retry count for connection attempts.
@@ -105,6 +106,21 @@ pub const DEFAULT_CONNECTION_CHECK_INTERVAL: Duration = Duration::from_millis(50
 
 /// Global default timeout for channel operations (e.g., sending/receiving on channels).
 pub const DEFAULT_CHANNEL_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Default buffer size for gossip event broadcast channels.
+#[cfg(feature = "gossipsub")]
+pub const DEFAULT_GOSSIP_EVENT_BUFFER_SIZE: usize = 256;
+
+/// Default buffer size for command channels.
+pub const DEFAULT_COMMAND_BUFFER_SIZE: usize = 64;
+
+/// Default buffer size for request-response event channels.
+#[cfg(feature = "request-response")]
+pub const DEFAULT_REQ_RESP_EVENT_BUFFER_SIZE: usize = 64;
+
+/// Default buffer size for gossip command channels.
+#[cfg(feature = "gossipsub")]
+pub const DEFAULT_GOSSIP_COMMAND_BUFFER_SIZE: usize = 64;
 
 /// Configuration options for [`P2P`].
 #[derive(Debug, Clone)]
@@ -150,7 +166,7 @@ pub struct P2PConfig {
 
     /// Gossipsub peer scoring parameters.
     ///
-    /// If `None`, the default parameters will be used.
+    /// If [`None`], the default parameters will be used.
     /// Use this to fine-tune how peers are scored for message delivery, invalid messages, etc.
     /// See [`PeerScoreParams`] for all available options.
     #[cfg(feature = "gossipsub")]
@@ -158,11 +174,38 @@ pub struct P2PConfig {
 
     /// Gossipsub peer score thresholds.
     ///
-    /// If `None`, the default thresholds will be used.
+    /// If [`None`], the default thresholds will be used.
     /// These thresholds determine when peers are muted, graylisted, or banned based on their
     /// score. See [`PeerScoreThresholds`] for details.
     #[cfg(feature = "gossipsub")]
     pub gossipsub_score_thresholds: Option<PeerScoreThresholds>,
+
+    /// Buffer size for gossip event broadcast channels.
+    ///
+    /// If [`None`], the default buffer size will be used.
+    /// The default is [`DEFAULT_GOSSIP_EVENT_BUFFER_SIZE`].
+    #[cfg(feature = "gossipsub")]
+    pub gossip_event_buffer_size: Option<usize>,
+
+    /// Buffer size for core command channels.
+    ///
+    /// If [`None`], the default buffer size will be used.
+    /// The default is [`DEFAULT_COMMAND_BUFFER_SIZE`].
+    pub command_buffer_size: Option<usize>,
+
+    /// Buffer size for request-response event channels.
+    ///
+    /// If [`None`], the default buffer size will be used.
+    /// The default is [`DEFAULT_REQ_RESP_EVENT_BUFFER_SIZE`].
+    #[cfg(feature = "request-response")]
+    pub req_resp_event_buffer_size: Option<usize>,
+
+    /// Buffer size for gossip command channels.
+    ///
+    /// If [`None`], the default buffer size will be used.
+    /// The default is [`DEFAULT_GOSSIP_COMMAND_BUFFER_SIZE`].
+    #[cfg(feature = "gossipsub")]
+    pub gossip_command_buffer_size: Option<usize>,
 }
 
 /// Implementation of P2P protocol data exchange.
@@ -232,7 +275,7 @@ where
     )]
     score_manager: ScoreManager,
 
-    /// Storage with penalty for peer's penalty
+    /// Storage with penalty for peer's penalty.
     peer_penalty_storage: PenaltyPeerStorage,
 
     /// Manages message validation and penalty logic.
@@ -270,20 +313,33 @@ where
         }
 
         // Core components setup
-        let (cmds_tx, cmds_rx) = mpsc::channel(64);
+        let command_buffer_size = cfg
+            .command_buffer_size
+            .unwrap_or(DEFAULT_COMMAND_BUFFER_SIZE);
+        let (cmds_tx, cmds_rx) = mpsc::channel(command_buffer_size);
         let score_manager = ScoreManager::new();
         let peer_penalty_storage = PenaltyPeerStorage::new();
 
         // Request-response setup
-        let (req_resp_event_tx, req_resp_event_rx) = mpsc::channel::<ReqRespEvent>(64);
-        let (req_resp_cmds_tx, req_resp_cmds_rx) = mpsc::channel(64);
+        let req_resp_event_buffer_size = cfg
+            .req_resp_event_buffer_size
+            .unwrap_or(DEFAULT_REQ_RESP_EVENT_BUFFER_SIZE);
+        let (req_resp_event_tx, req_resp_event_rx) =
+            mpsc::channel::<ReqRespEvent>(req_resp_event_buffer_size);
+        let (req_resp_cmds_tx, req_resp_cmds_rx) = mpsc::channel(command_buffer_size);
 
         // Conditionally setup gossipsub channels
         #[cfg(feature = "gossipsub")]
         let (gossip_events_tx, gossip_cmds_tx, gossip_cmds_rx) = {
-            let channel_size = channel_size.unwrap_or(256);
+            let gossip_event_buffer_size = cfg
+                .gossip_event_buffer_size
+                .unwrap_or(DEFAULT_GOSSIP_EVENT_BUFFER_SIZE);
+            let channel_size = channel_size.unwrap_or(gossip_event_buffer_size);
             let (gossip_events_tx, _gossip_events_rx) = broadcast::channel(channel_size);
-            let (gossip_cmds_tx, gossip_cmds_rx) = mpsc::channel(64);
+            let gossip_command_buffer_size = cfg
+                .gossip_command_buffer_size
+                .unwrap_or(DEFAULT_GOSSIP_COMMAND_BUFFER_SIZE);
+            let (gossip_cmds_tx, gossip_cmds_rx) = mpsc::channel(gossip_command_buffer_size);
             (gossip_events_tx, gossip_cmds_tx, gossip_cmds_rx)
         };
 
@@ -337,15 +393,24 @@ where
         // Gossipsub setup
         #[cfg(feature = "gossipsub")]
         let (gossip_events_tx, gossip_cmds_tx, gossip_cmds_rx) = {
-            let channel_size = channel_size.unwrap_or(256);
+            let gossip_event_buffer_size = cfg
+                .gossip_event_buffer_size
+                .unwrap_or(DEFAULT_GOSSIP_EVENT_BUFFER_SIZE);
+            let channel_size = channel_size.unwrap_or(gossip_event_buffer_size);
             let (gossip_events_tx, _gossip_events_rx) = broadcast::channel(channel_size);
-            let (gossip_cmds_tx, gossip_cmds_rx) = mpsc::channel(64);
+            let gossip_command_buffer_size = cfg
+                .gossip_command_buffer_size
+                .unwrap_or(DEFAULT_GOSSIP_COMMAND_BUFFER_SIZE);
+            let (gossip_cmds_tx, gossip_cmds_rx) = mpsc::channel(gossip_command_buffer_size);
             (gossip_events_tx, gossip_cmds_tx, gossip_cmds_rx)
         };
 
         // Core components setup
         let (cmds_tx, cmds_rx, score_manager, peer_penalty_storage) = {
-            let (cmds_tx, cmds_rx) = mpsc::channel(64);
+            let command_buffer_size = cfg
+                .command_buffer_size
+                .unwrap_or(DEFAULT_COMMAND_BUFFER_SIZE);
+            let (cmds_tx, cmds_rx) = mpsc::channel(command_buffer_size);
             let score_manager = ScoreManager::new();
             let peer_penalty_storage = PenaltyPeerStorage::new();
             (cmds_tx, cmds_rx, score_manager, peer_penalty_storage)

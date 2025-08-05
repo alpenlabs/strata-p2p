@@ -109,6 +109,13 @@ impl<S: ApplicationSigner, V: Validator> User<S, V> {
             gossipsub_score_params: None,
             #[cfg(feature = "gossipsub")]
             gossipsub_score_thresholds: None,
+            #[cfg(feature = "gossipsub")]
+            gossip_event_buffer_size: None,
+            command_buffer_size: None,
+            #[cfg(feature = "request-response")]
+            req_resp_event_buffer_size: None,
+            #[cfg(feature = "gossipsub")]
+            gossip_command_buffer_size: None,
         };
 
         // Determine transport type based on the first listening address
