@@ -3,14 +3,11 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use libp2p::{PeerId, identity::PublicKey};
-use serde::{Deserialize, Deserializer, Serialize, de};
+use serde::{Deserialize, Serialize};
 
-use crate::{
-    signer::ApplicationSigner,
-    swarm::serializing::{
-        pubkey_serialization::pubkey_serializer, signature_serialization::signature_serializer,
-    },
-};
+use crate::swarm::serializing::pubkey_serialization::pubkey_serializer;
+
+use super::signed::{HasAppPublicKey, SignedMessage};
 
 /// Protocol version for all messages.
 pub(crate) const SETUP_PROTOCOL_VERSION: u8 = 2;
@@ -18,7 +15,7 @@ pub(crate) const SETUP_PROTOCOL_VERSION: u8 = 2;
 /// Setup message structure for the handshake protocol.
 /// Now serialized/deserialized using JSON instead of custom binary format.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub(crate) struct SetupMessage {
+pub struct SetupMessage {
     /// Protocol version.
     pub version: u8,
     /// The application public key (Ed25519).
@@ -34,7 +31,7 @@ pub(crate) struct SetupMessage {
 
 impl SetupMessage {
     /// Creates a new setup message with the given parameters.
-    pub(crate) fn new(
+    pub fn new(
         app_public_key: PublicKey,
         local_transport_id: PeerId,
         remote_transport_id: PeerId,
@@ -54,60 +51,12 @@ impl SetupMessage {
     }
 }
 
-/// Signed message.
-#[derive(Debug, Clone, PartialEq, Serialize)]
-pub struct SignedMessage {
-    /// underlying message
-    pub(crate) message: SetupMessage,
-    /// Signature of message by application keypair,
-    /// that can be verified by application public key from message field.
-    #[serde(with = "signature_serializer")]
-    pub(crate) signature: [u8; 64],
-}
-
-impl SignedMessage {
-    /// Create new [`SignedMessage`] from [`SetupMessage`] and sign via signer that implements
-    /// [`ApplicationSigner`]
-    pub(crate) fn new<S: ApplicationSigner>(
-        message: SetupMessage,
-        signer: &S,
-    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let signature = signer.sign(
-            &serde_json::to_vec(&message)?,
-            message.app_public_key.clone(),
-        )?;
-        Ok(Self { message, signature })
+impl HasAppPublicKey for SetupMessage {
+    fn app_public_key(&self) -> &PublicKey {
+        &self.app_public_key
     }
 }
 
-impl<'de> Deserialize<'de> for SignedMessage {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-        struct SignedMessageHelper {
-            pub message: SetupMessage,
-            #[serde(with = "signature_serializer")]
-            pub signature: [u8; 64],
-        }
 
-        let signed_message: SignedMessageHelper = serde::Deserialize::deserialize(deserializer)?;
-
-        if !signed_message.message.app_public_key.verify(
-            &serde_json::to_vec(&signed_message.message).map_err(|_| {
-                serde::de::Error::custom(
-                    "Failed to serialize deserialized, for signature verification",
-                )
-            })?,
-            &signed_message.signature,
-        ) {
-            return Err(de::Error::custom("Signature verification failed"));
-        }
-
-        Ok(SignedMessage {
-            message: signed_message.message,
-            signature: signed_message.signature,
-        })
-    }
-}
+/// Type alias for signed setup message.
+pub type SignedSetupMessage = SignedMessage<SetupMessage>;
