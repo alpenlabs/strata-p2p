@@ -51,24 +51,81 @@ pub(super) mod signature_serializer {
 }
 
 /// Protocol version for all messages.
-pub(crate) const PROTOCOL_VERSION: u8 = 2;
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash, Serialize, Deserialize)]
+#[repr(u8)]
+pub(crate) enum ProtocolVersion {
+    /// Version 1 of the protocol.
+    V1 = 1,
 
-/// Protocol identifier for setup messages.
-pub(crate) const SETUP_PROTOCOL_ID: u8 = 1;
+    /// Version 2 of the protocol.
+    #[default]
+    V2 = 2,
+}
 
-/// Protocol identifier for gossipsub messages.
-#[cfg(feature = "gossipsub")]
-pub(crate) const GOSSIP_PROTOCOL_ID: u8 = 2;
+impl From<ProtocolVersion> for u8 {
+    fn from(version: ProtocolVersion) -> Self {
+        version as u8
+    }
+}
 
-/// Protocol identifier for request-response messages.
-#[cfg(feature = "request-response")]
-pub(crate) const REQ_RESP_PROTOCOL_ID: u8 = 3;
+impl TryFrom<u8> for ProtocolVersion {
+    type Error = &'static str;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            1 => Ok(ProtocolVersion::V1),
+            2 => Ok(ProtocolVersion::V2),
+            _ => Err("Invalid protocol version"),
+        }
+    }
+}
+
+/// Protocol identifiers for different message types.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[repr(u8)]
+pub(crate) enum ProtocolId {
+    /// Setup protocol for peer handshake.
+    Setup = 1,
+
+    /// Gossipsub protocol for pub/sub messaging.
+    #[cfg(feature = "gossipsub")]
+    Gossip = 2,
+
+    /// Request-response protocol for direct communication.
+    #[cfg(feature = "request-response")]
+    RequestResponse = 3,
+}
+
+impl From<ProtocolId> for u8 {
+    fn from(protocol: ProtocolId) -> Self {
+        protocol as u8
+    }
+}
+
+impl TryFrom<u8> for ProtocolId {
+    type Error = &'static str;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            1 => Ok(ProtocolId::Setup),
+
+            #[cfg(feature = "gossipsub")]
+            2 => Ok(ProtocolId::Gossip),
+
+            #[cfg(feature = "request-response")]
+            3 => Ok(ProtocolId::RequestResponse),
+
+            _ => Err("Invalid protocol ID"),
+        }
+    }
+}
 
 /// Wrapper for signed messages.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SignedMessage {
     /// The serialized message content.
     pub message: Vec<u8>,
+
     /// The signature of the message.
     #[serde(with = "signature_serializer")]
     pub signature: [u8; 64],
@@ -178,9 +235,9 @@ impl SignedMessage {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub(crate) struct SetupMessage {
     /// Protocol version.
-    pub version: u8,
+    pub version: ProtocolVersion,
     /// Protocol identifier (setup).
-    pub protocol: u8,
+    pub protocol: ProtocolId,
     /// The application public key (Ed25519) - stored as bytes for serialization.
     #[serde(with = "pubkey_serializer")]
     pub app_public_key: PublicKey,
@@ -202,8 +259,8 @@ impl SetupMessage {
         let timestamp = get_timestamp();
 
         Self {
-            version: PROTOCOL_VERSION,
-            protocol: SETUP_PROTOCOL_ID,
+            version: ProtocolVersion::default(),
+            protocol: ProtocolId::Setup,
             app_public_key,
             local_transport_id,
             remote_transport_id,
@@ -218,9 +275,9 @@ impl SetupMessage {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub(crate) struct GossipMessage {
     /// Protocol version.
-    pub version: u8,
+    pub version: ProtocolVersion,
     /// Protocol identifier (gossipsub).
-    pub protocol: u8,
+    pub protocol: ProtocolId,
     /// Gossipsub message data
     pub message: Vec<u8>,
     /// The application public key (Ed25519).
@@ -237,8 +294,8 @@ impl GossipMessage {
         let timestamp = get_timestamp();
 
         Self {
-            version: PROTOCOL_VERSION,
-            protocol: GOSSIP_PROTOCOL_ID,
+            version: ProtocolVersion::default(),
+            protocol: ProtocolId::Gossip,
             message,
             app_public_key,
             date: timestamp,
@@ -252,9 +309,9 @@ impl GossipMessage {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub(crate) struct RequestMessage {
     /// Protocol version.
-    pub version: u8,
+    pub version: ProtocolVersion,
     /// Protocol identifier (request-response).
-    pub protocol: u8,
+    pub protocol: ProtocolId,
     /// Request-response message data
     pub message: Vec<u8>,
     /// The application public key (Ed25519).
@@ -271,8 +328,8 @@ impl RequestMessage {
         let timestamp = get_timestamp();
 
         Self {
-            version: PROTOCOL_VERSION,
-            protocol: REQ_RESP_PROTOCOL_ID,
+            version: ProtocolVersion::default(),
+            protocol: ProtocolId::RequestResponse,
             message,
             app_public_key,
             date: timestamp,
@@ -286,9 +343,9 @@ impl RequestMessage {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub(crate) struct ResponseMessage {
     /// Protocol version.
-    pub version: u8,
+    pub version: ProtocolVersion,
     /// Protocol identifier (request-response).
-    pub protocol: u8,
+    pub protocol: ProtocolId,
     /// Response-response message data
     pub message: Vec<u8>,
     /// The application public key (Ed25519).
@@ -305,8 +362,8 @@ impl ResponseMessage {
         let timestamp = get_timestamp();
 
         Self {
-            version: PROTOCOL_VERSION,
-            protocol: REQ_RESP_PROTOCOL_ID,
+            version: ProtocolVersion::default(),
+            protocol: ProtocolId::RequestResponse,
             message,
             app_public_key,
             date: timestamp,
