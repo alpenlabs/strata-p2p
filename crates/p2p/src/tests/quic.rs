@@ -10,6 +10,7 @@ use tracing::info;
 use crate::{
     commands::{Command, QueryP2PStateCommand},
     tests::common::{MockApplicationSigner, User, init_tracing},
+    validator::DefaultP2PValidator,
 };
 
 /// Test QUIC and TCP connectivity on IPv4 and IPv6.
@@ -39,6 +40,7 @@ async fn test_quic_and_tcp_connectivity_ipv4_ipv6() {
         ],
         cancel.clone(),
         MockApplicationSigner::new(keypair_a.clone()),
+        DefaultP2PValidator,
     )
     .expect("Failed to create listening node A");
 
@@ -50,6 +52,7 @@ async fn test_quic_and_tcp_connectivity_ipv4_ipv6() {
         vec![],
         cancel.clone(),
         MockApplicationSigner::new(keypair_b.clone()),
+        DefaultP2PValidator,
     )
     .expect("Failed to create connecting node B");
 
@@ -148,6 +151,7 @@ async fn test_tcp_fallback_on_quic_failure() {
         vec![tcp4_addr.clone(), quic4_addr.clone()],
         cancel.clone(),
         MockApplicationSigner::new(keypair_a.clone()),
+        DefaultP2PValidator,
     )
     .expect("Failed to create listening node");
 
@@ -159,6 +163,7 @@ async fn test_tcp_fallback_on_quic_failure() {
         vec![],
         cancel.clone(),
         MockApplicationSigner::new(keypair_b.clone()),
+        DefaultP2PValidator,
     )
     .expect("Failed to create connecting node");
 

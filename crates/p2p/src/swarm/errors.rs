@@ -66,7 +66,27 @@ pub enum SetupUpgradeError {
     UnexpectedStreamClose,
 }
 
-/// Errors from libp2p
+/// Generic errors that can occur during signed message operations.
+#[derive(Debug, Error)]
+pub enum SignedMessageError {
+    /// Failed to deserialize a message.
+    #[error("Deserialization failed: {0}")]
+    DeserializationFailed(Box<dyn error::Error + Send + Sync>),
+
+    /// JSON encoding/decoding error during message serialization.
+    #[error("JSON codec error: {0}")]
+    JsonCodec(Box<dyn error::Error + Send + Sync>),
+
+    /// Signature verification failed.
+    #[error("Signature verification failed")]
+    SignatureVerificationFailed,
+
+    /// Failed to create a signed message.
+    #[error("Failed to create signed message: {0}")]
+    SignedMessageCreation(Box<dyn error::Error + Send + Sync>),
+}
+
+/// Protocol errors.
 #[derive(Debug, Error)]
 pub enum ProtocolError {
     /// Transport error, multiple reasons and OS-dependent.

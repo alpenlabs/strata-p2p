@@ -19,6 +19,7 @@ use crate::swarm::handle::ReqRespHandle;
 use crate::{
     signer::ApplicationSigner,
     swarm::{self, P2P, P2PConfig, handle::CommandHandle},
+    validator::{DefaultP2PValidator, Validator},
 };
 
 /// Only attempt to start tracing once
@@ -61,8 +62,12 @@ impl ApplicationSigner for MockApplicationSigner {
     }
 }
 
-pub(crate) struct User<S: ApplicationSigner = MockApplicationSigner> {
-    pub(crate) p2p: P2P<S>,
+pub(crate) struct User<
+    S: ApplicationSigner = MockApplicationSigner,
+    V: Validator = DefaultP2PValidator,
+> {
+    pub(crate) p2p: P2P<S, V>,
+    #[cfg(feature = "gossipsub")]
     pub(crate) gossip: GossipHandle,
     #[cfg(feature = "request-response")]
     pub(crate) reqresp: ReqRespHandle,
@@ -71,7 +76,8 @@ pub(crate) struct User<S: ApplicationSigner = MockApplicationSigner> {
     pub(crate) transport_keypair: Keypair,
 }
 
-impl<S: ApplicationSigner> User<S> {
+impl<S: ApplicationSigner, V: Validator> User<S, V> {
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         app_keypair: Keypair,
         transport_keypair: Keypair,
@@ -80,6 +86,7 @@ impl<S: ApplicationSigner> User<S> {
         listening_addrs: Vec<Multiaddr>,
         cancel: CancellationToken,
         signer: S,
+        validator: V,
     ) -> anyhow::Result<Self> {
         debug!(
             ?listening_addrs,
@@ -98,6 +105,17 @@ impl<S: ApplicationSigner> User<S> {
             connect_to,
             #[cfg(feature = "request-response")]
             channel_timeout: None,
+            #[cfg(feature = "gossipsub")]
+            gossipsub_score_params: None,
+            #[cfg(feature = "gossipsub")]
+            gossipsub_score_thresholds: None,
+            #[cfg(feature = "gossipsub")]
+            gossip_event_buffer_size: None,
+            command_buffer_size: None,
+            #[cfg(feature = "request-response")]
+            req_resp_event_buffer_size: None,
+            #[cfg(feature = "gossipsub")]
+            gossip_command_buffer_size: None,
         };
 
         // Determine transport type based on the first listening address
@@ -114,10 +132,27 @@ impl<S: ApplicationSigner> User<S> {
         };
 
         #[cfg(feature = "request-response")]
-        let (p2p, reqresp) =
-            P2P::from_config(config, cancel, swarm, allowlist, None, signer.clone())?;
+        let (p2p, reqresp) = P2P::from_config(
+            config,
+            cancel,
+            swarm,
+            allowlist,
+            #[cfg(feature = "gossipsub")]
+            None,
+            signer.clone(),
+            Some(validator),
+        )?;
         #[cfg(not(feature = "request-response"))]
-        let p2p = P2P::from_config(config, cancel, swarm, None, None, signer.clone())?;
+        let p2p = P2P::from_config(
+            config,
+            cancel,
+            swarm,
+            allowlist,
+            #[cfg(feature = "gossipsub")]
+            None,
+            signer,
+            Some(validator),
+        )?;
         #[cfg(feature = "gossipsub")]
         let gossip = p2p.new_gossip_handle();
         let command = p2p.new_command_handle();
@@ -136,6 +171,7 @@ impl<S: ApplicationSigner> User<S> {
 }
 
 /// Auxiliary structure to control users from outside.
+#[cfg_attr(not(feature = "gossipsub"), allow(dead_code))]
 pub(crate) struct UserHandle {
     pub(crate) peer_id: PeerId,
     #[cfg(feature = "gossipsub")]
@@ -199,6 +235,124 @@ impl Setup {
                 MockApplicationSigner {
                     app_keypair: app_keypair.clone(),
                 },
+                DefaultP2PValidator,
+            )?;
+
+            users.push(user);
+        }
+
+        let (users, tasks) = Self::start_users(users).await;
+
+        Ok(Self {
+            cancel,
+            tasks,
+            user_handles: users,
+        })
+    }
+
+    /// Spawn `n` users that are connected "all-to-all" with a new user's public key
+    /// pre-included in their allowlist.
+    #[cfg(feature = "gossipsub")]
+    pub(crate) async fn all_to_all_with_new_user_allowlist(
+        n: usize,
+        new_user_app_keypair: &Keypair,
+    ) -> anyhow::Result<Self> {
+        let SetupInitialData {
+            app_keypairs,
+            transport_keypairs,
+            peer_ids,
+            multiaddresses,
+        } = Self::setup_keys_ids_addrs_of_n_users(n);
+
+        let cancel = CancellationToken::new();
+        let mut users = Vec::new();
+
+        for (idx, ((app_keypair, transport_keypair), addr)) in app_keypairs
+            .iter()
+            .zip(&transport_keypairs)
+            .zip(&multiaddresses)
+            .enumerate()
+        {
+            let mut other_addrs = multiaddresses.clone();
+            other_addrs.remove(idx);
+            let mut other_peerids = peer_ids.clone();
+            other_peerids.remove(idx);
+
+            let mut allowlist = app_keypairs
+                .iter()
+                .map(|kp| kp.public())
+                .collect::<Vec<_>>();
+            allowlist.remove(idx);
+            allowlist.push(new_user_app_keypair.public());
+
+            let user = User::new(
+                app_keypair.clone(),
+                transport_keypair.clone(),
+                other_addrs,
+                allowlist,
+                vec![addr.clone()],
+                cancel.child_token(),
+                MockApplicationSigner {
+                    app_keypair: app_keypair.clone(),
+                },
+                DefaultP2PValidator,
+            )?;
+
+            users.push(user);
+        }
+
+        let (users, tasks) = Self::start_users(users).await;
+
+        Ok(Self {
+            cancel,
+            tasks,
+            user_handles: users,
+        })
+    }
+
+    /// Spawn `n` users that are connected "all-to-all" with a custom validator.
+    #[cfg(feature = "gossipsub")]
+    pub(crate) async fn all_to_all_with_custom_validator<V: Validator>(
+        n: usize,
+        validator: V,
+    ) -> anyhow::Result<Self> {
+        let SetupInitialData {
+            app_keypairs,
+            transport_keypairs,
+            peer_ids,
+            multiaddresses,
+        } = Self::setup_keys_ids_addrs_of_n_users(n);
+
+        let cancel = CancellationToken::new();
+        let mut users = Vec::new();
+
+        for (idx, ((app_keypair, transport_keypair), addr)) in app_keypairs
+            .iter()
+            .zip(&transport_keypairs)
+            .zip(&multiaddresses)
+            .enumerate()
+        {
+            let mut other_addrs = multiaddresses.clone();
+            other_addrs.remove(idx);
+            let mut other_peerids = peer_ids.clone();
+            other_peerids.remove(idx);
+            let mut other_app_pk = app_keypairs
+                .iter()
+                .map(|kp| kp.public())
+                .collect::<Vec<_>>();
+            other_app_pk.remove(idx);
+
+            let user = User::new(
+                app_keypair.clone(),
+                transport_keypair.clone(),
+                other_addrs,
+                other_app_pk,
+                vec![addr.clone()],
+                cancel.child_token(),
+                MockApplicationSigner {
+                    app_keypair: app_keypair.clone(),
+                },
+                validator.clone(),
             )?;
 
             users.push(user);
@@ -260,9 +414,12 @@ impl Setup {
         }
     }
 
-    /// Wait until all users established connections with other users,
-    /// and then spawn [`P2P::listen`]s in separate tasks using [`TaskTracker`].
-    async fn start_users(mut users: Vec<User>) -> (Vec<UserHandle>, TaskTracker) {
+    /// Waits for all users to establish connections and subscriptions, then spawns their listen
+    /// tasks. Returns user handles for communication and a task tracker for managing the
+    /// spawned tasks.
+    async fn start_users<S: ApplicationSigner, V: Validator>(
+        mut users: Vec<User<S, V>>,
+    ) -> (Vec<UserHandle>, TaskTracker) {
         // wait until all of them established connections and subscriptions
         join_all(
             users

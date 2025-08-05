@@ -12,12 +12,12 @@ use crate::{
     commands::{Command, GossipCommand, QueryP2PStateCommand},
     events::GossipEvent,
     tests::common::{MockApplicationSigner, User, init_tracing},
+    validator::DefaultP2PValidator,
 };
 
 /// Tests sending a gossipsub message from a new user to all existing users.
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-#[ignore = "Because filtering in another PR"]
 async fn gossip_new_user() -> anyhow::Result<()> {
     init_tracing();
     const USERS_NUM: usize = 9;
@@ -25,13 +25,16 @@ async fn gossip_new_user() -> anyhow::Result<()> {
     // Generate a keypair for the new user
     let new_user_app_keypair = Keypair::generate_ed25519();
 
-    info!(users = USERS_NUM, "Setting up users in all-to-all topology");
+    info!(
+        users = USERS_NUM,
+        "Setting up users in all-to-all topology with new user in allowlist"
+    );
     // Create the original users with allowlist containing the new user
     let Setup {
         mut user_handles,
         cancel,
         tasks,
-    } = Setup::all_to_all(USERS_NUM).await?;
+    } = Setup::all_to_all_with_new_user_allowlist(USERS_NUM, &new_user_app_keypair).await?;
 
     // Get connection addresses of old users for the new user to connect to.
     info!("Getting listening addresses for new user");
@@ -54,19 +57,26 @@ async fn gossip_new_user() -> anyhow::Result<()> {
     // Create a separate listening address for the new user
     let local_addr = build_multiaddr!(Memory(88_888_888_u64));
 
-    // Create new user with all necessary information
+    // Create new user with allowlist of all existing users
     info!(%local_addr, "Creating new user to listen");
     let new_user_transport_keypair = Keypair::generate_ed25519();
+
+    // Create allowlist for new user (all existing users)
+    let new_user_allowlist = user_handles
+        .iter()
+        .map(|handle| handle.app_keypair.public())
+        .collect::<Vec<_>>();
+
     let mut new_user = User::new(
         new_user_app_keypair.clone(),
         new_user_transport_keypair.clone(),
         connect_addrs.clone(), // Connect directly to existing users
-        Vec::new(),
+        new_user_allowlist,    // Allow all existing users
         vec![local_addr.clone()],
         cancel.child_token(),
         MockApplicationSigner::new(new_user_app_keypair.clone()),
-    )
-    .unwrap();
+        DefaultP2PValidator,
+    )?;
 
     // Wait for existing users to fully initialize
     sleep(Duration::from_millis(5_000)).await;
