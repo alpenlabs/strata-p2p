@@ -64,6 +64,7 @@ use crate::{
 };
 #[cfg(any(feature = "gossipsub", feature = "request-response"))]
 use crate::{
+    score_manager::PeerScore,
     swarm::message::SignedMessage,
     validator::{DEFAULT_BAN_PERIOD, Message as MessageType, PenaltyType},
 };
@@ -723,56 +724,51 @@ where
     }
 
     #[cfg(any(feature = "gossipsub", feature = "request-response"))]
-    fn get_all_scores(&self, app_public_key: &PublicKey) -> (f64, f64, f64) {
-        let (gossip_internal_score, gossip_app_score) = {
+    fn get_all_scores(&self, app_public_key: &PublicKey) -> PeerScore {
+        #[cfg(feature = "gossipsub")]
+        let (gossipsub_internal_score, gossipsub_app_score) = {
+            match self
+                .swarm
+                .behaviour()
+                .setup
+                .get_transport_id_by_application_key(app_public_key)
+            {
+                Some(peer_id) => {
+                    let internal_score = self
+                        .swarm
+                        .behaviour()
+                        .gossipsub
+                        .peer_score(&peer_id)
+                        .unwrap_or(0.0);
+
+                    let app_score = self
+                        .score_manager
+                        .get_gossipsub_app_score(app_public_key)
+                        .unwrap_or(DEFAULT_GOSSIP_APP_SCORE);
+
+                    (internal_score, app_score)
+                }
+                None => {
+                    warn!(?app_public_key, "No transport ID found for app public key");
+                    (0.0, 0.0)
+                }
+            }
+        };
+
+        #[cfg(feature = "request-response")]
+        let req_resp_app_score = self
+            .score_manager
+            .get_req_resp_score(app_public_key)
+            .unwrap_or(DEFAULT_REQ_RESP_APP_SCORE);
+
+        PeerScore {
             #[cfg(feature = "gossipsub")]
-            {
-                let peer_id = self
-                    .swarm
-                    .behaviour()
-                    .setup
-                    .get_transport_id_by_application_key(app_public_key);
-                let peer_id = match peer_id {
-                    Some(peer_id) => peer_id,
-                    None => {
-                        warn!(?app_public_key, "No transport ID found for app public key");
-                        return (0.0, 0.0, 0.0);
-                    }
-                };
-                let internal = self
-                    .swarm
-                    .behaviour()
-                    .gossipsub
-                    .peer_score(&peer_id)
-                    .unwrap_or(0.0);
-
-                let app = self
-                    .score_manager
-                    .get_gossipsub_app_score(app_public_key)
-                    .unwrap_or(DEFAULT_GOSSIP_APP_SCORE);
-
-                (internal, app)
-            }
-
-            #[cfg(not(feature = "gossipsub"))]
-            (0.0, 0.0)
-        };
-
-        let reqresp_app_score = {
+            gossipsub_internal_score,
+            #[cfg(feature = "gossipsub")]
+            gossipsub_app_score,
             #[cfg(feature = "request-response")]
-            {
-                self.score_manager
-                    .get_req_resp_score(app_public_key)
-                    .unwrap_or(DEFAULT_REQ_RESP_APP_SCORE)
-            }
-
-            #[cfg(not(feature = "request-response"))]
-            {
-                0.0
-            }
-        };
-
-        (gossip_internal_score, gossip_app_score, reqresp_app_score)
+            req_resp_app_score,
+        }
     }
 
     /// Handles a [`SwarmEvent`] from the swarm.
@@ -995,14 +991,17 @@ where
         self.score_manager
             .update_gossipsub_app_score(&app_public_key, updated_score);
 
-        let (gossip_internal_score, gossip_app_score, reqresp_app_score) =
-            self.get_all_scores(&app_public_key);
+        let PeerScore {
+            gossipsub_app_score,
+            req_resp_app_score,
+            gossipsub_internal_score,
+        } = self.get_all_scores(&app_public_key);
 
         if let Some(penalty) = self.validator.get_penalty(
             &MessageType::Gossipsub(gossip_message.message.clone()),
-            gossip_internal_score,
-            gossip_app_score,
-            reqresp_app_score,
+            gossipsub_internal_score,
+            gossipsub_app_score,
+            req_resp_app_score,
         ) {
             self.apply_penalty(&app_public_key, penalty).await;
             return Ok(());
@@ -1368,14 +1367,17 @@ where
                 self.score_manager
                     .update_req_resp_app_score(&app_public_key, updated_score);
 
-                let (gossip_internal_score, gossip_app_score, reqresp_app_score) =
-                    self.get_all_scores(&app_public_key);
+                let PeerScore {
+                    gossipsub_internal_score,
+                    gossipsub_app_score,
+                    req_resp_app_score,
+                } = self.get_all_scores(&app_public_key);
 
                 if let Some(penalty) = self.validator.get_penalty(
                     &MessageType::Request(request.message.clone()),
-                    gossip_internal_score,
-                    gossip_app_score,
-                    reqresp_app_score,
+                    gossipsub_internal_score,
+                    gossipsub_app_score,
+                    req_resp_app_score,
                 ) {
                     self.apply_penalty(&app_public_key, penalty).await;
                     return Ok(());
@@ -1493,14 +1495,17 @@ where
                 self.score_manager
                     .update_req_resp_app_score(&app_public_key, updated_score);
 
-                let (gossip_internal_score, gossip_app_score, reqresp_app_score) =
-                    self.get_all_scores(&app_public_key);
+                let PeerScore {
+                    gossipsub_internal_score,
+                    gossipsub_app_score,
+                    req_resp_app_score,
+                } = self.get_all_scores(&app_public_key);
 
                 if let Some(penalty) = self.validator.get_penalty(
                     &MessageType::Response(response.message.clone()),
-                    gossip_internal_score,
-                    gossip_app_score,
-                    reqresp_app_score,
+                    gossipsub_internal_score,
+                    gossipsub_app_score,
+                    req_resp_app_score,
                 ) {
                     self.apply_penalty(&app_public_key, penalty).await;
                     return Ok(());

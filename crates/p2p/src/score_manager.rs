@@ -54,3 +54,20 @@ impl ScoreManager {
             .insert(app_public_key.clone(), new_score);
     }
 }
+
+/// All scores for a peer.
+#[cfg(any(feature = "gossipsub", feature = "request-response"))]
+#[derive(Debug, Clone, Default)]
+pub struct PeerScore {
+    /// Gossipsub application score.
+    #[cfg(feature = "gossipsub")]
+    pub gossipsub_app_score: f64,
+
+    /// Request-response application score.
+    #[cfg(feature = "request-response")]
+    pub req_resp_app_score: f64,
+
+    /// Gossipsub internal score.
+    #[cfg(feature = "gossipsub")]
+    pub gossipsub_internal_score: f64,
+}
