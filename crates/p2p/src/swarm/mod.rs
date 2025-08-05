@@ -999,7 +999,7 @@ impl<S: ApplicationSigner> P2P<S> {
                     trace!(
                         %id, ?stats, ?step, ?key, ?peers, "QueryResult::GetClosestPeers(Ok(GetClosestPeersOk"
                     );
-                    // since we are manually adding peers, here's a filtering could be implemented
+                    // TODO(Arniiiii) : since we manually add peers, here's a filtering could be implemented
                     for peer in peers {
                         self.swarm
                             .add_peer_address(peer.peer_id, peer.addrs[0].clone());
