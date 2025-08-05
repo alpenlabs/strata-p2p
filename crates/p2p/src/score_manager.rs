@@ -11,18 +11,19 @@ pub const DEFAULT_REQ_RESP_APP_SCORE: f64 = 0.0;
 pub const DEFAULT_GOSSIP_APP_SCORE: f64 = 0.0;
 
 /// Manages peer scoring for different protocols in the P2P network.
+///
 /// Tracks application-level scores for peers across gossipsub and request-response protocols.
 #[derive(Debug, Clone, Default)]
 pub struct ScoreManager {
     /// [`HashMap`] of `gossipsub` app score for each peer.
     gossipsub_app_score: HashMap<PublicKey, f64>,
 
-    /// [`HashMap`] of `req-resp` score for each peer.
+    /// [`HashMap`] of request-response score for each peer.
     req_resp_app_score: HashMap<PublicKey, f64>,
 }
 
 impl ScoreManager {
-    /// Creates a new `ScoreManager` with empty score maps.
+    /// Creates a new [`ScoreManager`] with empty score maps.
     pub fn new() -> Self {
         Self {
             gossipsub_app_score: HashMap::new(),
@@ -31,13 +32,15 @@ impl ScoreManager {
     }
 
     /// Retrieves the gossipsub application score for a specific peer.
-    /// Returns `None` if no score exists for the peer.
+    ///
+    /// Returns [`None`] if no score exists for the peer.
     pub fn get_gossipsub_app_score(&self, app_public_key: &PublicKey) -> Option<f64> {
         self.gossipsub_app_score.get(app_public_key).cloned()
     }
 
     /// Retrieves the request-response application score for a specific peer.
-    /// Returns `None` if no score exists for the peer.
+    ///
+    /// Returns [`None`] if no score exists for the peer.
     pub fn get_req_resp_score(&self, app_public_key: &PublicKey) -> Option<f64> {
         self.req_resp_app_score.get(app_public_key).cloned()
     }
