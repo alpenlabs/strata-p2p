@@ -15,17 +15,12 @@ use crate::{
 /// Protocol version for DHT records.
 pub(crate) const DHT_PROTOCOL_VERSION: u8 = 0;
 
-/// Protocol identifier for DHT records.
-pub(crate) const DHT_PROTOCOL_ID: u8 = 0;
-
 /// Record structure for DHT.
 /// (De)serializable via serde.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RecordData {
     /// Protocol version.
     pub version: u8,
-    /// Protocol identifier.
-    pub protocol: u8,
     /// The application public key (Ed25519).
     #[serde(with = "pubkey_serializer")]
     pub app_public_key: PublicKey,
@@ -44,7 +39,6 @@ impl RecordData {
 
         Self {
             version: DHT_PROTOCOL_VERSION,
-            protocol: DHT_PROTOCOL_ID,
             app_public_key,
             date: timestamp,
             multiaddresses,

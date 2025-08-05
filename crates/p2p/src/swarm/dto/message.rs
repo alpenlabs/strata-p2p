@@ -13,10 +13,7 @@ use crate::{
 };
 
 /// Protocol version for all messages.
-pub(crate) const PROTOCOL_VERSION: u8 = 2;
-
-/// Protocol identifier for setup messages.
-pub(crate) const SETUP_PROTOCOL_ID: u8 = 1;
+pub(crate) const SETUP_PROTOCOL_VERSION: u8 = 2;
 
 /// Setup message structure for the handshake protocol.
 /// Now serialized/deserialized using JSON instead of custom binary format.
@@ -24,8 +21,6 @@ pub(crate) const SETUP_PROTOCOL_ID: u8 = 1;
 pub(crate) struct SetupMessage {
     /// Protocol version.
     pub version: u8,
-    /// Protocol identifier (setup).
-    pub protocol: u8,
     /// The application public key (Ed25519).
     #[serde(with = "pubkey_serializer")]
     pub app_public_key: PublicKey,
@@ -50,8 +45,7 @@ impl SetupMessage {
             .as_secs();
 
         Self {
-            version: PROTOCOL_VERSION,
-            protocol: SETUP_PROTOCOL_ID,
+            version: SETUP_PROTOCOL_VERSION,
             app_public_key,
             local_transport_id,
             remote_transport_id,
