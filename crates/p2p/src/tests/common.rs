@@ -4,14 +4,13 @@ use std::{sync::Once, time::Duration};
 
 use futures::future::join_all;
 use libp2p::{
-    build_multiaddr,
+    Multiaddr, PeerId, build_multiaddr,
     identity::{Keypair, PublicKey},
-    Multiaddr, PeerId,
 };
 use rand::Rng;
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use tracing::debug;
-use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
+use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, util::SubscriberInitExt};
 
 #[cfg(feature = "gossipsub")]
 use crate::swarm::handle::GossipHandle;
@@ -19,7 +18,7 @@ use crate::swarm::handle::GossipHandle;
 use crate::swarm::handle::ReqRespHandle;
 use crate::{
     signer::ApplicationSigner,
-    swarm::{self, handle::CommandHandle, P2PConfig, P2P},
+    swarm::{self, P2P, P2PConfig, handle::CommandHandle},
     validator::{DefaultP2PValidator, Validator},
 };
 
@@ -304,6 +303,7 @@ impl Setup {
         })
     }
 
+    /// Spawn `n` users that are connected "all-to-all" with a custom validator.
     #[cfg(feature = "gossipsub")]
     pub(crate) async fn all_to_all_with_custom_validator<V: Validator>(
         n: usize,

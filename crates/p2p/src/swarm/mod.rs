@@ -10,16 +10,17 @@ use std::{
 use behavior::{Behaviour, BehaviourEvent};
 use cynosure::site_c::queue::Queue;
 use errors::{P2PResult, ProtocolError};
+use futures::StreamExt as _;
 #[cfg(not(all(feature = "gossipsub", feature = "request-response")))]
 use futures::future::pending;
-use futures::StreamExt as _;
 use handle::CommandHandle;
 use libp2p::{
-    core::{muxing::StreamMuxerBox, transport::MemoryTransport, ConnectedPoint},
+    Multiaddr, PeerId, Swarm, SwarmBuilder, Transport,
+    core::{ConnectedPoint, muxing::StreamMuxerBox, transport::MemoryTransport},
     identity::{Keypair, PublicKey},
     noise,
-    swarm::{dial_opts::DialOpts, NetworkBehaviour, SwarmEvent},
-    yamux, Multiaddr, PeerId, Swarm, SwarmBuilder, Transport,
+    swarm::{NetworkBehaviour, SwarmEvent, dial_opts::DialOpts},
+    yamux,
 };
 use tokio::{sync::mpsc, time::timeout};
 use tokio_util::sync::CancellationToken;
@@ -64,7 +65,7 @@ use crate::{
 #[cfg(any(feature = "gossipsub", feature = "request-response"))]
 use crate::{
     swarm::message::SignedMessage,
-    validator::{Message as MessageType, PenaltyType, DEFAULT_BAN_PERIOD},
+    validator::{DEFAULT_BAN_PERIOD, Message as MessageType, PenaltyType},
 };
 
 pub mod behavior;
@@ -1593,6 +1594,7 @@ macro_rules! finish_swarm {
                     &$cfg.gossipsub_score_thresholds,
                     $signer.clone(),
                 )
+                .map_err(|e| e.into())
             })
             .map_err(|e| ProtocolError::BehaviourInitialization(e.into()))?
             .with_swarm_config(|c| c.with_idle_connection_timeout($cfg.idle_connection_timeout))
@@ -1649,6 +1651,7 @@ pub fn with_default_transport<S: ApplicationSigner>(
                 &config.gossipsub_score_thresholds,
                 signer.clone(),
             )
+            .map_err(|e| e.into())
         })
         .map_err(|e| ProtocolError::BehaviourInitialization(e.into()))?
         .with_swarm_config(|c| c.with_idle_connection_timeout(config.idle_connection_timeout))

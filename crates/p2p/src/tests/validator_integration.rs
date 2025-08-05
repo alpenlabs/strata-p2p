@@ -9,11 +9,11 @@ use tokio::{
 };
 use tracing::info;
 
-use super::common::{init_tracing, Setup};
+use super::common::{Setup, init_tracing};
 #[cfg(feature = "request-response")]
 use crate::{commands::RequestResponseCommand, events::ReqRespEvent};
 use crate::{
-    commands::{GossipCommand, QueryP2PStateCommand},
+    commands::{Command, GossipCommand, QueryP2PStateCommand},
     events::GossipEvent,
     validator::{Message, PenaltyType, Validator},
 };
@@ -22,16 +22,18 @@ use crate::{
 struct TestValidator;
 
 impl Validator for TestValidator {
-    fn validate_msg(&self, _msg: &Message, _old_app_score: f64) -> f64 {
+    #[allow(unused_variables)]
+    fn validate_msg(&self, msg: &Message, old_app_score: f64) -> f64 {
         0.0
     }
 
+    #[allow(unused_variables)]
     fn get_penalty(
         &self,
         msg: &Message,
-        _gossip_internal_score: f64,
-        _gossip_app_score: f64,
-        _reqresp_app_score: f64,
+        gossip_internal_score: f64,
+        gossip_app_score: f64,
+        reqresp_app_score: f64,
     ) -> Option<PenaltyType> {
         match msg {
             Message::Gossipsub(data) | Message::Request(data) | Message::Response(data) => {
@@ -41,7 +43,7 @@ impl Validator for TestValidator {
                     "mute gossip" => Some(PenaltyType::MuteGossip(Duration::from_secs(4))),
                     "mute reqresp" => Some(PenaltyType::MuteReqresp(Duration::from_secs(4))),
                     "mute both" => Some(PenaltyType::MuteBoth(Duration::from_secs(4))),
-                    "ban me" => Some(PenaltyType::Ban(Some(Duration::from_secs(30)))),
+                    "ban me" => Some(PenaltyType::Ban(Some(Duration::from_secs(5)))),
                     _ => None,
                 }
             }
@@ -172,10 +174,10 @@ async fn test_reqresp_mute_penalty() -> anyhow::Result<()> {
     match result {
         Err(_) => info!("Timeout occurred - peer is correctly muted for req/resp"),
         Ok(Some(event)) => {
-            if let ReqRespEvent::ReceivedRequest(data, _) = event {
-                if data == b"this should be muted" {
-                    panic!("Received muted request - muting failed!");
-                }
+            if let ReqRespEvent::ReceivedRequest(data, _) = event
+                && data == b"this should be muted"
+            {
+                panic!("Received muted request - muting failed!");
             }
         }
         Ok(None) => info!("No event received - peer is correctly muted"),
@@ -255,6 +257,42 @@ async fn test_gossipsub_ban_penalty() -> anyhow::Result<()> {
     info!(?is_connected, "connection status");
     assert!(!is_connected);
 
+    // Wait for the ban period to end
+    tokio::time::sleep(Duration::from_secs(5)).await;
+
+    let (tx, rx) = oneshot::channel();
+    user_handles[1]
+        .command
+        .send_command(QueryP2PStateCommand::GetMyListeningAddresses {
+            response_sender: tx,
+        })
+        .await;
+    let listening_addresses = rx.await.expect("Failed to get listening addresses");
+    info!(?listening_addresses, "listening addresses");
+    assert!(!listening_addresses.is_empty());
+
+    user_handles[0]
+        .command
+        .send_command(Command::ConnectToPeer {
+            app_public_key: user_handles[1].app_keypair.public(),
+            addresses: listening_addresses,
+        })
+        .await;
+
+    let _ = sleep(Duration::from_millis(100)).await;
+
+    let (tx, rx) = oneshot::channel();
+    user_handles[0]
+        .command
+        .send_command(Command::QueryP2PState(QueryP2PStateCommand::IsConnected {
+            app_public_key: user_handles[1].app_keypair.public(),
+            response_sender: tx,
+        }))
+        .await;
+    let is_connected = rx.await.expect("Failed to check connection status");
+    info!(?is_connected, "connection status");
+    assert!(is_connected);
+
     cancel.cancel();
     tasks.wait().await;
 
@@ -314,6 +352,42 @@ async fn test_reqresp_ban_penalty() -> anyhow::Result<()> {
     let is_connected = rx.await.expect("Failed to check connection status");
     info!(?is_connected, "connection status");
     assert!(!is_connected);
+
+    // Wait for the ban period to end
+    tokio::time::sleep(Duration::from_secs(5)).await;
+
+    let (tx, rx) = oneshot::channel();
+    user1[0]
+        .command
+        .send_command(QueryP2PStateCommand::GetMyListeningAddresses {
+            response_sender: tx,
+        })
+        .await;
+    let listening_addresses = rx.await.expect("Failed to get listening addresses");
+    info!(?listening_addresses, "listening addresses");
+    assert!(!listening_addresses.is_empty());
+
+    user0[0]
+        .command
+        .send_command(Command::ConnectToPeer {
+            app_public_key: user1[0].app_keypair.public(),
+            addresses: listening_addresses,
+        })
+        .await;
+
+    let _ = sleep(Duration::from_millis(100)).await;
+
+    let (tx, rx) = oneshot::channel();
+    user0[0]
+        .command
+        .send_command(Command::QueryP2PState(QueryP2PStateCommand::IsConnected {
+            app_public_key: user1[0].app_keypair.public(),
+            response_sender: tx,
+        }))
+        .await;
+    let is_connected = rx.await.expect("Failed to check connection status");
+    info!(?is_connected, "connection status");
+    assert!(is_connected);
 
     cancel.cancel();
     tasks.wait().await;

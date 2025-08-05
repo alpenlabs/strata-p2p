@@ -6,8 +6,10 @@ use std::{
 
 use libp2p::identity::PublicKey;
 
+/// Default ban period for peer misbehavior. Hardcoded to 30 days.
 pub const DEFAULT_BAN_PERIOD: Duration = Duration::from_secs(60 * 60 * 24 * 30);
 
+/// Message types.
 #[derive(Debug)]
 pub enum Message {
     Gossipsub(Vec<u8>),
@@ -60,10 +62,10 @@ pub struct PenaltyPeerStorage {
 }
 
 pub trait Validator: Debug + Send + Sync + Clone + Default + 'static {
-    /// Validates data using the generic validator.
-    fn validate_msg(&self, msg: &Message, old_app_score: f64) -> f64 /* new_app_score */;
+    /// Validates data using the generic validator and returns a new score.
+    fn validate_msg(&self, msg: &Message, old_app_score: f64) -> f64;
 
-    /// Logic where we analyze the message and decide what to do with it.
+    /// Returns the logic that is used to analyze and process message `msg`.
     fn get_penalty(
         &self,
         msg: &Message,
@@ -77,16 +79,18 @@ pub trait Validator: Debug + Send + Sync + Clone + Default + 'static {
 pub struct DefaultP2PValidator;
 
 impl Validator for DefaultP2PValidator {
-    fn validate_msg(&self, _msg: &Message, _old_app_score: f64) -> f64 {
+    #[allow(unused_variables)]
+    fn validate_msg(&self, msg: &Message, old_app_score: f64) -> f64 {
         0.0
     }
 
+    #[allow(unused_variables)]
     fn get_penalty(
         &self,
-        _msg: &Message,
-        _gossip_internal_score: f64,
-        _gossip_app_score: f64,
-        _reqresp_app_score: f64,
+        msg: &Message,
+        gossip_internal_score: f64,
+        gossip_app_score: f64,
+        reqresp_app_score: f64,
     ) -> Option<PenaltyType> {
         None
     }
@@ -129,10 +133,10 @@ impl PenaltyPeerStorage {
             .entry(app_public_key.clone())
             .or_insert_with(|| PenaltyInfo::new(None, None, None));
 
-        if let Some(mute_until) = penalty.mute_gossip_until {
-            if mute_until > SystemTime::now() {
-                return Err("Peer is already muted for gossip");
-            }
+        if let Some(mute_until) = penalty.mute_gossip_until
+            && mute_until > SystemTime::now()
+        {
+            return Err("Peer is already muted for gossip");
         }
 
         penalty.mute_gossip_until = Some(until);
@@ -149,10 +153,10 @@ impl PenaltyPeerStorage {
             .entry(app_public_key.clone())
             .or_insert_with(|| PenaltyInfo::new(None, None, None));
 
-        if let Some(mute_until) = penalty.mute_req_resp_until {
-            if mute_until > SystemTime::now() {
-                return Err("Peer is already muted for request/response");
-            }
+        if let Some(mute_until) = penalty.mute_req_resp_until
+            && mute_until > SystemTime::now()
+        {
+            return Err("Peer is already muted for request/response");
         }
 
         penalty.mute_req_resp_until = Some(until);
@@ -169,10 +173,10 @@ impl PenaltyPeerStorage {
             .entry(app_public_key.clone())
             .or_insert_with(|| PenaltyInfo::new(None, None, None));
 
-        if let Some(ban_until) = penalty.ban_until {
-            if ban_until > SystemTime::now() {
-                return Err("Peer is already banned");
-            }
+        if let Some(ban_until) = penalty.ban_until
+            && ban_until > SystemTime::now()
+        {
+            return Err("Peer is already banned");
         }
 
         penalty.ban_until = Some(until);
