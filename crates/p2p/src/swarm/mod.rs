@@ -62,7 +62,7 @@ use crate::{
     swarm::{dial_manager::DialManager, setup::events::SetupBehaviourEvent},
 };
 
-/// a non exhaustive enum.
+/// a non-exhaustive enum.
 #[cfg(feature = "kad")]
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Eq)]

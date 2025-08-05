@@ -8,15 +8,21 @@ use serde::{Deserialize, Serialize};
 use super::signed::{HasAppPublicKey, SignedMessage};
 use crate::swarm::serializing::pubkey_serialization::pubkey_serializer;
 
-/// Protocol version for all messages.
-pub(crate) const SETUP_PROTOCOL_VERSION: u8 = 2;
+/// Setup protocol version enum.
+#[repr(u8)]
+#[non_exhaustive]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SetupProtocolVersion {
+    /// first version.
+    V1,
+}
 
 /// Setup message structure for the handshake protocol.
 /// Now serialized/deserialized using JSON instead of custom binary format.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SetupMessage {
     /// Protocol version.
-    pub version: u8,
+    pub version: SetupProtocolVersion,
     /// The application public key (Ed25519).
     #[serde(with = "pubkey_serializer")]
     pub app_public_key: PublicKey,
@@ -41,7 +47,7 @@ impl SetupMessage {
             .as_secs();
 
         Self {
-            version: SETUP_PROTOCOL_VERSION,
+            version: SetupProtocolVersion::V1,
             app_public_key,
             local_transport_id,
             remote_transport_id,

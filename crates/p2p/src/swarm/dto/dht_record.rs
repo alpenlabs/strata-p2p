@@ -8,15 +8,22 @@ use serde::{Deserialize, Serialize};
 use super::signed::{HasAppPublicKey, SignedMessage};
 use crate::swarm::serializing::pubkey_serialization::pubkey_serializer;
 
-/// Protocol version for DHT records.
-pub(crate) const DHT_PROTOCOL_VERSION: u8 = 0;
+/// DHT version enum.
+#[repr(u8)]
+#[non_exhaustive]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DHTProtocol {
+    /// first version.
+    V1,
+}
 
 /// Record structure for DHT.
 /// (De)serializable via serde.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RecordData {
     /// Protocol version.
-    pub version: u8,
+    pub version: DHTProtocol,
+
     /// The application public key (Ed25519).
     #[serde(with = "pubkey_serializer")]
     pub app_public_key: PublicKey,
@@ -34,7 +41,7 @@ impl RecordData {
             .as_secs();
 
         Self {
-            version: DHT_PROTOCOL_VERSION,
+            version: DHTProtocol::V1,
             app_public_key,
             date: timestamp,
             multiaddresses,
