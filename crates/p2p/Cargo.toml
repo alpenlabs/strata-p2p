@@ -18,8 +18,7 @@ rust.rust_2018_idioms = { level = "deny", priority = -1 }
 
 [dependencies]
 asynchronous-codec.workspace = true
-crossbeam-deque.workspace = true
-dashmap.workspace = true
+cynosure.workspace = true
 futures.workspace = true
 libp2p = { workspace = true, features = [
   "noise",
