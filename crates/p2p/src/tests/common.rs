@@ -407,8 +407,9 @@ impl Setup {
         }
     }
 
-    /// Wait until all users established connections with other users,
-    /// and then spawn [`P2P::listen`]s in separate tasks using [`TaskTracker`].
+    /// Waits for all users to establish connections and subscriptions, then spawns their listen
+    /// tasks. Returns user handles for communication and a task tracker for managing the
+    /// spawned tasks.
     async fn start_users<S: ApplicationSigner, V: Validator>(
         mut users: Vec<User<S, V>>,
     ) -> (Vec<UserHandle>, TaskTracker) {
