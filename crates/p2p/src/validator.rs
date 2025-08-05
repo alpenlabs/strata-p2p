@@ -49,7 +49,8 @@ pub struct PenaltyInfo {
 }
 
 impl PenaltyInfo {
-    fn new(
+    /// Creates a new [`PenaltyInfo`].
+    pub const fn new(
         mute_gossip_until: Option<SystemTime>,
         mute_req_resp_until: Option<SystemTime>,
         ban_until: Option<SystemTime>,
