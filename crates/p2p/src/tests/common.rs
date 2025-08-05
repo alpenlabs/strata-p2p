@@ -101,8 +101,6 @@ impl<S: ApplicationSigner> User<S> {
             kad_protocol_name: Some(KadProtocol::V1),
             #[cfg(feature = "request-response")]
             channel_timeout: None,
-            #[cfg(feature = "kad")]
-            kademlia_threshold: 2,
         };
 
         // Determine transport type based on the first listening address

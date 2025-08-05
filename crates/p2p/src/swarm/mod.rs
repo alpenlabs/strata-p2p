@@ -1,7 +1,5 @@
 //! Swarm implementation for P2P.
 
-#[cfg(feature = "kad")]
-use std::collections::HashMap;
 use std::{
     collections::{HashSet, VecDeque},
     time::{Duration, Instant},
@@ -34,8 +32,7 @@ use libp2p::{
     StreamProtocol,
     kad::{
         AddProviderError, AddProviderOk, BootstrapOk, Event as KademliaEvent, GetClosestPeersError,
-        GetClosestPeersOk, GetProvidersError, PutRecordError, PutRecordOk, QueryId, QueryResult,
-        Quorum, Record, RecordKey, store::RecordStore,
+        GetClosestPeersOk, GetProvidersError, PutRecordError, PutRecordOk, QueryResult,
     },
 };
 #[cfg(any(feature = "request-response", feature = "kad"))]
@@ -51,8 +48,6 @@ use tracing::{debug, error, info, instrument, trace, warn};
 use crate::commands::RequestResponseCommand;
 #[cfg(feature = "request-response")]
 use crate::events::ReqRespEvent;
-#[cfg(feature = "kad")]
-use crate::swarm::dto::{dht_record::RecordData, dht_record::SignedRecord};
 #[cfg(feature = "gossipsub")]
 use crate::{commands::GossipCommand, events::GossipEvent};
 use crate::{
@@ -130,16 +125,6 @@ pub const DEFAULT_CONNECTION_CHECK_INTERVAL: Duration = Duration::from_millis(50
 /// Global default timeout for channel operations (e.g., sending/receiving on channels).
 pub const DEFAULT_CHANNEL_TIMEOUT: Duration = Duration::from_secs(5);
 
-#[cfg(feature = "kad")]
-/// What to do when we got event [`libp2p::kad::GetRecordOk`].
-enum ActionOnKademliaGetRecord {
-    /// Action related to [`Command::GetDHTRecord`].
-    JustThrowResultBack {
-        /// `tx` that we got from [`Command::GetDHTRecord`].
-        tx: oneshot::Sender<Option<SignedRecord>>,
-    },
-}
-
 /// Configuration options for [`P2P`].
 #[derive(Debug, Clone)]
 pub struct P2PConfig {
@@ -182,18 +167,13 @@ pub struct P2PConfig {
     #[cfg(feature = "kad")]
     pub kad_protocol_name: Option<KadProtocol>,
 
-    /// How many peers we should connect to before trying to put our signed [`RecordData`] for app
-    /// public key
-    #[cfg(feature = "kad")]
-    pub kademlia_threshold: usize,
-
     /// Timeout for channel operations (e.g., sending/receiving on channels).
     #[cfg(feature = "request-response")]
     pub channel_timeout: Option<Duration>,
 }
 
 /// Implementation of P2P protocol data exchange.
-#[expect(missing_debug_implementations)]
+#[expect(missing_debug_implementations, dead_code)]
 pub struct P2P<S: ApplicationSigner> {
     /// The swarm that handles the networking.
     swarm: Swarm<Behaviour<S>>,
@@ -239,17 +219,8 @@ pub struct P2P<S: ApplicationSigner> {
     allowlist: HashSet<PublicKey>,
 
     /// Application signer for signing setup messages.
-    #[cfg(any(feature = "kad", feature = "request-response", feature = "gossipsub"))]
+    #[cfg(any(feature = "request-response", feature = "gossipsub"))]
     signer: S,
-
-    /// It is used to put record only if we connected to at least
-    /// [`P2PConfig::kademlia_threshold`].
-    #[cfg(feature = "kad")]
-    kademlia_is_initial_record_already_posted: bool,
-
-    /// Postponed action: a channel for a query to which send something back.
-    #[cfg(feature = "kad")]
-    kademlia_postponed_get_action: HashMap<QueryId, ActionOnKademliaGetRecord>,
 
     /// Manages dial sequences and address queues for multiaddress connections.
     dial_manager: DialManager,
@@ -311,10 +282,6 @@ impl<S: ApplicationSigner> P2P<S> {
                 config: cfg,
                 #[cfg(any(feature = "kad", feature = "request-response", feature = "gossipsub"))]
                 signer,
-                #[cfg(feature = "kad")]
-                kademlia_is_initial_record_already_posted: false,
-                #[cfg(feature = "kad")]
-                kademlia_postponed_get_action: HashMap::new(),
                 dial_manager: DialManager::new(),
             },
             ReqRespHandle::new(req_resp_event_rx, req_resp_cmds_tx),
@@ -363,10 +330,6 @@ impl<S: ApplicationSigner> P2P<S> {
             config: cfg,
             allowlist: HashSet::from_iter(allowlist),
             signer,
-            #[cfg(feature = "kad")]
-            kademlia_is_initial_record_already_posted: false,
-            #[cfg(feature = "kad")]
-            kademlia_postponed_get_action: HashMap::new(),
             addr_store: SharedAddrStore(Arc::new(Mutex::new(HashMap::new()))),
             dial_manager: DialManager::new(),
         })
@@ -755,8 +718,6 @@ impl<S: ApplicationSigner> P2P<S> {
     /// Handles a [`KademliaEvent`] from the swarm.
     #[cfg(feature = "kad")]
     async fn handle_kademlia_event(&mut self, event: KademliaEvent) -> P2PResult<()> {
-        use crate::swarm::dto::dht_record::SignedRecord;
-
         match event {
             KademliaEvent::InboundRequest { request } => match request {
                 libp2p::kad::InboundRequest::FindNode { num_closer_peers } => {
@@ -771,40 +732,6 @@ impl<S: ApplicationSigner> P2P<S> {
                     trace!(
                         %source, %connection, ?opt_record, "InboundRequest::PutRecord"
                     );
-                    match opt_record {
-                        Some(ref record_data) => {
-                            let res_our_record_data: Result<SignedRecord, serde_json::Error> =
-                                serde_json::from_slice(&record_data.value);
-                            match res_our_record_data {
-                                Ok(signed_record) => {
-                                    if let Ok(true) = signed_record.verify() {
-                                        let res = self
-                                            .swarm
-                                            .behaviour_mut()
-                                            .kademlia
-                                            .store_mut()
-                                            .put(opt_record.unwrap());
-                                        if res.is_err() {
-                                            info!(err = %res.unwrap_err(), "Someone has asked as to put a record that is too big. Refusing to do so.")
-                                        }
-                                    } else {
-                                        info!(
-                                            "Someone asked us to put a record with invalid signature. Refusing to keep it."
-                                        )
-                                    }
-                                }
-                                Err(e) => {
-                                    info!(
-                                        ?e,
-                                        "Someone asked us to put either not valid or not properly signed record. Refusing to keep it."
-                                    )
-                                }
-                            }
-                        }
-                        None => {
-                            info!("Someone asked us to put empty record. Refusing to keep it.");
-                        }
-                    }
                     Ok(())
                 }
                 libp2p::kad::InboundRequest::GetRecord {
@@ -859,29 +786,6 @@ impl<S: ApplicationSigner> P2P<S> {
                     trace!(
                         %id, ?stats, ?step, peer_key = ?peer_record.record.key, peer_record = %String::from_utf8_lossy(&peer_record.record.value), "QueryResult::GetRecord(Ok(libp2p::kad::GetRecordOk::FoundRecord"
                     );
-                    if self.kademlia_postponed_get_action.contains_key(&id) {
-                        let res_record: Result<SignedRecord, serde_json::Error> =
-                            serde_json::from_slice(&peer_record.record.value);
-
-                        let verified_record = res_record.ok().and_then(|record| {
-                            if let Ok(true) = record.verify() {
-                                Some(record)
-                            } else {
-                                trace!("Record signature verification failed");
-                                None
-                            }
-                        });
-
-                        trace!(
-                            ?verified_record,
-                            "Deserialized and validated. Still can be optional."
-                        );
-                        match self.kademlia_postponed_get_action.remove(&id).unwrap() {
-                            ActionOnKademliaGetRecord::JustThrowResultBack { tx } => {
-                                let _ = tx.send(verified_record);
-                            }
-                        };
-                    }
                     Ok(())
                 }
                 QueryResult::GetRecord(Ok(
@@ -890,26 +794,12 @@ impl<S: ApplicationSigner> P2P<S> {
                     trace!(
                         %id, ?stats, ?step, ?cache_candidates, "QueryResult::GetRecord(Ok(libp2p::kad::GetRecordOk::FinishedWithNoAdditionalRecord"
                     );
-                    if self.kademlia_postponed_get_action.contains_key(&id) {
-                        match self.kademlia_postponed_get_action.remove(&id).unwrap() {
-                            ActionOnKademliaGetRecord::JustThrowResultBack { tx } => {
-                                let _ = tx.send(None);
-                            }
-                        };
-                    }
                     Ok(())
                 }
                 QueryResult::GetRecord(Err(libp2p::kad::GetRecordError::Timeout { key })) => {
                     trace!(
                         %id, ?stats, ?step, ?key, "QueryResult::GetRecord(Err(libp2p::kad::GetRecordError::Timeout"
                     );
-                    if self.kademlia_postponed_get_action.contains_key(&id) {
-                        match self.kademlia_postponed_get_action.remove(&id).unwrap() {
-                            ActionOnKademliaGetRecord::JustThrowResultBack { tx } => {
-                                let _ = tx.send(None);
-                            }
-                        };
-                    }
                     Ok(())
                 }
                 QueryResult::GetRecord(Err(libp2p::kad::GetRecordError::NotFound {
@@ -919,13 +809,6 @@ impl<S: ApplicationSigner> P2P<S> {
                     trace!(
                         %id, ?stats, ?step, ?key, ?closest_peers, "QueryResult::GetRecord(Err(libp2p::kad::GetRecordError::NotFound"
                     );
-                    if self.kademlia_postponed_get_action.contains_key(&id) {
-                        match self.kademlia_postponed_get_action.remove(&id).unwrap() {
-                            ActionOnKademliaGetRecord::JustThrowResultBack { tx } => {
-                                let _ = tx.send(None);
-                            }
-                        };
-                    }
                     Ok(())
                 }
                 QueryResult::GetRecord(Err(libp2p::kad::GetRecordError::QuorumFailed {
@@ -936,13 +819,6 @@ impl<S: ApplicationSigner> P2P<S> {
                     trace!(
                         %id, ?stats, ?step, ?key, ?records, %quorum, "QueryResult::GetRecord(Err(libp2p::kad::GetRecordError::QuorumFailed"
                     );
-                    if self.kademlia_postponed_get_action.contains_key(&id) {
-                        match self.kademlia_postponed_get_action.remove(&id).unwrap() {
-                            ActionOnKademliaGetRecord::JustThrowResultBack { tx } => {
-                                let _ = tx.send(None);
-                            }
-                        };
-                    }
                     Ok(())
                 }
                 QueryResult::PutRecord(Ok(PutRecordOk { key })) => {
@@ -1080,58 +956,6 @@ impl<S: ApplicationSigner> P2P<S> {
                     ?old_peer,
                     "KademliaEvent::RoutingUpdated"
                 );
-                trace!(
-                    res = %(!self.kademlia_is_initial_record_already_posted
-                                    && self
-                                        .swarm
-                                        .connected_peers().count()
-                                        > self.config.kademlia_threshold),
-                    is_already_posted = %self.kademlia_is_initial_record_already_posted,
-                    how_many_connections = %self
-                                        .swarm
-                                        .connected_peers().count(),
-                    threshold = %self.config.kademlia_threshold,
-                    "Routing updated..."
-                );
-                if !self.kademlia_is_initial_record_already_posted
-                    && self
-                        .swarm
-                        .behaviour_mut()
-                        .kademlia
-                        .kbuckets()
-                        .map(|bucket| bucket.num_entries())
-                        .reduce(|x, y| x + y)
-                        .unwrap_or(0)
-                        > self.config.kademlia_threshold
-                {
-                    let maybe_signed_record_data = SignedRecord::new(
-                        RecordData::new(
-                            self.config.app_public_key.clone(),
-                            self.swarm.external_addresses().cloned().collect::<Vec<_>>(),
-                        ),
-                        &self.signer,
-                    );
-
-                    match maybe_signed_record_data {
-                        Err(e) => {
-                            warn!(%e,
-                                app_pk = ?self.config.app_public_key,
-                                local_tid = %self.swarm.local_peer_id(),
-                                external_addresses = ?self.swarm.external_addresses().cloned().collect::<Vec<_>>(),
-                                "Failed to serialize our signed record.");
-                        }
-                        Ok(signed_record_data) => {
-                            let _ = self.swarm.behaviour_mut().kademlia.put_record(
-                                Record::new(
-                                    self.config.app_public_key.encode_protobuf(),
-                                    serde_json::to_vec(&signed_record_data).unwrap(),
-                                ),
-                                Quorum::Majority,
-                            );
-                        }
-                    };
-                    self.kademlia_is_initial_record_already_posted = true;
-                }
                 Ok(())
             }
             KademliaEvent::RoutablePeer { peer, address } => {
@@ -1324,33 +1148,7 @@ impl<S: ApplicationSigner> P2P<S> {
                     Ok(())
                 }
             },
-            #[cfg(feature = "kad")]
-            Command::GetDHTRecord {
-                app_public_key,
-                response_sender,
-            } => {
-                self.ask_kademlia_get_record(
-                    &app_public_key,
-                    ActionOnKademliaGetRecord::JustThrowResultBack {
-                        tx: response_sender,
-                    },
-                );
-                Ok(())
-            }
         }
-    }
-
-    #[cfg(feature = "kad")]
-    fn ask_kademlia_get_record(&mut self, app_pk: &PublicKey, action: ActionOnKademliaGetRecord) {
-        let queryid = self
-            .swarm
-            .behaviour_mut()
-            .kademlia
-            .get_record(RecordKey::new(&app_pk.encode_protobuf()));
-
-        self.kademlia_postponed_get_action.insert(queryid, action);
-
-        trace!(?app_pk, "We inserted queryid -> action");
     }
 
     /// Handles gossip command sent through GossipHandle.

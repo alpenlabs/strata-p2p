@@ -3,9 +3,6 @@
 use libp2p::{Multiaddr, identity::PublicKey};
 use tokio::sync::oneshot;
 
-#[cfg(feature = "kad")]
-use crate::swarm::dto::dht_record::SignedRecord;
-
 /// Commands that users can send to the P2P node.
 #[derive(Debug)]
 pub enum Command {
@@ -26,16 +23,6 @@ pub enum Command {
 
     /// Directly queries P2P state (doesn't produce events).
     QueryP2PState(QueryP2PStateCommand),
-
-    /// Try get record in DHT where application public is a key. A record is a [`SignedRecord`].
-    /// Checking of signature is enabled and works via a Signer.
-    #[cfg(feature = "kad")]
-    GetDHTRecord {
-        /// Key for DHT record: a remote node's application public key.
-        app_public_key: PublicKey,
-        /// One shot channel for sending result back.
-        response_sender: oneshot::Sender<Option<SignedRecord>>,
-    },
 }
 
 /// Command to publish a message through gossipsub.
