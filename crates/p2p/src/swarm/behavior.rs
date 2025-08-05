@@ -19,7 +19,7 @@ use libp2p::{
     PeerId,
     gossipsub::{
         self, Behaviour as Gossipsub, IdentityTransform, MessageAuthenticity, PeerScoreParams,
-        PeerScoreThresholds, TopicScoreParams, WhitelistSubscriptionFilter,
+        PeerScoreThresholds, TopicScoreParams, ValidationMode, WhitelistSubscriptionFilter,
     },
 };
 use libp2p::{
@@ -63,8 +63,31 @@ pub struct Behaviour<S: ApplicationSigner> {
     pub gossipsub: Gossipsub<IdentityTransform, WhitelistSubscriptionFilter>,
 }
 
-/// This create a new [`Gossipsub`] instance with the given keypair, [`PeerScoreParams`], and
-/// [`PeerScoreThresholds`].
+/// Creates a new [`Gossipsub`] given a [`Keypair`] and scoring parameters.
+///
+/// # [`Gossipsub`] implementation details
+///
+/// Under the hood the following [`Gossipsub`] features are implemented:
+///
+/// - **Message Validation**: All messages are validated using
+///   [permissive](ValidationMode::Permissive) validation mode
+/// - **Message Authentication**: Uses author-based authentication with the peer's public key
+/// - **Max Transmission Size**: Limited to 512 KB (524,288 bytes) to prevent large message attacks
+/// - **`IDONTWANT` on Publish**: Enabled to reduce duplicate message forwarding overhead
+/// - **Topic Subscription Filter**: Whitelisted to only allow subscription to the "bitvm2" topic
+/// - **Peer Scoring**: Configurable peer scoring system to maintain network quality
+/// - **Default Scoring**: If no custom scoring params provided, uses default params with the target
+///   topic
+///
+/// # Arguments
+///
+/// * `keypair` - Transport keypair used for message authentication
+/// * `gossipsub_score_params` - Optional peer scoring parameters for network quality management
+/// * `gossipsub_score_thresholds` - Optional peer scoring thresholds for peer evaluation
+///
+/// # Returns
+///
+/// Returns a configured [`Gossipsub`] instance or an error string if configuration fails.
 #[cfg(feature = "gossipsub")]
 fn create_gossipsub(
     keypair: &Keypair,
@@ -90,7 +113,7 @@ fn create_gossipsub(
     let gossipsub = Gossipsub::new_with_subscription_filter(
         MessageAuthenticity::Author(PeerId::from_public_key(&keypair.public().clone())),
         gossipsub::ConfigBuilder::default()
-            .validation_mode(gossipsub::ValidationMode::Permissive)
+            .validation_mode(ValidationMode::Permissive)
             .validate_messages()
             .max_transmit_size(MAX_TRANSMIT_SIZE)
             .idontwant_on_publish(true)
@@ -110,8 +133,34 @@ fn create_gossipsub(
 }
 
 impl<S: ApplicationSigner> Behaviour<S> {
-    /// Creates a new [`Behaviour`] given a `protocol_name`, transport [`Keypair`], app
-    /// [`PublicKey`], signer, and an allow list of [`PeerId`]s.
+    /// Creates a new [`Behaviour`] with all configured sub-behaviors for P2P networking.
+    ///
+    /// # Implementation details
+    ///
+    /// This constructs a composite behavior that includes:
+    ///
+    /// - **Setup Behavior**: Exchanges application public keys before establishing connections
+    /// - **Identify Protocol**: Peer identification, address discovery, and public key exchange
+    /// - **Request-Response**: Recursive discovery protocol for lost or skipped information
+    /// - **Gossipsub**: Pub/sub message distribution with the following features:
+    ///   - [Permissive](ValidationMode::Permissive) message validation with author-based
+    ///     authentication
+    ///   - 512 KB max transmission size to prevent large message attacks
+    ///   - `IDONTWANT` on publish to reduce duplicate forwarding overhead
+    ///   - Whitelisted subscription filter for "bitvm2" topic only
+    ///   - Configurable peer scoring system for network quality
+    ///
+    /// # Arguments
+    ///
+    /// * `protocol_name` - Protocol identifier used for request-response and identify protocols
+    /// * `transport_keypair` - Transport keypair for network identity and message authentication
+    /// * `app_public_key` - Application-level public key for setup behavior
+    /// * `gossipsub_score_params` - Optional peer scoring parameters for gossipsub
+    /// * `gossipsub_score_thresholds` - Optional peer scoring thresholds for gossipsub
+    /// * `signer` - Application signer for setup behavior authentication
+    /// # Returns
+    ///
+    /// Returns a configured [`Behaviour`] instance or an error string if configuration fails.
     pub fn new(
         protocol_name: &'static str,
         transport_keypair: &Keypair,
