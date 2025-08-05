@@ -2,7 +2,7 @@
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use libp2p::{Multiaddr, PeerId, identity::PublicKey};
+use libp2p::{Multiaddr, identity::PublicKey};
 use serde::{Deserialize, Deserializer, Serialize, de};
 
 use crate::{
@@ -29,8 +29,6 @@ pub struct RecordData {
     /// The application public key (Ed25519).
     #[serde(with = "pubkey_serializer")]
     pub app_public_key: PublicKey,
-    /// Transport ID (PeerId).
-    pub transport_id: PeerId,
     /// Multiaddresses.
     pub multiaddresses: Vec<Multiaddr>,
     /// Timestamp of message creation.
@@ -38,11 +36,7 @@ pub struct RecordData {
 }
 
 impl RecordData {
-    pub(crate) fn new(
-        app_public_key: PublicKey,
-        transport_id: PeerId,
-        multiaddresses: Vec<Multiaddr>,
-    ) -> Self {
+    pub(crate) fn new(app_public_key: PublicKey, multiaddresses: Vec<Multiaddr>) -> Self {
         let timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
@@ -52,7 +46,6 @@ impl RecordData {
             version: DHT_PROTOCOL_VERSION,
             protocol: DHT_PROTOCOL_ID,
             app_public_key,
-            transport_id,
             date: timestamp,
             multiaddresses,
         }

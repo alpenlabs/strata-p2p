@@ -1069,7 +1069,6 @@ impl<S: ApplicationSigner> P2P<S> {
                     let maybe_signed_record_data = SignedRecord::new(
                         RecordData::new(
                             self.config.app_public_key.clone(),
-                            *self.swarm.local_peer_id(),
                             self.swarm.external_addresses().cloned().collect::<Vec<_>>(),
                         ),
                         &self.signer,
