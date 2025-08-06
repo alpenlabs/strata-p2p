@@ -620,6 +620,7 @@ where
                     SwarmEvent::ConnectionEstablished {
                         peer_id, endpoint, ..
                     } => {
+                        // TODO(Arniiiii): do filtering if not byos
                         let ConnectedPoint::Dialer { address, .. } = endpoint else {
                             continue;
                         };
@@ -1171,12 +1172,6 @@ where
                     trace!(
                         %id, ?stats, ?step, ?key, ?peers, "QueryResult::GetClosestPeers(Ok(GetClosestPeersOk"
                     );
-                    // TODO(Arniiiii) : since we manually add peers, here's a filtering could be
-                    // implemented
-                    for peer in peers {
-                        self.swarm
-                            .add_peer_address(peer.peer_id, peer.addrs[0].clone());
-                    }
                     Ok(())
                 }
                 QueryResult::GetClosestPeers(Err(GetClosestPeersError::Timeout { key, peers })) => {

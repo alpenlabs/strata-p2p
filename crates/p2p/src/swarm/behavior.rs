@@ -71,8 +71,9 @@ pub struct Behaviour<S: ApplicationSigner> {
     pub kademlia: kad::Behaviour<kad::store::MemoryStore>,
 }
 
+/// Here we create kademlia behaviour.
 #[cfg(feature = "kad")]
-fn configure_kademlia_behaviour(
+fn create_kademlia_behaviour(
     transport_keypair: &Keypair,
     kad_protocol_name: &Option<KadProtocol>,
 ) -> libp2p::kad::Behaviour<MemoryStore> {
@@ -89,9 +90,11 @@ fn configure_kademlia_behaviour(
     // it is expected that there's going to be manual validation of records
     kad_cfg.set_record_filtering(kad::StoreInserts::FilterBoth);
 
-    // it is expected that there's going to be manual filtering of peers based on their real
-    // app_pk
-    kad_cfg.set_kbucket_inserts(kad::BucketInserts::Manual);
+    // it is expected that there's going to be automatic filtering of peers based on their real
+    // app_pk if feature="byos" when we received `SetupBehaviourEvent::AppKeyReceived` and if not
+    // feature="byos" , then filter based on transport id at handling
+    // FromSwarm::ConnectionEstablished
+    kad_cfg.set_kbucket_inserts(kad::BucketInserts::OnConnected);
 
     // TODO(Arniiiii): make it configurable
     kad_cfg.set_replication_factor(NonZero::new(5).unwrap());
@@ -221,7 +224,7 @@ impl<S: ApplicationSigner> Behaviour<S> {
         #[cfg(feature = "kad")] kad_protocol_name: &Option<KadProtocol>,
     ) -> Result<Self, &'static str> {
         #[cfg(feature = "kad")]
-        let kademlia_behaviour = configure_kademlia_behaviour(transport_keypair, kad_protocol_name);
+        let kademlia_behaviour = create_kademlia_behaviour(transport_keypair, kad_protocol_name);
         #[cfg(feature = "gossipsub")]
         let gossipsub = create_gossipsub(
             transport_keypair,
