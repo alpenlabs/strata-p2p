@@ -4,7 +4,10 @@
 //! setup processes, handling both inbound and outbound substreams for the setup
 //! protocol.
 
-use std::{sync::Arc, task::{Context, Poll}};
+use std::{
+    sync::Arc,
+    task::{Context, Poll},
+};
 
 use libp2p::{
     PeerId,
@@ -33,8 +36,15 @@ use crate::{
 /// coordinating both inbound and outbound handshake processes.
 #[derive(Debug)]
 pub struct SetupHandler {
-    outbound_substream: Option<SubstreamProtocol<OutboundSetupUpgrade<Arc<dyn ApplicationSigner>>, ()>>,
-    pending_events: Vec<ConnectionHandlerEvent<OutboundSetupUpgrade<Arc<dyn ApplicationSigner>>, (), SetupHandlerEvent>>,
+    outbound_substream:
+        Option<SubstreamProtocol<OutboundSetupUpgrade<Arc<dyn ApplicationSigner>>, ()>>,
+    pending_events: Vec<
+        ConnectionHandlerEvent<
+            OutboundSetupUpgrade<Arc<dyn ApplicationSigner>>,
+            (),
+            SetupHandlerEvent,
+        >,
+    >,
 }
 
 impl SetupHandler {

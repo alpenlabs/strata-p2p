@@ -1,6 +1,9 @@
 //! Helper functions for the P2P tests.
 
-use std::{sync::{Arc, Once}, time::Duration};
+use std::{
+    sync::{Arc, Once},
+    time::Duration,
+};
 
 use futures::future::join_all;
 use libp2p::{
@@ -414,9 +417,7 @@ impl Setup {
     /// Waits for all users to establish connections and subscriptions, then spawns their listen
     /// tasks. Returns user handles for communication and a task tracker for managing the
     /// spawned tasks.
-    async fn start_users(
-        mut users: Vec<User>,
-    ) -> (Vec<UserHandle>, TaskTracker) {
+    async fn start_users(mut users: Vec<User>) -> (Vec<UserHandle>, TaskTracker) {
         // wait until all of them established connections and subscriptions
         join_all(
             users

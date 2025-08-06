@@ -6,7 +6,7 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-use libp2p::identity::PublicKey;
+use libp2p::identity::PeerId;
 
 /// Default ban period for peer misbehavior. Hardcoded to 30 days.
 pub const DEFAULT_BAN_PERIOD: Duration = Duration::from_secs(60 * 60 * 24 * 30);
@@ -15,10 +15,13 @@ pub const DEFAULT_BAN_PERIOD: Duration = Duration::from_secs(60 * 60 * 24 * 30);
 #[derive(Debug)]
 pub enum Message {
     /// Gossipsub message.
+    #[cfg(feature = "gossipsub")]
     Gossipsub(Vec<u8>),
     /// Request message.
+    #[cfg(feature = "request-response")]
     Request(Vec<u8>),
     /// Response message.
+    #[cfg(feature = "request-response")]
     Response(Vec<u8>),
 }
 
@@ -28,10 +31,13 @@ pub enum PenaltyType {
     /// No action taken.
     Ignore,
     /// Mute gossipsub messages for duration.
+    #[cfg(feature = "gossipsub")]
     MuteGossip(Duration),
     /// Mute request/response messages for duration.
+    #[cfg(feature = "request-response")]
     MuteReqresp(Duration),
     /// Mute both protocols for duration.
+    #[cfg(all(feature = "gossipsub", feature = "request-response"))]
     MuteBoth(Duration),
     /// Ban peer (None = permanent, Some = temporary).
     Ban(Option<Duration>),
@@ -41,8 +47,10 @@ pub enum PenaltyType {
 #[derive(Debug)]
 pub struct PenaltyInfo {
     /// Timestamp until which the peer is muted for gossipsub.
+    #[cfg(feature = "gossipsub")]
     mute_gossip_until: Option<SystemTime>,
     /// Timestamp until which the peer is muted for request/response.
+    #[cfg(feature = "request-response")]
     mute_req_resp_until: Option<SystemTime>,
     /// Timestamp until which the peer is banned.
     ban_until: Option<SystemTime>,
@@ -51,12 +59,14 @@ pub struct PenaltyInfo {
 impl PenaltyInfo {
     /// Creates a new [`PenaltyInfo`].
     pub const fn new(
-        mute_gossip_until: Option<SystemTime>,
-        mute_req_resp_until: Option<SystemTime>,
+        #[cfg(feature = "gossipsub")] mute_gossip_until: Option<SystemTime>,
+        #[cfg(feature = "request-response")] mute_req_resp_until: Option<SystemTime>,
         ban_until: Option<SystemTime>,
     ) -> Self {
         Self {
+            #[cfg(feature = "gossipsub")]
             mute_gossip_until,
+            #[cfg(feature = "request-response")]
             mute_req_resp_until,
             ban_until,
         }
@@ -66,7 +76,7 @@ impl PenaltyInfo {
 /// Storage for peer penalties.
 #[derive(Debug, Default)]
 pub struct PenaltyPeerStorage {
-    penalties: HashMap<PublicKey, PenaltyInfo>,
+    penalties: HashMap<PeerId, PenaltyInfo>,
 }
 
 /// Validator trait. Used to validate messages and return penalties.
@@ -115,38 +125,41 @@ impl PenaltyPeerStorage {
     }
 
     /// Checks if the peer is muted for gossip.
-    pub fn is_gossip_muted(&self, app_public_key: &PublicKey) -> bool {
+    #[cfg(feature = "gossipsub")]
+    pub fn is_gossip_muted(&self, peer_id: &PeerId) -> bool {
         self.penalties
-            .get(app_public_key)
+            .get(peer_id)
             .and_then(|penalty| penalty.mute_gossip_until)
             .is_some_and(|timestamp| timestamp > SystemTime::now())
     }
 
     /// Checks if the peer is muted for request/response.
-    pub fn is_req_resp_muted(&self, app_public_key: &PublicKey) -> bool {
+    #[cfg(feature = "request-response")]
+    pub fn is_req_resp_muted(&self, peer_id: &PeerId) -> bool {
         self.penalties
-            .get(app_public_key)
+            .get(peer_id)
             .and_then(|penalty| penalty.mute_req_resp_until)
             .is_some_and(|timestamp| timestamp > SystemTime::now())
     }
 
     /// Checks if the peer is banned.
-    pub fn is_banned(&self, app_public_key: &PublicKey) -> bool {
+    pub fn is_banned(&self, peer_id: &PeerId) -> bool {
         self.penalties
-            .get(app_public_key)
+            .get(peer_id)
             .and_then(|penalty| penalty.ban_until)
             .is_some_and(|timestamp| timestamp > SystemTime::now())
     }
 
     /// Mutes the peer for gossip for the given duration.
+    #[cfg(feature = "gossipsub")]
     pub fn mute_peer_gossip(
         &mut self,
-        app_public_key: &PublicKey,
+        peer_id: &PeerId,
         until: SystemTime,
     ) -> Result<(), &'static str> {
         let penalty = self
             .penalties
-            .entry(app_public_key.clone())
+            .entry(peer_id.clone())
             .or_insert_with(|| PenaltyInfo::new(None, None, None));
 
         if let Some(mute_until) = penalty.mute_gossip_until
@@ -160,14 +173,15 @@ impl PenaltyPeerStorage {
     }
 
     /// Mutes the peer for request/response for the given duration.
+    #[cfg(feature = "request-response")]
     pub fn mute_peer_req_resp(
         &mut self,
-        app_public_key: &PublicKey,
+        peer_id: &PeerId,
         until: SystemTime,
     ) -> Result<(), &'static str> {
         let penalty = self
             .penalties
-            .entry(app_public_key.clone())
+            .entry(peer_id.clone())
             .or_insert_with(|| PenaltyInfo::new(None, None, None));
 
         if let Some(mute_until) = penalty.mute_req_resp_until
@@ -181,15 +195,16 @@ impl PenaltyPeerStorage {
     }
 
     /// Bans the peer for the given duration.
-    pub fn ban_peer(
-        &mut self,
-        app_public_key: &PublicKey,
-        until: SystemTime,
-    ) -> Result<(), &'static str> {
-        let penalty = self
-            .penalties
-            .entry(app_public_key.clone())
-            .or_insert_with(|| PenaltyInfo::new(None, None, None));
+    pub fn ban_peer(&mut self, peer_id: &PeerId, until: SystemTime) -> Result<(), &'static str> {
+        let penalty = self.penalties.entry(peer_id.clone()).or_insert_with(|| {
+            PenaltyInfo::new(
+                #[cfg(feature = "gossipsub")]
+                None,
+                #[cfg(feature = "request-response")]
+                None,
+                None,
+            )
+        });
 
         if let Some(ban_until) = penalty.ban_until
             && ban_until > SystemTime::now()

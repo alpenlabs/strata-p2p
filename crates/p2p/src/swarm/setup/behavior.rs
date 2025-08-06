@@ -45,7 +45,11 @@ pub struct SetupBehaviour {
 }
 
 impl SetupBehaviour {
-    pub(crate) fn new(app_public_key: PublicKey, transport_id: PeerId, signer: Arc<dyn ApplicationSigner>) -> Self {
+    pub(crate) fn new(
+        app_public_key: PublicKey,
+        transport_id: PeerId,
+        signer: Arc<dyn ApplicationSigner>,
+    ) -> Self {
         Self {
             app_public_key,
             local_transport_id: transport_id,

@@ -7,6 +7,7 @@
 
 #[cfg(feature = "gossipsub")]
 use std::collections::HashSet;
+use std::sync::Arc;
 
 #[cfg(feature = "request-response")]
 use libp2p::StreamProtocol;
@@ -33,7 +34,6 @@ use super::MAX_TRANSMIT_SIZE;
 use super::TOPIC;
 #[cfg(feature = "request-response")]
 use super::codec_raw;
-use std::sync::Arc;
 use crate::{
     signer::ApplicationSigner,
     swarm::{Keypair, PublicKey, setup::behavior::SetupBehaviour},
