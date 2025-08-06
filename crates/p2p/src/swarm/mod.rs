@@ -4,6 +4,7 @@
 use std::time::SystemTime;
 use std::{
     collections::HashSet,
+    sync::Arc,
     time::{Duration, Instant},
 };
 
@@ -210,13 +211,9 @@ pub struct P2PConfig {
 
 /// Implementation of P2P protocol data exchange.
 #[expect(missing_debug_implementations)]
-pub struct P2P<S, V = DefaultP2PValidator>
-where
-    S: ApplicationSigner,
-    V: Validator,
-{
+pub struct P2P {
     /// The swarm that handles the networking.
-    swarm: Swarm<Behaviour<S>>,
+    swarm: Swarm<Behaviour>,
 
     /// Event channel for the gossip.
     #[cfg(feature = "gossipsub")]
@@ -263,7 +260,7 @@ where
         not(any(feature = "gossipsub", feature = "request-response")),
         allow(dead_code)
     )]
-    signer: S,
+    signer: Arc<dyn ApplicationSigner>,
 
     /// Manages dial sequences and address queues for multiaddress connections.
     dial_manager: DialManager,
@@ -283,29 +280,25 @@ where
         not(any(feature = "gossipsub", feature = "request-response")),
         allow(dead_code)
     )]
-    validator: V,
+    validator: Box<dyn Validator>,
 }
 
 /// Alias for [`P2P`] and [`ReqRespHandle`] tuple.
 #[cfg(feature = "request-response")]
-pub type P2PWithReqRespHandle<S, V> = (P2P<S, V>, ReqRespHandle);
+pub type P2PWithReqRespHandle = (P2P, ReqRespHandle);
 
-impl<S, V> P2P<S, V>
-where
-    S: ApplicationSigner,
-    V: Validator,
-{
+impl P2P {
     /// Creates a new P2P instance from the given configuration.
     #[cfg(feature = "request-response")]
     pub fn from_config(
         cfg: P2PConfig,
         cancel: CancellationToken,
-        mut swarm: Swarm<Behaviour<S>>,
+        mut swarm: Swarm<Behaviour>,
         allowlist: Vec<PublicKey>,
         #[cfg(feature = "gossipsub")] channel_size: Option<usize>,
-        signer: S,
-        validator: Option<V>,
-    ) -> P2PResult<P2PWithReqRespHandle<S, V>> {
+        signer: Arc<dyn ApplicationSigner>,
+        validator: Option<Box<dyn Validator>>,
+    ) -> P2PResult<P2PWithReqRespHandle> {
         for addr in &cfg.listening_addrs {
             swarm
                 .listen_on(addr.clone())
@@ -343,10 +336,10 @@ where
             (gossip_events_tx, gossip_cmds_tx, gossip_cmds_rx)
         };
 
-        let validator = validator.unwrap_or_default();
+        let validator = validator.unwrap_or_else(|| Box::new(DefaultP2PValidator::default()));
 
         Ok((
-            P2P::<S, V> {
+            P2P {
                 swarm,
                 #[cfg(feature = "gossipsub")]
                 gossip_events: gossip_events_tx,
@@ -378,12 +371,12 @@ where
     pub fn from_config(
         cfg: P2PConfig,
         cancel: CancellationToken,
-        mut swarm: Swarm<Behaviour<S>>,
+        mut swarm: Swarm<Behaviour>,
         allowlist: Vec<PublicKey>,
         #[cfg(feature = "gossipsub")] channel_size: Option<usize>,
-        signer: S,
-        validator: Option<V>,
-    ) -> P2PResult<P2P<S, V>> {
+        signer: Arc<dyn ApplicationSigner>,
+        validator: Option<Box<dyn Validator>>,
+    ) -> P2PResult<P2P> {
         for addr in &cfg.listening_addrs {
             swarm
                 .listen_on(addr.clone())
@@ -416,9 +409,9 @@ where
             (cmds_tx, cmds_rx, score_manager, peer_penalty_storage)
         };
 
-        let validator = validator.unwrap_or_default();
+        let validator = validator.unwrap_or_else(|| Box::new(DefaultP2PValidator::default()));
 
-        Ok(P2P::<S, V> {
+        Ok(P2P {
             swarm,
             #[cfg(feature = "gossipsub")]
             gossip_events: gossip_events_tx,
@@ -839,7 +832,7 @@ where
     /// Handles a [`SwarmEvent`] from the swarm.
     async fn handle_swarm_event(
         &mut self,
-        event: SwarmEvent<<Behaviour<S> as NetworkBehaviour>::ToSwarm>,
+        event: SwarmEvent<<Behaviour as NetworkBehaviour>::ToSwarm>,
     ) -> P2PResult<()> {
         match event {
             SwarmEvent::Behaviour(event) => self.handle_behaviour_event(event).await,
@@ -854,7 +847,7 @@ where
     /// Handles connection-related events (both successful and failed connections).
     async fn handle_connection_event(
         &mut self,
-        event: SwarmEvent<BehaviourEvent<S>>,
+        event: SwarmEvent<BehaviourEvent>,
     ) -> P2PResult<()> {
         match event {
             SwarmEvent::ConnectionEstablished {
@@ -900,7 +893,7 @@ where
     /// Handles a [`BehaviourEvent`] from the swarm.
     async fn handle_behaviour_event(
         &mut self,
-        event: <Behaviour<S> as NetworkBehaviour>::ToSwarm,
+        event: <Behaviour as NetworkBehaviour>::ToSwarm,
     ) -> P2PResult<()> {
         match event {
             #[cfg(feature = "gossipsub")]
@@ -1208,7 +1201,7 @@ where
         let signed_gossip_message: SignedMessage = match SignedMessage::new_signed_gossip(
             self.config.app_public_key.clone(),
             cmd.data,
-            &self.signer,
+            self.signer.as_ref(),
         ) {
             Ok(signed_msg) => signed_msg,
             Err(e) => {
@@ -1276,7 +1269,7 @@ where
         let signed_request_message: SignedMessage = match SignedMessage::new_signed_request(
             self.config.app_public_key.clone(),
             cmd.data,
-            &self.signer,
+            self.signer.as_ref(),
         ) {
             Ok(signed_msg) => signed_msg,
             Err(e) => {
@@ -1473,7 +1466,7 @@ where
                             match SignedMessage::new_signed_response(
                                 self.config.app_public_key.clone(),
                                 response,
-                                &self.signer,
+                                self.signer.as_ref(),
                             ) {
                                 Ok(signed_msg) => signed_msg,
                                 Err(e) => {
@@ -1674,10 +1667,10 @@ macro_rules! finish_swarm {
 
 /// Constructs swarm from P2P config with inmemory transport. Uses
 /// `/memory/{n}` addresses.
-pub fn with_inmemory_transport<S: ApplicationSigner>(
+pub fn with_inmemory_transport(
     config: &P2PConfig,
-    signer: S,
-) -> P2PResult<Swarm<Behaviour<S>>> {
+    signer: Arc<dyn ApplicationSigner>,
+) -> P2PResult<Swarm<Behaviour>> {
     let builder = init_swarm!(config);
     let swarm = finish_swarm!(
         builder.with_other_transport(|our_keypair| {
@@ -1696,10 +1689,10 @@ pub fn with_inmemory_transport<S: ApplicationSigner>(
 
 /// Constructs a `Swarm<Behaviour>` from `P2PConfig` using QUIC with TCP fallback when available, or
 /// TCP only otherwise.
-pub fn with_default_transport<S: ApplicationSigner>(
+pub fn with_default_transport(
     config: &P2PConfig,
-    signer: S,
-) -> P2PResult<Swarm<Behaviour<S>>> {
+    signer: Arc<dyn ApplicationSigner>,
+) -> P2PResult<Swarm<Behaviour>> {
     let builder = init_swarm!(config);
     #[cfg(feature = "quic")]
     let swarm = builder

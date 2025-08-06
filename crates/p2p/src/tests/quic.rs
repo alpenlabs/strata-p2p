@@ -1,6 +1,6 @@
 //! Test QUIC and TCP connectivity on IPv4 and IPv6.
 
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 use libp2p::{Multiaddr, identity::Keypair};
 use tokio::{join, spawn, sync::oneshot, time};
@@ -39,8 +39,8 @@ async fn test_quic_and_tcp_connectivity_ipv4_ipv6() {
             quic6_base.clone(),
         ],
         cancel.clone(),
-        MockApplicationSigner::new(keypair_a.clone()),
-        DefaultP2PValidator,
+        Arc::new(MockApplicationSigner::new(keypair_a.clone())),
+        Box::new(DefaultP2PValidator),
     )
     .expect("Failed to create listening node A");
 
@@ -51,8 +51,8 @@ async fn test_quic_and_tcp_connectivity_ipv4_ipv6() {
         vec![keypair_a.public()],
         vec![],
         cancel.clone(),
-        MockApplicationSigner::new(keypair_b.clone()),
-        DefaultP2PValidator,
+        Arc::new(MockApplicationSigner::new(keypair_b.clone())),
+        Box::new(DefaultP2PValidator),
     )
     .expect("Failed to create connecting node B");
 
@@ -150,8 +150,8 @@ async fn test_tcp_fallback_on_quic_failure() {
         vec![keypair_b.public()],
         vec![tcp4_addr.clone(), quic4_addr.clone()],
         cancel.clone(),
-        MockApplicationSigner::new(keypair_a.clone()),
-        DefaultP2PValidator,
+        Arc::new(MockApplicationSigner::new(keypair_a.clone())),
+        Box::new(DefaultP2PValidator),
     )
     .expect("Failed to create listening node");
 
@@ -162,8 +162,8 @@ async fn test_tcp_fallback_on_quic_failure() {
         vec![keypair_a.public()],
         vec![],
         cancel.clone(),
-        MockApplicationSigner::new(keypair_b.clone()),
-        DefaultP2PValidator,
+        Arc::new(MockApplicationSigner::new(keypair_b.clone())),
+        Box::new(DefaultP2PValidator),
     )
     .expect("Failed to create connecting node");
 

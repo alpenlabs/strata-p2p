@@ -1,6 +1,6 @@
 //! Tests for the setup phase of P2P connections where signature is invalid.
 
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 use libp2p::{
     build_multiaddr,
@@ -58,8 +58,8 @@ async fn test_setup_with_invalid_signature() {
         vec![app_keypair_good2.public()],
         vec![local_addr_good1.clone()],
         cancel_good1.child_token(),
-        MockApplicationSigner::new(app_keypair_good1.clone()),
-        DefaultP2PValidator,
+        Arc::new(MockApplicationSigner::new(app_keypair_good1.clone())),
+        Box::new(DefaultP2PValidator),
     )
     .unwrap();
 
@@ -70,8 +70,8 @@ async fn test_setup_with_invalid_signature() {
         vec![app_keypair_good1.public()],
         vec![local_addr_good2.clone()],
         cancel_good2.child_token(),
-        MockApplicationSigner::new(app_keypair_good2.clone()),
-        DefaultP2PValidator,
+        Arc::new(MockApplicationSigner::new(app_keypair_good2.clone())),
+        Box::new(DefaultP2PValidator),
     )
     .unwrap();
 
@@ -102,8 +102,8 @@ async fn test_setup_with_invalid_signature() {
         vec![app_keypair_good1.public()], // allowlist
         vec![local_addr_bad.clone()],     // listening_addrs
         cancel_bad.child_token(),
-        BadApplicationSigner::new(app_keypair_bad.clone()),
-        DefaultP2PValidator,
+        Arc::new(BadApplicationSigner::new(app_keypair_bad.clone())),
+        Box::new(DefaultP2PValidator),
     )
     .unwrap();
 

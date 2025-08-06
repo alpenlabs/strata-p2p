@@ -4,7 +4,7 @@
 //! setup protocols, handling the serialization and exchange of setup messages
 //! over libp2p streams.
 
-use std::{future::Future, iter, pin::Pin};
+use std::{future::Future, iter, pin::Pin, sync::Arc};
 
 use asynchronous_codec::{Framed, JsonCodec};
 use futures::{SinkExt, StreamExt};
@@ -61,14 +61,14 @@ impl InboundUpgrade<Stream> for InboundSetupUpgrade {
 ///
 /// This upgrade sends the setup messages to remote peers.
 #[derive(Clone, Debug)]
-pub struct OutboundSetupUpgrade<S: ApplicationSigner> {
+pub struct OutboundSetupUpgrade<S> {
     app_public_key: PublicKey,
     local_transport_id: PeerId,
     remote_transport_id: PeerId,
     signer: S,
 }
 
-impl<S: ApplicationSigner> OutboundSetupUpgrade<S> {
+impl<S> OutboundSetupUpgrade<S> {
     pub(crate) const fn new(
         app_public_key: PublicKey,
         local_transport_id: PeerId,
@@ -84,7 +84,7 @@ impl<S: ApplicationSigner> OutboundSetupUpgrade<S> {
     }
 }
 
-impl<S: ApplicationSigner> UpgradeInfo for OutboundSetupUpgrade<S> {
+impl<S> UpgradeInfo for OutboundSetupUpgrade<S> {
     type Info = &'static str;
     type InfoIter = iter::Once<Self::Info>;
 
@@ -93,7 +93,7 @@ impl<S: ApplicationSigner> UpgradeInfo for OutboundSetupUpgrade<S> {
     }
 }
 
-impl<S: ApplicationSigner> OutboundUpgrade<Stream> for OutboundSetupUpgrade<S> {
+impl OutboundUpgrade<Stream> for OutboundSetupUpgrade<Arc<dyn ApplicationSigner>> {
     type Output = ();
     type Error = SetupUpgradeError;
     type Future = Pin<Box<dyn Future<Output = Result<Self::Output, Self::Error>> + Send>>;
@@ -104,7 +104,7 @@ impl<S: ApplicationSigner> OutboundUpgrade<Stream> for OutboundSetupUpgrade<S> {
                 self.app_public_key.clone(),
                 self.local_transport_id,
                 self.remote_transport_id,
-                &self.signer,
+                self.signer.as_ref(),
             )
             .map_err(|e| SetupUpgradeError::SignedMessageCreation(e.into()))?;
 

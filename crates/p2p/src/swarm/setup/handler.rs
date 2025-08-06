@@ -4,7 +4,7 @@
 //! setup processes, handling both inbound and outbound substreams for the setup
 //! protocol.
 
-use std::task::{Context, Poll};
+use std::{sync::Arc, task::{Context, Poll}};
 
 use libp2p::{
     PeerId,
@@ -32,17 +32,17 @@ use crate::{
 /// This handler manages the lifecycle of setup substreams for a single connection,
 /// coordinating both inbound and outbound handshake processes.
 #[derive(Debug)]
-pub struct SetupHandler<S: ApplicationSigner> {
-    outbound_substream: Option<SubstreamProtocol<OutboundSetupUpgrade<S>, ()>>,
-    pending_events: Vec<ConnectionHandlerEvent<OutboundSetupUpgrade<S>, (), SetupHandlerEvent>>,
+pub struct SetupHandler {
+    outbound_substream: Option<SubstreamProtocol<OutboundSetupUpgrade<Arc<dyn ApplicationSigner>>, ()>>,
+    pending_events: Vec<ConnectionHandlerEvent<OutboundSetupUpgrade<Arc<dyn ApplicationSigner>>, (), SetupHandlerEvent>>,
 }
 
-impl<S: ApplicationSigner> SetupHandler<S> {
+impl SetupHandler {
     pub(crate) fn new(
         app_public_key: PublicKey,
         local_transport_id: PeerId,
         remote_transport_id: PeerId,
-        signer: S,
+        signer: Arc<dyn ApplicationSigner>,
     ) -> Self {
         let upgrade = OutboundSetupUpgrade::new(
             app_public_key,
@@ -58,11 +58,11 @@ impl<S: ApplicationSigner> SetupHandler<S> {
     }
 }
 
-impl<S: ApplicationSigner> ConnectionHandler for SetupHandler<S> {
+impl ConnectionHandler for SetupHandler {
     type FromBehaviour = ();
     type ToBehaviour = SetupHandlerEvent;
     type InboundProtocol = InboundSetupUpgrade;
-    type OutboundProtocol = OutboundSetupUpgrade<S>;
+    type OutboundProtocol = OutboundSetupUpgrade<Arc<dyn ApplicationSigner>>;
     type InboundOpenInfo = ();
     type OutboundOpenInfo = ();
 

@@ -11,7 +11,7 @@ use libp2p::identity::PublicKey;
 /// Trait for signing setup messages with application private keys.
 ///
 /// The implementation should use the keypair that corresponds to the provided `app_public_key`.
-pub trait ApplicationSigner: Debug + Send + Sync + Clone + 'static {
+pub trait ApplicationSigner: Debug + Send + Sync + 'static {
     /// Signs the given message with the application private key that corresponds to the
     /// app_public_key.
     fn sign(

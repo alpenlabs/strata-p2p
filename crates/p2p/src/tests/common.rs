@@ -1,6 +1,6 @@
 //! Helper functions for the P2P tests.
 
-use std::{sync::Once, time::Duration};
+use std::{sync::{Arc, Once}, time::Duration};
 
 use futures::future::join_all;
 use libp2p::{
@@ -62,11 +62,8 @@ impl ApplicationSigner for MockApplicationSigner {
     }
 }
 
-pub(crate) struct User<
-    S: ApplicationSigner = MockApplicationSigner,
-    V: Validator = DefaultP2PValidator,
-> {
-    pub(crate) p2p: P2P<S, V>,
+pub(crate) struct User {
+    pub(crate) p2p: P2P,
     #[cfg(feature = "gossipsub")]
     pub(crate) gossip: GossipHandle,
     #[cfg(feature = "request-response")]
@@ -76,7 +73,7 @@ pub(crate) struct User<
     pub(crate) transport_keypair: Keypair,
 }
 
-impl<S: ApplicationSigner, V: Validator> User<S, V> {
+impl User {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         app_keypair: Keypair,
@@ -85,8 +82,8 @@ impl<S: ApplicationSigner, V: Validator> User<S, V> {
         allowlist: Vec<PublicKey>,
         listening_addrs: Vec<Multiaddr>,
         cancel: CancellationToken,
-        signer: S,
-        validator: V,
+        signer: Arc<dyn ApplicationSigner>,
+        validator: Box<dyn Validator>,
     ) -> anyhow::Result<Self> {
         debug!(
             ?listening_addrs,
@@ -232,10 +229,10 @@ impl Setup {
                 other_app_pk,
                 vec![addr.clone()],
                 cancel.child_token(),
-                MockApplicationSigner {
+                Arc::new(MockApplicationSigner {
                     app_keypair: app_keypair.clone(),
-                },
-                DefaultP2PValidator,
+                }),
+                Box::new(DefaultP2PValidator),
             )?;
 
             users.push(user);
@@ -292,10 +289,10 @@ impl Setup {
                 allowlist,
                 vec![addr.clone()],
                 cancel.child_token(),
-                MockApplicationSigner {
+                Arc::new(MockApplicationSigner {
                     app_keypair: app_keypair.clone(),
-                },
-                DefaultP2PValidator,
+                }),
+                Box::new(DefaultP2PValidator),
             )?;
 
             users.push(user);
@@ -312,7 +309,7 @@ impl Setup {
 
     /// Spawn `n` users that are connected "all-to-all" with a custom validator.
     #[cfg(feature = "gossipsub")]
-    pub(crate) async fn all_to_all_with_custom_validator<V: Validator>(
+    pub(crate) async fn all_to_all_with_custom_validator<V: Validator + Clone>(
         n: usize,
         validator: V,
     ) -> anyhow::Result<Self> {
@@ -349,10 +346,10 @@ impl Setup {
                 other_app_pk,
                 vec![addr.clone()],
                 cancel.child_token(),
-                MockApplicationSigner {
+                Arc::new(MockApplicationSigner {
                     app_keypair: app_keypair.clone(),
-                },
-                validator.clone(),
+                }),
+                Box::new(validator.clone()),
             )?;
 
             users.push(user);
@@ -417,8 +414,8 @@ impl Setup {
     /// Waits for all users to establish connections and subscriptions, then spawns their listen
     /// tasks. Returns user handles for communication and a task tracker for managing the
     /// spawned tasks.
-    async fn start_users<S: ApplicationSigner, V: Validator>(
-        mut users: Vec<User<S, V>>,
+    async fn start_users(
+        mut users: Vec<User>,
     ) -> (Vec<UserHandle>, TaskTracker) {
         // wait until all of them established connections and subscriptions
         join_all(

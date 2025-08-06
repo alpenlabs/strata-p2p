@@ -133,14 +133,13 @@ pub struct SignedMessage {
 
 impl SignedMessage {
     /// Creates a new signed message with the given signer.
-    pub(crate) fn new<T, S>(
+    pub(crate) fn new<T>(
         message: T,
-        signer: &S,
+        signer: &dyn crate::signer::ApplicationSigner,
         app_public_key: PublicKey,
     ) -> Result<Self, SignedMessageError>
     where
         T: Serialize,
-        S: crate::signer::ApplicationSigner,
     {
         let message_bytes =
             serde_json::to_vec(&message).map_err(|e| SignedMessageError::JsonCodec(e.into()))?;
@@ -178,11 +177,11 @@ impl SignedMessage {
 
 impl SignedMessage {
     /// Creates a new signed setup message with the given signer.
-    pub(crate) fn new_signed_setup<S: crate::signer::ApplicationSigner>(
+    pub(crate) fn new_signed_setup(
         app_public_key: PublicKey,
         local_transport_id: PeerId,
         remote_transport_id: PeerId,
-        signer: &S,
+        signer: &dyn crate::signer::ApplicationSigner,
     ) -> Result<Self, SignedMessageError> {
         let setup_message = SetupMessage::new(
             app_public_key.clone(),
@@ -195,10 +194,10 @@ impl SignedMessage {
 
     /// Creates a new signed gossipsub message with the given signer (convenience method).
     #[cfg(feature = "gossipsub")]
-    pub(crate) fn new_signed_gossip<S: crate::signer::ApplicationSigner>(
+    pub(crate) fn new_signed_gossip(
         app_public_key: PublicKey,
         message: Vec<u8>,
-        signer: &S,
+        signer: &dyn crate::signer::ApplicationSigner,
     ) -> Result<Self, SignedMessageError> {
         let gossip_message = GossipMessage::new(app_public_key.clone(), message);
 
@@ -207,10 +206,10 @@ impl SignedMessage {
 
     /// Creates a new signed request message with the given signer (convenience method).
     #[cfg(feature = "request-response")]
-    pub(crate) fn new_signed_request<S: crate::signer::ApplicationSigner>(
+    pub(crate) fn new_signed_request(
         app_public_key: PublicKey,
         message: Vec<u8>,
-        signer: &S,
+        signer: &dyn crate::signer::ApplicationSigner,
     ) -> Result<Self, SignedMessageError> {
         let request_message = RequestMessage::new(app_public_key.clone(), message);
 
@@ -219,10 +218,10 @@ impl SignedMessage {
 
     /// Creates a new signed response message with the given signer (convenience method).
     #[cfg(feature = "request-response")]
-    pub(crate) fn new_signed_response<S: crate::signer::ApplicationSigner>(
+    pub(crate) fn new_signed_response(
         app_public_key: PublicKey,
         message: Vec<u8>,
-        signer: &S,
+        signer: &dyn crate::signer::ApplicationSigner,
     ) -> Result<Self, SignedMessageError> {
         let response_message = ResponseMessage::new(app_public_key.clone(), message);
 

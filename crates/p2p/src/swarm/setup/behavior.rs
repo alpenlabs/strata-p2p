@@ -5,6 +5,7 @@
 
 use std::{
     collections::HashMap,
+    sync::Arc,
     task::{Context, Poll},
 };
 
@@ -28,13 +29,13 @@ use crate::{
 
 /// Network behavior for managing the setup phase.
 #[derive(Debug)]
-pub struct SetupBehaviour<S: ApplicationSigner> {
+pub struct SetupBehaviour {
     /// Our Application public key.
     app_public_key: PublicKey,
     /// Our transport id.
     local_transport_id: PeerId,
     /// Object that can sign with Application private key.
-    signer: S,
+    signer: Arc<dyn ApplicationSigner>,
     /// A bimap-like solution for transport_id <-> app_public_keys.
     transport_ids: HashMap<PeerId, PublicKey>,
     app_public_keys: HashMap<PublicKey, PeerId>,
@@ -43,8 +44,8 @@ pub struct SetupBehaviour<S: ApplicationSigner> {
     events: Vec<SetupBehaviourEvent>,
 }
 
-impl<S: ApplicationSigner> SetupBehaviour<S> {
-    pub(crate) fn new(app_public_key: PublicKey, transport_id: PeerId, signer: S) -> Self {
+impl SetupBehaviour {
+    pub(crate) fn new(app_public_key: PublicKey, transport_id: PeerId, signer: Arc<dyn ApplicationSigner>) -> Self {
         Self {
             app_public_key,
             local_transport_id: transport_id,
@@ -69,8 +70,8 @@ impl<S: ApplicationSigner> SetupBehaviour<S> {
     }
 }
 
-impl<S: ApplicationSigner> NetworkBehaviour for SetupBehaviour<S> {
-    type ConnectionHandler = SetupHandler<S>;
+impl NetworkBehaviour for SetupBehaviour {
+    type ConnectionHandler = SetupHandler;
     type ToSwarm = SetupBehaviourEvent;
 
     fn handle_established_inbound_connection(

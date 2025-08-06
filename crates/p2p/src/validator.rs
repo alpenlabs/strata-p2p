@@ -70,7 +70,7 @@ pub struct PenaltyPeerStorage {
 }
 
 /// Validator trait. Used to validate messages and return penalties.
-pub trait Validator: Debug + Send + Sync + Clone + Default + 'static {
+pub trait Validator: Debug + Send + Sync + 'static {
     /// Validates data using the generic validator and returns a new score.
     fn validate_msg(&self, msg: &Message, old_app_score: f64) -> f64;
 

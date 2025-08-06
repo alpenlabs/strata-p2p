@@ -33,6 +33,7 @@ use super::MAX_TRANSMIT_SIZE;
 use super::TOPIC;
 #[cfg(feature = "request-response")]
 use super::codec_raw;
+use std::sync::Arc;
 use crate::{
     signer::ApplicationSigner,
     swarm::{Keypair, PublicKey, setup::behavior::SetupBehaviour},
@@ -47,9 +48,9 @@ pub(crate) type RequestResponseRawBehaviour = RequestResponse<codec_raw::Codec>;
 /// implementation.
 #[expect(missing_debug_implementations)]
 #[derive(NetworkBehaviour)]
-pub struct Behaviour<S: ApplicationSigner> {
+pub struct Behaviour {
     /// Exchange application public keys before establish the connection.
-    pub setup: SetupBehaviour<S>,
+    pub setup: SetupBehaviour,
 
     /// Identification of peers, address to connect to, public keys, etc.
     pub identify: Identify,
@@ -132,7 +133,7 @@ fn create_gossipsub(
     }
 }
 
-impl<S: ApplicationSigner> Behaviour<S> {
+impl Behaviour {
     /// Creates a new [`Behaviour`] with all configured sub-behaviors for P2P networking.
     ///
     /// # Implementation details
@@ -167,7 +168,7 @@ impl<S: ApplicationSigner> Behaviour<S> {
         app_public_key: &PublicKey,
         #[cfg(feature = "gossipsub")] gossipsub_score_params: &Option<PeerScoreParams>,
         #[cfg(feature = "gossipsub")] gossipsub_score_thresholds: &Option<PeerScoreThresholds>,
-        signer: S,
+        signer: Arc<dyn ApplicationSigner>,
     ) -> Result<Self, &'static str> {
         #[cfg(feature = "gossipsub")]
         let gossipsub = create_gossipsub(

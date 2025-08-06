@@ -1,6 +1,6 @@
 //! Tests for new operator functionality.
 
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 use futures::SinkExt;
 use libp2p::{Multiaddr, build_multiaddr, identity::Keypair};
@@ -74,8 +74,8 @@ async fn gossip_new_user() -> anyhow::Result<()> {
         new_user_allowlist,    // Allow all existing users
         vec![local_addr.clone()],
         cancel.child_token(),
-        MockApplicationSigner::new(new_user_app_keypair.clone()),
-        DefaultP2PValidator,
+        Arc::new(MockApplicationSigner::new(new_user_app_keypair.clone())),
+        Box::new(DefaultP2PValidator),
     )?;
 
     // Wait for existing users to fully initialize
