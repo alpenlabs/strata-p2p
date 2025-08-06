@@ -41,30 +41,28 @@ impl ScoreManager {
     ///
     /// Returns [`None`] if no score exists for the peer.
     #[cfg(feature = "gossipsub")]
-    pub fn get_gossipsub_app_score(&self, app_public_key: &PeerId) -> Option<f64> {
-        self.gossipsub_app_score.get(app_public_key).cloned()
+    pub fn get_gossipsub_app_score(&self, peer_id: &PeerId) -> Option<f64> {
+        self.gossipsub_app_score.get(peer_id).cloned()
     }
 
     /// Retrieves the request-response application score for a specific peer.
     ///
     /// Returns [`None`] if no score exists for the peer.
     #[cfg(feature = "request-response")]
-    pub fn get_req_resp_score(&self, app_public_key: &PeerId) -> Option<f64> {
-        self.req_resp_app_score.get(app_public_key).cloned()
+    pub fn get_req_resp_score(&self, peer_id: &PeerId) -> Option<f64> {
+        self.req_resp_app_score.get(peer_id).cloned()
     }
 
     /// Updates the gossipsub application score for a specific peer.
     #[cfg(feature = "gossipsub")]
-    pub fn update_gossipsub_app_score(&mut self, app_public_key: &PeerId, new_score: f64) {
-        self.gossipsub_app_score
-            .insert(app_public_key.clone(), new_score);
+    pub fn update_gossipsub_app_score(&mut self, peer_id: &PeerId, new_score: f64) {
+        self.gossipsub_app_score.insert(peer_id.clone(), new_score);
     }
 
     /// Updates the request-response application score for a specific peer.
     #[cfg(feature = "request-response")]
-    pub fn update_req_resp_app_score(&mut self, app_public_key: &PeerId, new_score: f64) {
-        self.req_resp_app_score
-            .insert(app_public_key.clone(), new_score);
+    pub fn update_req_resp_app_score(&mut self, peer_id: &PeerId, new_score: f64) {
+        self.req_resp_app_score.insert(peer_id.clone(), new_score);
     }
 }
 
