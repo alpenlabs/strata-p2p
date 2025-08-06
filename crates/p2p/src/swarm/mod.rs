@@ -283,13 +283,16 @@ pub struct P2P {
     validator: Box<dyn Validator>,
 }
 
-/// Alias for [`P2P`] and [`ReqRespHandle`] tuple.
+/// Type alias that changes based on feature flags
 #[cfg(feature = "request-response")]
-pub type P2PWithReqRespHandle = (P2P, ReqRespHandle);
+pub type P2PFromConfig = (P2P, ReqRespHandle);
+
+/// Type alias that changes based on feature flags
+#[cfg(not(feature = "request-response"))]
+pub type P2PFromConfig = P2P;
 
 impl P2P {
     /// Creates a new P2P instance from the given configuration.
-    #[cfg(feature = "request-response")]
     pub fn from_config(
         cfg: P2PConfig,
         cancel: CancellationToken,
@@ -298,7 +301,7 @@ impl P2P {
         #[cfg(feature = "gossipsub")] channel_size: Option<usize>,
         signer: Arc<dyn ApplicationSigner>,
         validator: Option<Box<dyn Validator>>,
-    ) -> P2PResult<P2PWithReqRespHandle> {
+    ) -> P2PResult<P2PFromConfig> {
         for addr in &cfg.listening_addrs {
             swarm
                 .listen_on(addr.clone())
@@ -313,15 +316,19 @@ impl P2P {
         let score_manager = ScoreManager::new();
         let peer_penalty_storage = PenaltyPeerStorage::new();
 
-        // Request-response setup
-        let req_resp_event_buffer_size = cfg
-            .req_resp_event_buffer_size
-            .unwrap_or(DEFAULT_REQ_RESP_EVENT_BUFFER_SIZE);
-        let (req_resp_event_tx, req_resp_event_rx) =
-            mpsc::channel::<ReqRespEvent>(req_resp_event_buffer_size);
-        let (req_resp_cmds_tx, req_resp_cmds_rx) = mpsc::channel(command_buffer_size);
+        // Request-response setup (only when feature is enabled)
+        #[cfg(feature = "request-response")]
+        let (req_resp_event_tx, req_resp_event_rx, req_resp_cmds_tx, req_resp_cmds_rx) = {
+            let req_resp_event_buffer_size = cfg
+                .req_resp_event_buffer_size
+                .unwrap_or(DEFAULT_REQ_RESP_EVENT_BUFFER_SIZE);
+            let (req_resp_event_tx, req_resp_event_rx) =
+                mpsc::channel::<ReqRespEvent>(req_resp_event_buffer_size);
+            let (req_resp_cmds_tx, req_resp_cmds_rx) = mpsc::channel(command_buffer_size);
+            (req_resp_event_tx, req_resp_event_rx, req_resp_cmds_tx, req_resp_cmds_rx)
+        };
 
-        // Conditionally setup gossipsub channels
+        // Gossipsub setup (only when feature is enabled)
         #[cfg(feature = "gossipsub")]
         let (gossip_events_tx, gossip_cmds_tx, gossip_cmds_rx) = {
             let gossip_event_buffer_size = cfg
@@ -338,83 +345,14 @@ impl P2P {
 
         let validator = validator.unwrap_or_else(|| Box::new(DefaultP2PValidator::default()));
 
-        Ok((
-            P2P {
-                swarm,
-                #[cfg(feature = "gossipsub")]
-                gossip_events: gossip_events_tx,
-                req_resp_events: req_resp_event_tx,
-                request_response_commands: req_resp_cmds_rx,
-                #[cfg(feature = "gossipsub")]
-                gossip_commands: gossip_cmds_rx,
-                #[cfg(feature = "gossipsub")]
-                gossip_commands_sender: gossip_cmds_tx.clone(),
-
-                commands: cmds_rx,
-                commands_sender: cmds_tx.clone(),
-                cancellation_token: cancel,
-                allowlist: HashSet::from_iter(allowlist),
-                config: cfg,
-                signer,
-                dial_manager: DialManager::new(),
-                score_manager,
-                peer_penalty_storage,
-                validator,
-            },
-            #[cfg(feature = "request-response")]
-            ReqRespHandle::new(req_resp_event_rx, req_resp_cmds_tx),
-        ))
-    }
-
-    /// Creates a new P2P instance from the given configuration.
-    #[cfg(not(feature = "request-response"))]
-    pub fn from_config(
-        cfg: P2PConfig,
-        cancel: CancellationToken,
-        mut swarm: Swarm<Behaviour>,
-        allowlist: Vec<PublicKey>,
-        #[cfg(feature = "gossipsub")] channel_size: Option<usize>,
-        signer: Arc<dyn ApplicationSigner>,
-        validator: Option<Box<dyn Validator>>,
-    ) -> P2PResult<P2P> {
-        for addr in &cfg.listening_addrs {
-            swarm
-                .listen_on(addr.clone())
-                .map_err(ProtocolError::Listen)?;
-        }
-
-        // Gossipsub setup
-        #[cfg(feature = "gossipsub")]
-        let (gossip_events_tx, gossip_cmds_tx, gossip_cmds_rx) = {
-            let gossip_event_buffer_size = cfg
-                .gossip_event_buffer_size
-                .unwrap_or(DEFAULT_GOSSIP_EVENT_BUFFER_SIZE);
-            let channel_size = channel_size.unwrap_or(gossip_event_buffer_size);
-            let (gossip_events_tx, _gossip_events_rx) = broadcast::channel(channel_size);
-            let gossip_command_buffer_size = cfg
-                .gossip_command_buffer_size
-                .unwrap_or(DEFAULT_GOSSIP_COMMAND_BUFFER_SIZE);
-            let (gossip_cmds_tx, gossip_cmds_rx) = mpsc::channel(gossip_command_buffer_size);
-            (gossip_events_tx, gossip_cmds_tx, gossip_cmds_rx)
-        };
-
-        // Core components setup
-        let (cmds_tx, cmds_rx, score_manager, peer_penalty_storage) = {
-            let command_buffer_size = cfg
-                .command_buffer_size
-                .unwrap_or(DEFAULT_COMMAND_BUFFER_SIZE);
-            let (cmds_tx, cmds_rx) = mpsc::channel(command_buffer_size);
-            let score_manager = ScoreManager::new();
-            let peer_penalty_storage = PenaltyPeerStorage::new();
-            (cmds_tx, cmds_rx, score_manager, peer_penalty_storage)
-        };
-
-        let validator = validator.unwrap_or_else(|| Box::new(DefaultP2PValidator::default()));
-
-        Ok(P2P {
+        let p2p = P2P {
             swarm,
             #[cfg(feature = "gossipsub")]
             gossip_events: gossip_events_tx,
+            #[cfg(feature = "request-response")]
+            req_resp_events: req_resp_event_tx,
+            #[cfg(feature = "request-response")]
+            request_response_commands: req_resp_cmds_rx,
             #[cfg(feature = "gossipsub")]
             gossip_commands: gossip_cmds_rx,
             #[cfg(feature = "gossipsub")]
@@ -422,14 +360,20 @@ impl P2P {
             commands: cmds_rx,
             commands_sender: cmds_tx.clone(),
             cancellation_token: cancel,
-            config: cfg,
             allowlist: HashSet::from_iter(allowlist),
+            config: cfg,
             signer,
             dial_manager: DialManager::new(),
             score_manager,
             peer_penalty_storage,
             validator,
-        })
+        };
+
+        #[cfg(feature = "request-response")]
+        return Ok((p2p, ReqRespHandle::new(req_resp_event_rx, req_resp_cmds_tx)));
+
+        #[cfg(not(feature = "request-response"))]
+        return Ok(p2p);
     }
 
     /// Returns the [`PeerId`] of the local node.
