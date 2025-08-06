@@ -925,6 +925,7 @@ where
                 connection_id,
                 ..
             } => {
+                // TODO(Arniiiii): do filtering if not byos
                 if let Some(app_public_key) = self
                     .dial_manager
                     .get_app_public_key_by_connection_id(&connection_id)
