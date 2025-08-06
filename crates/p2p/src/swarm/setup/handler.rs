@@ -4,6 +4,8 @@
 //! setup processes, handling both inbound and outbound substreams for the setup
 //! protocol.
 
+#![cfg(feature = "byos")]
+
 use std::{
     sync::Arc,
     task::{Context, Poll},

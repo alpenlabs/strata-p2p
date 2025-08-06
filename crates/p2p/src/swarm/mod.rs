@@ -2,10 +2,7 @@
 
 #[cfg(not(feature = "byos"))]
 use std::num::NonZeroU8;
-#[cfg(all(
-    feature = "byos",
-    any(feature = "gossipsub", feature = "request-response")
-))]
+#[cfg(not(feature = "byos"))]
 use std::time::SystemTime;
 use std::{
     collections::HashSet,
@@ -74,21 +71,13 @@ use crate::{
 };
 #[cfg(feature = "gossipsub")]
 use crate::{score_manager::DEFAULT_GOSSIP_APP_SCORE, swarm::message::GossipMessage};
-#[cfg(all(
-    feature = "byos",
-    any(feature = "gossipsub", feature = "request-response")
-))]
+#[cfg(not(feature = "byos"))]
 use crate::{
-    score_manager::PeerScore,
-    validator::{DEFAULT_BAN_PERIOD, Message as MessageType, PenaltyType},
-};
-#[cfg(all(
-    feature = "byos",
-    any(feature = "gossipsub", feature = "request-response")
-))]
-use crate::{
-    score_manager::ScoreManager,
-    validator::{DefaultP2PValidator, PenaltyPeerStorage, Validator},
+    score_manager::{PeerScore, ScoreManager},
+    validator::{
+        DEFAULT_BAN_PERIOD, DefaultP2PValidator, Message as MessageType, PenaltyPeerStorage,
+        PenaltyType, Validator,
+    },
 };
 
 pub mod behavior;
@@ -96,7 +85,7 @@ mod codec_raw;
 pub mod dial_manager;
 pub mod errors;
 pub mod handle;
-mod message;
+pub mod message;
 pub mod setup;
 
 use libp2p::tcp;
@@ -318,7 +307,7 @@ impl P2P {
         #[cfg(feature = "byos")] allowlist: Vec<PublicKey>,
         #[cfg(feature = "gossipsub")] channel_size: Option<usize>,
         #[cfg(feature = "byos")] signer: Arc<dyn ApplicationSigner>,
-        #[cfg(feature = "byos")] validator: Option<Box<dyn Validator>>,
+        #[cfg(not(feature = "byos"))] validator: Option<Box<dyn Validator>>,
     ) -> P2PResult<P2PFromConfig> {
         for addr in &cfg.listening_addrs {
             swarm
@@ -1010,6 +999,11 @@ impl P2P {
                 .score_manager
                 .get_gossipsub_app_score(&propagation_source)
                 .unwrap_or(DEFAULT_GOSSIP_APP_SCORE);
+
+            let updated_score = self.validator.validate_msg(
+                &MessageType::Gossipsub(gossip_message.message.clone()),
+                old_app_score,
+            );
 
             self.score_manager
                 .update_gossipsub_app_score(&propagation_source, updated_score);

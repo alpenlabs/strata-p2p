@@ -4,6 +4,8 @@
 //! setup protocols, handling the serialization and exchange of setup messages
 //! over libp2p streams.
 
+#![cfg(feature = "byos")]
+
 use std::{future::Future, iter, pin::Pin, sync::Arc};
 
 use asynchronous_codec::{Framed, JsonCodec};

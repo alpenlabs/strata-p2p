@@ -3,6 +3,8 @@
 //! This module provides the [`SetupBehaviour`] which manages the application
 //! public key exchange.
 
+#![cfg(feature = "byos")]
+
 use std::{
     collections::HashMap,
     sync::Arc,

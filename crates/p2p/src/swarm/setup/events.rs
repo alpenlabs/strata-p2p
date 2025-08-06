@@ -4,6 +4,8 @@
 //! of peer-to-peer connections, providing information about handshake progress
 //! and key exchange completion.
 
+#![cfg(feature = "byos")]
+
 use libp2p::{PeerId, identity::PublicKey};
 
 use crate::swarm::errors::SetupError;
