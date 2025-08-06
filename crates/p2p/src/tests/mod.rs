@@ -18,6 +18,6 @@ pub(crate) mod quic;
 pub(crate) mod request_response;
 
 #[cfg(feature = "kad")]
-pub(crate) mod new_op_dht;
-#[cfg(feature = "kad")]
 pub(crate) mod getclosestpeers;
+#[cfg(feature = "kad")]
+pub(crate) mod new_op_dht;
