@@ -36,8 +36,10 @@ use super::TOPIC;
 use super::codec_raw;
 use crate::{
     signer::ApplicationSigner,
-    swarm::{Keypair, PublicKey, setup::behavior::SetupBehaviour},
+    swarm::Keypair,
 };
+#[cfg(feature = "byos")]
+use crate::swarm::{PublicKey, setup::behavior::SetupBehaviour};
 
 /// Alias for request-response behaviour with messages serialized by using
 /// homebrewed codec implementation.
@@ -50,6 +52,8 @@ pub(crate) type RequestResponseRawBehaviour = RequestResponse<codec_raw::Codec>;
 #[derive(NetworkBehaviour)]
 pub struct Behaviour {
     /// Exchange application public keys before establish the connection.
+    /// Only used when BYOS (Bring Your Own Signer) feature is enabled.
+    #[cfg(feature = "byos")]
     pub setup: SetupBehaviour,
 
     /// Identification of peers, address to connect to, public keys, etc.
@@ -165,10 +169,11 @@ impl Behaviour {
     pub fn new(
         protocol_name: &'static str,
         transport_keypair: &Keypair,
-        app_public_key: &PublicKey,
+        #[cfg(feature = "byos")] app_public_key: &PublicKey,
         #[cfg(feature = "gossipsub")] gossipsub_score_params: &Option<PeerScoreParams>,
         #[cfg(feature = "gossipsub")] gossipsub_score_thresholds: &Option<PeerScoreThresholds>,
-        signer: Arc<dyn ApplicationSigner>,
+        #[cfg(feature = "byos")] signer: Arc<dyn ApplicationSigner>,
+        #[cfg(not(feature = "byos"))] _signer: Arc<dyn ApplicationSigner>,
     ) -> Result<Self, &'static str> {
         #[cfg(feature = "gossipsub")]
         let gossipsub = create_gossipsub(
@@ -189,6 +194,7 @@ impl Behaviour {
                 [(StreamProtocol::new(protocol_name), ProtocolSupport::Full)],
                 RequestResponseConfig::default(),
             ),
+            #[cfg(feature = "byos")]
             setup: SetupBehaviour::new(
                 app_public_key.clone(),
                 transport_keypair.public().to_peer_id(),
