@@ -1,6 +1,6 @@
 //! Swarm implementation for P2P.
 
-#[cfg(any(feature = "gossipsub", feature = "request-response"))]
+#[cfg(all(feature = "byos", any(feature = "gossipsub", feature = "request-response")))]
 use std::time::SystemTime;
 use std::{
     collections::HashSet,
@@ -21,11 +21,13 @@ use handle::CommandHandle;
 use libp2p::{
     Multiaddr, PeerId, Swarm, SwarmBuilder, Transport,
     core::{ConnectedPoint, muxing::StreamMuxerBox, transport::MemoryTransport},
-    identity::{Keypair, PublicKey},
+    identity::Keypair,
     noise,
     swarm::{NetworkBehaviour, SwarmEvent, dial_opts::DialOpts},
     yamux,
 };
+#[cfg(feature = "byos")]
+use libp2p::identity::PublicKey;
 use tokio::{sync::mpsc, time::timeout};
 use tokio_util::sync::CancellationToken;
 #[cfg(any(feature = "gossipsub", feature = "request-response"))]
@@ -34,8 +36,7 @@ use tracing::{debug, error, info, trace, warn};
 #[cfg(feature = "gossipsub")]
 use {
     crate::{
-        commands::GossipCommand, events::GossipEvent, score_manager::DEFAULT_GOSSIP_APP_SCORE,
-        swarm::message::GossipMessage,
+        commands::GossipCommand, events::GossipEvent,
     },
     handle::GossipHandle,
     libp2p::gossipsub::{
@@ -50,7 +51,6 @@ use {
     crate::{
         commands::RequestResponseCommand,
         events::ReqRespEvent,
-        score_manager::DEFAULT_REQ_RESP_APP_SCORE,
         swarm::message::{RequestMessage, ResponseMessage},
     },
     errors::SwarmError,
@@ -61,17 +61,31 @@ use {
 
 use crate::{
     commands::{Command, QueryP2PStateCommand},
-    score_manager::ScoreManager,
     signer::ApplicationSigner,
-    swarm::{dial_manager::DialManager, setup::events::SetupBehaviourEvent},
+};
+#[cfg(feature = "byos")]
+use crate::swarm::{dial_manager::DialManager, setup::events::SetupBehaviourEvent};
+#[cfg(all(feature = "byos", any(feature = "gossipsub", feature = "request-response")))]
+use crate::{
+    score_manager::ScoreManager,
     validator::{DefaultP2PValidator, PenaltyPeerStorage, Validator},
 };
-#[cfg(any(feature = "gossipsub", feature = "request-response"))]
+#[cfg(not(feature = "byos"))]
+use crate::signer::TransportKeypairSigner;
+#[cfg(all(feature = "byos", any(feature = "gossipsub", feature = "request-response")))]
 use crate::{
     score_manager::PeerScore,
-    swarm::message::SignedMessage,
     validator::{DEFAULT_BAN_PERIOD, Message as MessageType, PenaltyType},
 };
+#[cfg(any(feature = "gossipsub", feature = "request-response"))]
+use crate::swarm::message::SignedMessage;
+#[cfg(feature = "gossipsub")]
+use crate::{
+    score_manager::DEFAULT_GOSSIP_APP_SCORE,
+    swarm::message::GossipMessage,
+};
+#[cfg(feature = "request-response")]
+use crate::score_manager::DEFAULT_REQ_RESP_APP_SCORE;
 
 pub mod behavior;
 mod codec_raw;
@@ -130,6 +144,8 @@ pub const DEFAULT_GOSSIP_COMMAND_BUFFER_SIZE: usize = 64;
 #[derive(Debug, Clone)]
 pub struct P2PConfig {
     /// Long-term application public key.
+    /// Only used when BYOS (Bring Your Own Signer) feature is enabled.
+    #[cfg(feature = "byos")]
     pub app_public_key: PublicKey,
 
     /// Ephemeral transport keypair.
@@ -255,34 +271,31 @@ pub struct P2P {
     /// Underlying configuration.
     config: P2PConfig,
 
-    /// Allow list.
+    /// Allow list. Only used when BYOS feature is enabled.
+    #[cfg(feature = "byos")]
     allowlist: HashSet<PublicKey>,
 
     /// Application signer for signing setup messages.
-    #[cfg_attr(
-        not(any(feature = "gossipsub", feature = "request-response")),
-        allow(dead_code)
+    #[cfg(
+        any(feature = "byos", feature = "gossipsub", feature = "request-response")
     )]
     signer: Arc<dyn ApplicationSigner>,
 
     /// Manages dial sequences and address queues for multiaddress connections.
+    /// Only used when BYOS feature is enabled.
+    #[cfg(feature = "byos")]
     dial_manager: DialManager,
 
-    /// Score manager.
-    #[cfg_attr(
-        not(any(feature = "gossipsub", feature = "request-response")),
-        allow(dead_code)
-    )]
+    /// Score manager. Only used when BYOS feature is enabled.
+    #[cfg(all(feature = "byos", any(feature = "gossipsub", feature = "request-response")))]
     score_manager: ScoreManager,
 
-    /// Storage with penalty for peer's penalty.
+    /// Storage with penalty for peer's penalty. Only used when BYOS feature is enabled.
+    #[cfg(all(feature = "byos", any(feature = "gossipsub", feature = "request-response")))]
     peer_penalty_storage: PenaltyPeerStorage,
 
-    /// Manages message validation and penalty logic.
-    #[cfg_attr(
-        not(any(feature = "gossipsub", feature = "request-response")),
-        allow(dead_code)
-    )]
+    /// Manages message validation and penalty logic. Only used when BYOS feature is enabled.
+    #[cfg(all(feature = "byos", any(feature = "gossipsub", feature = "request-response")))]
     validator: Box<dyn Validator>,
 }
 
@@ -300,10 +313,10 @@ impl P2P {
         cfg: P2PConfig,
         cancel: CancellationToken,
         mut swarm: Swarm<Behaviour>,
-        allowlist: Vec<PublicKey>,
+        #[cfg(feature = "byos")] allowlist: Vec<PublicKey>,
         #[cfg(feature = "gossipsub")] channel_size: Option<usize>,
-        signer: Arc<dyn ApplicationSigner>,
-        validator: Option<Box<dyn Validator>>,
+        #[cfg(feature = "byos")] signer: Arc<dyn ApplicationSigner>,
+        #[cfg(feature = "byos")] validator: Option<Box<dyn Validator>>,
     ) -> P2PResult<P2PFromConfig> {
         for addr in &cfg.listening_addrs {
             swarm
@@ -316,8 +329,24 @@ impl P2P {
             .command_buffer_size
             .unwrap_or(DEFAULT_COMMAND_BUFFER_SIZE);
         let (cmds_tx, cmds_rx) = mpsc::channel(command_buffer_size);
+        
+        // BYOS-specific components
+        #[cfg(all(feature = "byos", any(feature = "gossipsub", feature = "request-response")))]
         let score_manager = ScoreManager::new();
+        #[cfg(all(feature = "byos", any(feature = "gossipsub", feature = "request-response")))]
         let peer_penalty_storage = PenaltyPeerStorage::new();
+
+        // Create signer - either provided (BYOS) or transport keypair signer (non-BYOS)
+        let signer: Arc<dyn ApplicationSigner> = {
+            #[cfg(feature = "byos")]
+            {
+                signer
+            }
+            #[cfg(not(feature = "byos"))]
+            {
+                Arc::new(TransportKeypairSigner::new(cfg.transport_keypair.clone()))
+            }
+        };
 
         // Request-response setup (only when feature is enabled)
         #[cfg(feature = "request-response")]
@@ -346,7 +375,9 @@ impl P2P {
             (gossip_events_tx, gossip_cmds_tx, gossip_cmds_rx)
         };
 
-        let validator = validator.unwrap_or_else(|| Box::new(DefaultP2PValidator::default()));
+        // Validator setup (only for BYOS)
+        #[cfg(all(feature = "byos", any(feature = "gossipsub", feature = "request-response")))]
+        let validator = validator.unwrap_or_else(|| Box::new(DefaultP2PValidator));
 
         let p2p = P2P {
             swarm,
@@ -363,12 +394,17 @@ impl P2P {
             commands: cmds_rx,
             commands_sender: cmds_tx.clone(),
             cancellation_token: cancel,
+            #[cfg(feature = "byos")]
             allowlist: HashSet::from_iter(allowlist),
             config: cfg,
             signer,
+            #[cfg(feature = "byos")]
             dial_manager: DialManager::new(),
+            #[cfg(all(feature = "byos", any(feature = "gossipsub", feature = "request-response")))]
             score_manager,
+            #[cfg(all(feature = "byos", any(feature = "gossipsub", feature = "request-response")))]
             peer_penalty_storage,
+            #[cfg(all(feature = "byos", any(feature = "gossipsub", feature = "request-response")))]
             validator,
         };
 
@@ -498,7 +534,11 @@ impl P2P {
                         GossipsubEvent::Subscribed { peer_id, .. },
                     )) => {
                         subscriptions += 1;
-                        info!(%peer_id, %subscriptions, total=self.allowlist.len(), "got subscription");
+                        #[cfg(feature = "byos")]
+                        let total = self.allowlist.len();
+                        #[cfg(not(feature = "byos"))]
+                        let total = 0; // No allowlist in non-BYOS mode
+                        info!(%peer_id, %subscriptions, %total, "got subscription");
                     }
                     SwarmEvent::ConnectionEstablished {
                         peer_id, endpoint, ..
@@ -571,6 +611,8 @@ impl P2P {
 
     /// Dials the given address and maps the resulting connection ID to the dial sequence ID.
     /// Used for both initial and retry dial attempts.
+    /// Only used when BYOS feature is enabled.
+    #[cfg(feature = "byos")]
     async fn dial_and_map(&mut self, addr: Multiaddr, app_public_key: PublicKey) {
         let dial_opts = DialOpts::unknown_peer_id().address(addr.clone()).build();
         let conn_id = dial_opts.connection_id();
@@ -652,8 +694,8 @@ impl P2P {
         }
     }
 
-    // Apply penalties for peer
-    #[cfg(any(feature = "gossipsub", feature = "request-response"))]
+    // Apply penalties for peer (only for BYOS)
+    #[cfg(all(feature = "byos", any(feature = "gossipsub", feature = "request-response")))]
     async fn apply_penalty(&mut self, app_public_key: &PublicKey, penalty: PenaltyType) {
         match penalty {
             PenaltyType::Ignore => (),
@@ -728,7 +770,7 @@ impl P2P {
         }
     }
 
-    #[cfg(any(feature = "gossipsub", feature = "request-response"))]
+    #[cfg(all(feature = "byos", any(feature = "gossipsub", feature = "request-response")))]
     fn get_all_scores(&self, app_public_key: &PublicKey) -> PeerScore {
         #[cfg(feature = "gossipsub")]
         let (gossipsub_internal_score, gossipsub_app_score) = {
@@ -802,12 +844,19 @@ impl P2P {
                 connection_id,
                 ..
             } => {
-                if let Some(app_public_key) = self
-                    .dial_manager
-                    .get_app_public_key_by_connection_id(&connection_id)
+                #[cfg(feature = "byos")]
                 {
-                    self.dial_manager.remove_queue(&app_public_key);
-                    self.dial_manager.remove_connid(&connection_id);
+                    if let Some(app_public_key) = self
+                        .dial_manager
+                        .get_app_public_key_by_connection_id(&connection_id)
+                    {
+                        self.dial_manager.remove_queue(&app_public_key);
+                        self.dial_manager.remove_connid(&connection_id);
+                        info!(peer_id = %peer_id, "connected to peer");
+                    }
+                }
+                #[cfg(not(feature = "byos"))]
+                {
                     info!(peer_id = %peer_id, "connected to peer");
                 }
                 Ok(())
@@ -817,19 +866,26 @@ impl P2P {
                 error,
                 ..
             } => {
-                if let Some(app_public_key) = self
-                    .dial_manager
-                    .get_app_public_key_by_connection_id(&connection_id)
+                #[cfg(feature = "byos")]
                 {
-                    warn!(app_public_key = ?app_public_key, error = %error, "connection failed");
-                    self.dial_manager.remove_connid(&connection_id);
-                    if let Some(next_addr) = self.dial_manager.pop_next_addr(&app_public_key) {
-                        info!(next_addr = %next_addr, app_public_key = ?app_public_key, "retrying with next address");
-                        self.dial_and_map(next_addr, app_public_key).await;
-                    } else {
-                        warn!(app_public_key = ?app_public_key, "no more addresses to try, removing queue");
-                        self.dial_manager.remove_queue(&app_public_key);
+                    if let Some(app_public_key) = self
+                        .dial_manager
+                        .get_app_public_key_by_connection_id(&connection_id)
+                    {
+                        warn!(app_public_key = ?app_public_key, error = %error, "connection failed");
+                        self.dial_manager.remove_connid(&connection_id);
+                        if let Some(next_addr) = self.dial_manager.pop_next_addr(&app_public_key) {
+                            info!(next_addr = %next_addr, app_public_key = ?app_public_key, "retrying with next address");
+                            self.dial_and_map(next_addr, app_public_key).await;
+                        } else {
+                            warn!(app_public_key = ?app_public_key, "no more addresses to try, removing queue");
+                            self.dial_manager.remove_queue(&app_public_key);
+                        }
                     }
+                }
+                #[cfg(not(feature = "byos"))]
+                {
+                    warn!(error = %error, "connection failed");
                 }
                 Ok(())
             }
@@ -849,6 +905,7 @@ impl P2P {
             BehaviourEvent::RequestResponse(event) => {
                 self.handle_request_response_event(event).await
             }
+            #[cfg(feature = "byos")]
             behavior::BehaviourEvent::Setup(event) => self.handle_setup_event(event).await,
             _ => Ok(()),
         }
@@ -885,25 +942,28 @@ impl P2P {
     ) -> P2PResult<()> {
         trace!(?message.data, "Got message");
 
-        // Score/penalty logic for gossipsub
-        let app_public_key = match self
-            .swarm
-            .behaviour()
-            .setup
-            .get_app_public_key_by_transport_id(&propagation_source)
+        // Score/penalty logic for gossipsub (only for BYOS)
+        #[cfg(feature = "byos")]
         {
-            Some(key) => key,
-            None => {
-                warn!(%propagation_source, "No app public key found for peer");
+            let app_public_key = match self
+                .swarm
+                .behaviour()
+                .setup
+                .get_app_public_key_by_transport_id(&propagation_source)
+            {
+                Some(key) => key,
+                None => {
+                    warn!(%propagation_source, "No app public key found for peer");
+                    return Ok(());
+                }
+            };
+
+            if self.peer_penalty_storage.is_gossip_muted(&app_public_key) {
+                warn!(
+                    %propagation_source, "Peer is muted for Gossipsub"
+                );
                 return Ok(());
             }
-        };
-
-        if self.peer_penalty_storage.is_gossip_muted(&app_public_key) {
-            warn!(
-                %propagation_source, "Peer is muted for Gossipsub"
-            );
-            return Ok(());
         }
 
         let signed_message = match SignedMessage::from_json_bytes(&message.data) {
@@ -968,48 +1028,63 @@ impl P2P {
             return Ok(());
         }
 
-        if !self.allowlist.contains(&gossip_message.app_public_key) {
-            warn!(%propagation_source, "Gossipsub message from peer not in allowlist");
-            self.swarm
-                .behaviour_mut()
-                .gossipsub
-                .report_message_validation_result(
-                    &message_id,
-                    &propagation_source,
-                    MessageAcceptance::Reject,
-                );
-            return Ok(());
+        // Allowlist validation (only for BYOS)
+        #[cfg(feature = "byos")]
+        {
+            if !self.allowlist.contains(&gossip_message.app_public_key) {
+                warn!(%propagation_source, "Gossipsub message from peer not in allowlist");
+                self.swarm
+                    .behaviour_mut()
+                    .gossipsub
+                    .report_message_validation_result(
+                        &message_id,
+                        &propagation_source,
+                        MessageAcceptance::Reject,
+                    );
+                return Ok(());
+            }
         }
 
         info!(%propagation_source, "Verified signed gossipsub message");
 
-        let old_app_score = self
-            .score_manager
-            .get_gossipsub_app_score(&app_public_key)
-            .unwrap_or(DEFAULT_GOSSIP_APP_SCORE);
+        // Scoring and penalty logic (only for BYOS)
+        #[cfg(all(feature = "byos", any(feature = "gossipsub", feature = "request-response")))]
+        {
+            let app_public_key = self
+                .swarm
+                .behaviour()
+                .setup
+                .get_app_public_key_by_transport_id(&propagation_source)
+                .unwrap(); // We already checked this above
 
-        let updated_score = self.validator.validate_msg(
-            &MessageType::Gossipsub(gossip_message.message.clone()),
-            old_app_score,
-        );
+            let old_app_score = self
+                .score_manager
+                .get_gossipsub_app_score(&app_public_key)
+                .unwrap_or(DEFAULT_GOSSIP_APP_SCORE);
 
-        self.score_manager
-            .update_gossipsub_app_score(&app_public_key, updated_score);
+            let updated_score = self.validator.validate_msg(
+                &MessageType::Gossipsub(gossip_message.message.clone()),
+                old_app_score,
+            );
 
-        let PeerScore {
-            gossipsub_app_score,
-            req_resp_app_score,
-            gossipsub_internal_score,
-        } = self.get_all_scores(&app_public_key);
+            self.score_manager
+                .update_gossipsub_app_score(&app_public_key, updated_score);
 
-        if let Some(penalty) = self.validator.get_penalty(
-            &MessageType::Gossipsub(gossip_message.message.clone()),
-            gossipsub_internal_score,
-            gossipsub_app_score,
-            req_resp_app_score,
-        ) {
-            self.apply_penalty(&app_public_key, penalty).await;
-            return Ok(());
+            let PeerScore {
+                gossipsub_app_score,
+                req_resp_app_score,
+                gossipsub_internal_score,
+            } = self.get_all_scores(&app_public_key);
+
+            if let Some(penalty) = self.validator.get_penalty(
+                &MessageType::Gossipsub(gossip_message.message.clone()),
+                gossipsub_internal_score,
+                gossipsub_app_score,
+                req_resp_app_score,
+            ) {
+                self.apply_penalty(&app_public_key, penalty).await;
+                return Ok(());
+            }
         }
 
         self.swarm
@@ -1220,8 +1295,19 @@ impl P2P {
         debug!("Publishing message");
         trace!(?cmd.data, "Publishing message");
 
+        let app_public_key = {
+            #[cfg(feature = "byos")]
+            {
+                self.config.app_public_key.clone()
+            }
+            #[cfg(not(feature = "byos"))]
+            {
+                self.config.transport_keypair.public()
+            }
+        };
+
         let signed_gossip_message: SignedMessage = match SignedMessage::new_signed_gossip(
-            self.config.app_public_key.clone(),
+            app_public_key,
             cmd.data,
             self.signer.as_ref(),
         ) {
@@ -1298,9 +1384,20 @@ impl P2P {
 
         trace!(?cmd.data, "Got request message");
 
+        let app_public_key = {
+            #[cfg(feature = "byos")]
+            {
+                self.config.app_public_key.clone()
+            }
+            #[cfg(not(feature = "byos"))]
+            {
+                self.config.transport_keypair.public()
+            }
+        };
+
         // Create and serialize signed message
         let signed_request_message = match SignedMessage::new_signed_request(
-            self.config.app_public_key.clone(),
+            app_public_key,
             cmd.data,
             self.signer.as_ref(),
         ) {
@@ -1395,6 +1492,8 @@ impl P2P {
             .config
             .channel_timeout
             .unwrap_or(DEFAULT_CHANNEL_TIMEOUT);
+        // App public key lookup (only for BYOS)
+        #[cfg(feature = "byos")]
         let app_public_key = match self
             .swarm
             .behaviour()
@@ -1411,10 +1510,13 @@ impl P2P {
             request_response::Message::Request {
                 request, channel, ..
             } => {
-                // Score/penalty logic for request
-                if self.peer_penalty_storage.is_req_resp_muted(&app_public_key) {
-                    warn!(%peer_id, "Peer is muted for request/response");
-                    return Ok(());
+                // Score/penalty logic for request (only for BYOS)
+                #[cfg(feature = "byos")]
+                {
+                    if self.peer_penalty_storage.is_req_resp_muted(&app_public_key) {
+                        warn!(%peer_id, "Peer is muted for request/response");
+                        return Ok(());
+                    }
                 }
 
                 let signed_message = match SignedMessage::from_json_bytes(&request) {
@@ -1446,33 +1548,37 @@ impl P2P {
                     return Ok(());
                 }
 
-                let old_app_score = self
-                    .score_manager
-                    .get_req_resp_score(&app_public_key)
-                    .unwrap_or(DEFAULT_REQ_RESP_APP_SCORE);
+                // Scoring and penalty logic (only for BYOS)
+                #[cfg(all(feature = "byos", any(feature = "gossipsub", feature = "request-response")))]
+                {
+                    let old_app_score = self
+                        .score_manager
+                        .get_req_resp_score(&app_public_key)
+                        .unwrap_or(DEFAULT_REQ_RESP_APP_SCORE);
 
-                let updated_score = self.validator.validate_msg(
-                    &MessageType::Request(request.message.clone()),
-                    old_app_score,
-                );
+                    let updated_score = self.validator.validate_msg(
+                        &MessageType::Request(request.message.clone()),
+                        old_app_score,
+                    );
 
-                self.score_manager
-                    .update_req_resp_app_score(&app_public_key, updated_score);
+                    self.score_manager
+                        .update_req_resp_app_score(&app_public_key, updated_score);
 
-                let PeerScore {
-                    gossipsub_internal_score,
-                    gossipsub_app_score,
-                    req_resp_app_score,
-                } = self.get_all_scores(&app_public_key);
+                    let PeerScore {
+                        gossipsub_internal_score,
+                        gossipsub_app_score,
+                        req_resp_app_score,
+                    } = self.get_all_scores(&app_public_key);
 
-                if let Some(penalty) = self.validator.get_penalty(
-                    &MessageType::Request(request.message.clone()),
-                    gossipsub_internal_score,
-                    gossipsub_app_score,
-                    req_resp_app_score,
-                ) {
-                    self.apply_penalty(&app_public_key, penalty).await;
-                    return Ok(());
+                    if let Some(penalty) = self.validator.get_penalty(
+                        &MessageType::Request(request.message.clone()),
+                        gossipsub_internal_score,
+                        gossipsub_app_score,
+                        req_resp_app_score,
+                    ) {
+                        self.apply_penalty(&app_public_key, penalty).await;
+                        return Ok(());
+                    }
                 }
 
                 let (tx, rx) = oneshot::channel();
@@ -1496,18 +1602,30 @@ impl P2P {
 
                 let _ = match resp {
                     Ok(Ok(response)) => {
-                        let signed_response_message: SignedMessage =
-                            match SignedMessage::new_signed_response(
-                                self.config.app_public_key.clone(),
+                        let signed_response_message: SignedMessage = {
+                            let app_public_key = {
+                                #[cfg(feature = "byos")]
+                                {
+                                    self.config.app_public_key.clone()
+                                }
+                                #[cfg(not(feature = "byos"))]
+                                {
+                                    self.config.transport_keypair.public()
+                                }
+                            };
+                            let signed_message = SignedMessage::new_signed_response(
+                                app_public_key,
                                 response,
                                 self.signer.as_ref(),
-                            ) {
+                            );
+                            match signed_message {
                                 Ok(signed_msg) => signed_msg,
                                 Err(e) => {
                                     error!(?e, "Failed to create signed response message");
                                     return Ok(());
                                 }
-                            };
+                            }
+                        };
                         let signed_response_message_data =
                             match serde_json::to_vec(&signed_response_message) {
                                 Ok(data) => data,
@@ -1537,10 +1655,13 @@ impl P2P {
                 Ok(())
             }
             request_response::Message::Response { response, .. } => {
-                // Score/penalty logic for response
-                if self.peer_penalty_storage.is_req_resp_muted(&app_public_key) {
-                    warn!(%peer_id, "Peer is muted for request/response");
-                    return Ok(());
+                // Score/penalty logic for response (only for BYOS)
+                #[cfg(feature = "byos")]
+                {
+                    if self.peer_penalty_storage.is_req_resp_muted(&app_public_key) {
+                        warn!(%peer_id, "Peer is muted for request/response");
+                        return Ok(());
+                    }
                 }
 
                 let signed_response_message = match SignedMessage::from_json_bytes(&response) {
@@ -1574,33 +1695,37 @@ impl P2P {
                     return Ok(());
                 }
 
-                let old_app_score = self
-                    .score_manager
-                    .get_req_resp_score(&app_public_key)
-                    .unwrap_or(DEFAULT_REQ_RESP_APP_SCORE);
+                // Scoring and penalty logic (only for BYOS)
+                #[cfg(all(feature = "byos", any(feature = "gossipsub", feature = "request-response")))]
+                {
+                    let old_app_score = self
+                        .score_manager
+                        .get_req_resp_score(&app_public_key)
+                        .unwrap_or(DEFAULT_REQ_RESP_APP_SCORE);
 
-                let updated_score = self.validator.validate_msg(
-                    &MessageType::Response(response.message.clone()),
-                    old_app_score,
-                );
+                    let updated_score = self.validator.validate_msg(
+                        &MessageType::Response(response.message.clone()),
+                        old_app_score,
+                    );
 
-                self.score_manager
-                    .update_req_resp_app_score(&app_public_key, updated_score);
+                    self.score_manager
+                        .update_req_resp_app_score(&app_public_key, updated_score);
 
-                let PeerScore {
-                    gossipsub_internal_score,
-                    gossipsub_app_score,
-                    req_resp_app_score,
-                } = self.get_all_scores(&app_public_key);
+                    let PeerScore {
+                        gossipsub_internal_score,
+                        gossipsub_app_score,
+                        req_resp_app_score,
+                    } = self.get_all_scores(&app_public_key);
 
-                if let Some(penalty) = self.validator.get_penalty(
-                    &MessageType::Response(response.message.clone()),
-                    gossipsub_internal_score,
-                    gossipsub_app_score,
-                    req_resp_app_score,
-                ) {
-                    self.apply_penalty(&app_public_key, penalty).await;
-                    return Ok(());
+                    if let Some(penalty) = self.validator.get_penalty(
+                        &MessageType::Response(response.message.clone()),
+                        gossipsub_internal_score,
+                        gossipsub_app_score,
+                        req_resp_app_score,
+                    ) {
+                        self.apply_penalty(&app_public_key, penalty).await;
+                        return Ok(());
+                    }
                 }
 
                 let event = ReqRespEvent::ReceivedResponse(response.message.clone());
@@ -1622,7 +1747,8 @@ impl P2P {
         }
     }
 
-    /// Handles a [`SetupEvent`] from the swarm.
+    /// Handles a [`SetupEvent`] from the swarm. Only used when BYOS is enabled.
+    #[cfg(feature = "byos")]
     async fn handle_setup_event(&mut self, event: SetupBehaviourEvent) -> P2PResult<()> {
         match event {
             SetupBehaviourEvent::AppKeyReceived {
@@ -1684,6 +1810,7 @@ macro_rules! finish_swarm {
                 Behaviour::new(
                     PROTOCOL_NAME,
                     &$cfg.transport_keypair,
+                    #[cfg(feature = "byos")]
                     &$cfg.app_public_key,
                     #[cfg(feature = "gossipsub")]
                     &$cfg.gossipsub_score_params,
@@ -1741,6 +1868,7 @@ pub fn with_default_transport(
             Behaviour::new(
                 PROTOCOL_NAME,
                 &config.transport_keypair,
+                #[cfg(feature = "byos")]
                 &config.app_public_key,
                 #[cfg(feature = "gossipsub")]
                 &config.gossipsub_score_params,
