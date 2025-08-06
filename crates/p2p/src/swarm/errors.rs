@@ -76,30 +76,37 @@ pub enum DHTError {
         actual: usize,
     },
 
-    /// Failed to create a signed message.
-    #[error("Failed to create signed message: {0}")]
-    SignedMessageCreation(Box<dyn error::Error + Send + Sync>),
-
     /// JSON encoding/decoding error during message serialization.
     #[error("JSON codec error: {0}")]
     JsonCodec(Box<dyn error::Error + Send + Sync>),
-
-    /// Stream was closed unexpectedly.
-    #[error("Stream closed unexpectedly")]
-    UnexpectedStreamClose,
-
-    /// Indicates that signature verification failed.
-    ///
-    /// This event is fired when the signature verification fails for a peer's
-    /// handshake message, indicating the connection should be dropped.
-    #[error("Signature verification failed")]
-    SignatureVerificationFailed,
 
     /// Failed to deserialize something.
     #[error("Deserialization failed: {0}")]
     DeserializationFailed(Box<dyn error::Error + Send + Sync>),
 }
 
+/// Generic errors that can occur during signed message operations.
+#[derive(Debug, Error)]
+pub enum SignedMessageError {
+    /// Failed to deserialize a message.
+    #[error("Deserialization failed: {0}")]
+    DeserializationFailed(Box<dyn error::Error + Send + Sync>),
+
+    /// Signature verification failed.
+    #[error("Signature verification failed")]
+    SignatureVerificationFailed,
+
+    /// Failed to create a signed message.
+    #[error("Failed to create signed message: {0}")]
+    SignedMessageCreation(Box<dyn error::Error + Send + Sync>),
+
+    /// Stream was closed unexpectedly.
+    #[error("Stream closed unexpectedly")]
+    UnexpectedStreamClose,
+}
+
+/// Protocol errors.
+///
 /// Errors after which we cannot recover.
 #[derive(Debug, Error)]
 pub enum ProtocolError {

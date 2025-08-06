@@ -15,8 +15,7 @@ workspace = true
 
 [dependencies]
 asynchronous-codec.workspace = true
-crossbeam-deque.workspace = true
-dashmap.workspace = true
+cynosure.workspace = true
 futures.workspace = true
 libp2p = { workspace = true, features = [
   "noise",
@@ -26,6 +25,7 @@ libp2p = { workspace = true, features = [
   "macros",
   "yamux",
   "identify",
+  "serde",
 ] }
 serde.workspace = true
 serde_json.workspace = true

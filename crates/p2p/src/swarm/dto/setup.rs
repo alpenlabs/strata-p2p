@@ -1,4 +1,4 @@
-//! Message types for P2P protocol communication.
+//! Message types for P2P protocol communication inside of Setup behaviour's upgrade.
 
 use std::time::{SystemTime, UNIX_EPOCH};
 

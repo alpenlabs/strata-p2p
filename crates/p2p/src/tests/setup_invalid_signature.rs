@@ -14,6 +14,7 @@ use crate::{
     commands::{Command, QueryP2PStateCommand},
     signer::ApplicationSigner,
     tests::common::{MockApplicationSigner, User, init_tracing},
+    validator::DefaultP2PValidator,
 };
 
 #[derive(Debug, Clone)]
@@ -58,6 +59,7 @@ async fn test_setup_with_invalid_signature() {
         vec![local_addr_good1.clone()],
         cancel_good1.child_token(),
         MockApplicationSigner::new(app_keypair_good1.clone()),
+        DefaultP2PValidator,
     )
     .unwrap();
 
@@ -69,6 +71,7 @@ async fn test_setup_with_invalid_signature() {
         vec![local_addr_good2.clone()],
         cancel_good2.child_token(),
         MockApplicationSigner::new(app_keypair_good2.clone()),
+        DefaultP2PValidator,
     )
     .unwrap();
 
@@ -100,6 +103,7 @@ async fn test_setup_with_invalid_signature() {
         vec![local_addr_bad.clone()],     // listening_addrs
         cancel_bad.child_token(),
         BadApplicationSigner::new(app_keypair_bad.clone()),
+        DefaultP2PValidator,
     )
     .unwrap();
 
