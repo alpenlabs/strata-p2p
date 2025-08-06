@@ -3,7 +3,7 @@
 #[cfg(any(feature = "gossipsub", feature = "request-response"))]
 use std::time::SystemTime;
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     time::{Duration, Instant},
 };
 
@@ -31,7 +31,7 @@ use libp2p::{
     StreamProtocol,
     kad::{
         AddProviderError, AddProviderOk, BootstrapOk, Event as KademliaEvent, GetClosestPeersError,
-        GetClosestPeersOk, GetProvidersError, PutRecordError, PutRecordOk, QueryResult,
+        GetClosestPeersOk, GetProvidersError, PutRecordError, PutRecordOk, QueryId, QueryResult,
     },
 };
 #[cfg(any(feature = "request-response", feature = "kad"))]
@@ -255,6 +255,9 @@ pub struct P2PConfig {
     pub gossip_command_buffer_size: Option<usize>,
 }
 
+/// Type alias for (tid, sender(option(addresses)).
+pub type TidSender = (PeerId, oneshot::Sender<Option<Vec<Multiaddr>>>);
+
 /// Implementation of P2P protocol data exchange.
 #[expect(missing_debug_implementations)]
 pub struct P2P<S, V = DefaultP2PValidator>
@@ -331,6 +334,10 @@ where
         allow(dead_code)
     )]
     validator: V,
+
+    /// Sender to send to when we got exact PeerId during handling [`GetClosestPeersOk`] or
+    /// [`GetClosestPeersError`]
+    kad_get_closest_peers_query_to_tx: HashMap<QueryId, TidSender>,
 }
 
 /// Alias for [`P2P`] and [`ReqRespHandle`] tuple.
@@ -415,6 +422,7 @@ where
                 score_manager,
                 peer_penalty_storage,
                 validator,
+                kad_get_closest_peers_query_to_tx: HashMap::new(),
             },
             #[cfg(feature = "request-response")]
             ReqRespHandle::new(req_resp_event_rx, req_resp_cmds_tx),
@@ -1168,16 +1176,43 @@ where
                     );
                     Ok(())
                 }
-                QueryResult::GetClosestPeers(Ok(GetClosestPeersOk { key, peers })) => {
+                QueryResult::GetClosestPeers(Ok(GetClosestPeersOk { key, mut peers })) => {
                     trace!(
                         %id, ?stats, ?step, ?key, ?peers, "QueryResult::GetClosestPeers(Ok(GetClosestPeersOk"
                     );
+                    if let Some((tid, tx)) = self.kad_get_closest_peers_query_to_tx.remove(&id) {
+                        peers.retain(|peer_info| peer_info.peer_id == tid);
+                        let res_sending = match peers.is_empty() {
+                            false => tx.send(Some(peers[0].addrs.clone())),
+                            true => tx.send(None),
+                        };
+                        if res_sending.is_err() {
+                            error!(
+                                "Failed to send back result to oneshot channel given in DHTGetClosestPeerCommand."
+                            )
+                        }
+                    }
                     Ok(())
                 }
-                QueryResult::GetClosestPeers(Err(GetClosestPeersError::Timeout { key, peers })) => {
+                QueryResult::GetClosestPeers(Err(GetClosestPeersError::Timeout {
+                    key,
+                    mut peers,
+                })) => {
                     trace!(
                         %id, ?stats, ?step, ?key, ?peers, "QueryResult::GetClosestPeers(Ok(GetClosestPeersOk"
                     );
+                    if let Some((tid, tx)) = self.kad_get_closest_peers_query_to_tx.remove(&id) {
+                        peers.retain(|peer_info| peer_info.peer_id == tid);
+                        let res_sending = match peers.is_empty() {
+                            false => tx.send(Some(peers[0].addrs.clone())),
+                            true => tx.send(None),
+                        };
+                        if res_sending.is_err() {
+                            error!(
+                                "Failed to send back result to oneshot channel given in DHTGetClosestPeerCommand."
+                            )
+                        }
+                    }
                     Ok(())
                 }
                 QueryResult::StartProviding(Ok(AddProviderOk { key })) => {
@@ -1530,6 +1565,19 @@ where
                     Ok(())
                 }
             },
+            Command::DHTGetClosestPeer {
+                transport_id,
+                response_sender,
+            } => {
+                let query_id = self
+                    .swarm
+                    .behaviour_mut()
+                    .kademlia
+                    .get_closest_peers(transport_id);
+                self.kad_get_closest_peers_query_to_tx
+                    .insert(query_id, (transport_id, response_sender));
+                Ok(())
+            }
         }
     }
 

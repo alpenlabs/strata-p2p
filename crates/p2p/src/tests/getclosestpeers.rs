@@ -1,10 +1,7 @@
 use std::time::Duration;
 
 use anyhow::bail;
-use libp2p::{
-    Multiaddr, build_multiaddr,
-    identity::{Keypair, PublicKey},
-};
+use libp2p::{Multiaddr, build_multiaddr, identity::Keypair};
 use tokio::{
     sync::oneshot::{self, channel},
     time::{sleep, timeout},
@@ -19,9 +16,9 @@ use crate::{
 };
 
 /// Test in which a new user connects to one old user, than after sometime is connected to all
-/// existing users, because of Kademlia
+/// existing users, because of Kademlia, then tries to send [`Command::DHTGetClosestPeers`]
 #[tokio::test(flavor = "multi_thread", worker_threads = 11)]
-async fn dht_new_user() -> anyhow::Result<()> {
+async fn dht_closestpeers() -> anyhow::Result<()> {
     init_tracing();
     const USERS_NUM: usize = 9;
 
@@ -70,7 +67,7 @@ async fn dht_new_user() -> anyhow::Result<()> {
     let mut new_user = User::new(
         new_user_app_keypair.clone(),
         new_user_transport_keypair.clone(),
-        vec![connect_addr.clone()], // Connect directly to existing user
+        vec![connect_addr.clone()], // Connect directly to existing users
         new_user_allowlist,         // Allow all existing users
         vec![local_addr.clone()],
         cancel.child_token(),
@@ -108,52 +105,52 @@ async fn dht_new_user() -> anyhow::Result<()> {
     // Give time for the new users to establish connections
     sleep(Duration::from_secs(10)).await;
 
-    let (tx, rx) = oneshot::channel::<Vec<PublicKey>>();
+    // Get connection addresses of first old user for the new user to connect to.
+    info!("Getting listening addresses for new user");
+    let (tx, rx) = channel::<Vec<Multiaddr>>();
+    user_handles[USERS_NUM - 1]
+        .command
+        .send_command(Command::QueryP2PState(
+            QueryP2PStateCommand::GetMyListeningAddresses {
+                response_sender: tx,
+            },
+        ))
+        .await;
+    let result = rx.await.unwrap();
+    debug!(addresses = ?result, "Retrieved listening addresses");
+    let listening_addr_of_last_user = &result[0];
+
+    let (tx, rx) = oneshot::channel();
 
     info!(
         "Sending command Command::QueryP2PState(QueryP2PStateCommand::GetConnectedPeers) to last old user"
     );
 
-    user_handles[USERS_NUM - 1]
-        .command
-        .send_command(Command::QueryP2PState(
-            QueryP2PStateCommand::GetConnectedPeers {
-                response_sender: tx,
-            },
-        ))
-        .await;
-
-    info!(
-        "Waiting for result from command Command::QueryP2PState(QueryP2PStateCommand::GetConnectedPeers"
-    );
-
-    match timeout(Duration::from_secs(1), rx).await {
-        Ok(v) => assert_eq!(v.unwrap().len(), USERS_NUM),
-        Err(e) => bail!("error {e}"),
-    };
-
-    let (tx, rx) = oneshot::channel::<Vec<PublicKey>>();
-
-    info!(
-        "Sending command Command::QueryP2PState(QueryP2PStateCommand::GetConnectedPeers) to the new user"
-    );
-
     new_user
         .command
-        .send_command(Command::QueryP2PState(
-            QueryP2PStateCommand::GetConnectedPeers {
-                response_sender: tx,
-            },
-        ))
+        .send_command(Command::DHTGetClosestPeer {
+            transport_id: user_handles[USERS_NUM - 1].peer_id,
+            response_sender: tx,
+        })
         .await;
 
-    info!(
-        "Waiting for result from command Command::QueryP2PState(QueryP2PStateCommand::GetConnectedPeers"
-    );
+    info!("Waiting for result from command Command::DHTGetClosestPeer");
 
     match timeout(Duration::from_secs(1), rx).await {
-        Ok(v) => assert_eq!(v.unwrap().len(), USERS_NUM),
-        Err(e) => bail!("error {e}"),
+        Ok(Ok(v)) => match v {
+            Some(addresses) => assert_eq!(
+                addresses[0].iter().collect::<Vec<_>>()[0],
+                listening_addr_of_last_user
+                    .clone()
+                    .iter()
+                    .collect::<Vec<_>>()[0]
+            ),
+            None => {
+                bail!("We got no result.")
+            }
+        },
+        Ok(Err(e)) => bail!("Error receiving in oneshot channel {e}"),
+        Err(e) => bail!("Timeout. {e}"),
     };
 
     // Clean up

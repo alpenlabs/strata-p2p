@@ -1,5 +1,3 @@
-//! Tests for new operator functionality.
-
 use std::time::Duration;
 
 use futures::SinkExt;
