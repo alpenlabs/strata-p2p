@@ -7,8 +7,11 @@ use std::{
     sync::Arc,
     time::{Duration, Instant},
 };
+#[cfg(not(feature = "byos"))]
+use std::num::NonZeroU8;
 
 use behavior::{Behaviour, BehaviourEvent};
+#[cfg(feature = "byos")]
 use cynosure::site_c::queue::Queue;
 use errors::{P2PResult, ProtocolError};
 use futures::StreamExt as _;
@@ -1030,7 +1033,10 @@ impl P2P {
     async fn handle_command(&mut self, cmd: Command) -> P2PResult<()> {
         match cmd {
             Command::ConnectToPeer {
+                #[cfg(feature = "byos")]
                 app_public_key,
+                #[cfg(not(feature = "byos"))]
+                transport_id,
                 mut addresses,
             } => {
                 if addresses.is_empty() {
@@ -1038,83 +1044,155 @@ impl P2P {
                     return Ok(());
                 }
 
-                if self.dial_manager.has_app_public_key(&app_public_key) {
-                    error!(
-                        "Already dialing peer with app_public_key: {:?}",
-                        app_public_key
-                    );
-                    return Ok(());
+                #[cfg(feature = "byos")]
+                {
+                    if self.dial_manager.has_app_public_key(&app_public_key) {
+                        error!(
+                            "Already dialing peer with app_public_key: {:?}",
+                            app_public_key
+                        );
+                        return Ok(());
+                    }
+
+                    addresses
+                        .sort_by_key(|addr| !addr.protocol_stack().any(|proto| proto.contains("quic")));
+
+                    let mut queue = Queue::from_iter(addresses.into_iter());
+
+                    let first_addr = queue.pop_front().unwrap(); // can use unwrap() here thus we have at least one element
+
+                    self.config.connect_to.push(first_addr.clone());
+                    self.dial_manager
+                        .insert_queue(app_public_key.clone(), queue);
+                    self.dial_and_map(first_addr, app_public_key).await;
                 }
 
-                addresses
-                    .sort_by_key(|addr| !addr.protocol_stack().any(|proto| proto.contains("quic")));
+                #[cfg(not(feature = "byos"))]
+                {
+                    if self.swarm.is_connected(&transport_id) {
+                        error!(
+                            "Already connected to peer with transport_id: {:?}",
+                            transport_id
+                        );
+                        return Ok(());
+                    }
 
-                let mut queue = Queue::from_iter(addresses.into_iter());
+                    addresses
+                        .sort_by_key(|addr| !addr.protocol_stack().any(|proto| proto.contains("quic")));
 
-                let first_addr = queue.pop_front().unwrap(); // can use unwrap() here thus we have at least one element
+                    // Build dial options with override_dial_concurrency_factor(1) to dial addresses sequentially
+                    let dial_opts = DialOpts::peer_id(transport_id)
+                        .addresses(addresses)
+                        .override_dial_concurrency_factor(NonZeroU8::new(1).unwrap())
+                        .build();
 
-                self.config.connect_to.push(first_addr.clone());
-                self.dial_manager
-                    .insert_queue(app_public_key.clone(), queue);
-                self.dial_and_map(first_addr, app_public_key).await;
+                    match self.swarm.dial(dial_opts) {
+                        Ok(_) => {
+                            debug!(%transport_id, "Initiated dial to peer with all provided addresses");
+                        }
+                        Err(e) => {
+                            warn!(%transport_id, ?e, "Failed to dial peer");
+                        }
+                    }
+                }
 
                 Ok(())
             }
             Command::DisconnectFromPeer {
+                #[cfg(feature = "byos")]
                 target_app_public_key,
+                #[cfg(not(feature = "byos"))]
+                target_transport_id,
             } => {
-                debug!(?target_app_public_key, "Got DisconnectFromPeer command");
-                let peer_id = target_app_public_key.to_peer_id();
-                if self.swarm.is_connected(&peer_id) {
-                    let _ = self.swarm.disconnect_peer_id(peer_id);
-                    debug!(%peer_id, "Initiated disconnect");
-                } else {
-                    debug!(%peer_id, "Peer not connected, nothing to disconnect");
+                #[cfg(feature = "byos")]
+                {
+                    debug!(?target_app_public_key, "Got DisconnectFromPeer command");
+                    let peer_id = target_app_public_key.to_peer_id();
+                    if self.swarm.is_connected(&peer_id) {
+                        let _ = self.swarm.disconnect_peer_id(peer_id);
+                        debug!(%peer_id, "Initiated disconnect");
+                    } else {
+                        debug!(%peer_id, "Peer not connected, nothing to disconnect");
+                    }
+                }
+
+                #[cfg(not(feature = "byos"))]
+                {
+                    debug!(?target_transport_id, "Got DisconnectFromPeer command");
+                    if self.swarm.is_connected(&target_transport_id) {
+                        let _ = self.swarm.disconnect_peer_id(target_transport_id);
+                        debug!(%target_transport_id, "Initiated disconnect");
+                    } else {
+                        debug!(%target_transport_id, "Peer not connected, nothing to disconnect");
+                    }
                 }
 
                 Ok(())
             }
             Command::QueryP2PState(query) => match query {
                 QueryP2PStateCommand::IsConnected {
+                    #[cfg(feature = "byos")]
                     app_public_key,
+                    #[cfg(not(feature = "byos"))]
+                    transport_id,
                     response_sender,
                 } => {
-                    info!("Querying if app public key is connected");
-
-                    let is_connected = match self
-                        .swarm
-                        .behaviour()
-                        .setup
-                        .get_transport_id_by_application_key(&app_public_key)
+                    #[cfg(feature = "byos")]
                     {
-                        Some(transport_id) => {
-                            info!(%transport_id, "Found transport ID for app public key");
-                            self.swarm.is_connected(&transport_id)
-                        }
-                        None => {
-                            info!("No transport ID found for app public key");
-                            false
-                        }
-                    };
+                        info!("Querying if app public key is connected");
 
-                    let _ = response_sender.send(is_connected);
+                        let is_connected = match self
+                            .swarm
+                            .behaviour()
+                            .setup
+                            .get_transport_id_by_application_key(&app_public_key)
+                        {
+                            Some(transport_id) => {
+                                info!(%transport_id, "Found transport ID for app public key");
+                                self.swarm.is_connected(&transport_id)
+                            }
+                            None => {
+                                info!("No transport ID found for app public key");
+                                false
+                            }
+                        };
+
+                        let _ = response_sender.send(is_connected);
+                    }
+
+                    #[cfg(not(feature = "byos"))]
+                    {
+                        info!("Querying if transport ID is connected");
+                        let is_connected = self.swarm.is_connected(&transport_id);
+                        let _ = response_sender.send(is_connected);
+                    }
+
                     Ok(())
                 }
                 QueryP2PStateCommand::GetConnectedPeers { response_sender } => {
                     info!("Querying connected peers");
                     let peer_ids = self.swarm.connected_peers().cloned().collect::<Vec<_>>();
 
-                    let public_keys: Vec<PublicKey> = peer_ids
-                        .into_iter()
-                        .filter_map(|peer_id| {
-                            self.swarm
-                                .behaviour()
-                                .setup
-                                .get_app_public_key_by_transport_id(&peer_id)
-                        })
-                        .collect();
+                    #[cfg(feature = "byos")]
+                    {
+                        let public_keys: Vec<PublicKey> = peer_ids
+                            .into_iter()
+                            .filter_map(|peer_id| {
+                                self.swarm
+                                    .behaviour()
+                                    .setup
+                                    .get_app_public_key_by_transport_id(&peer_id)
+                            })
+                            .collect();
 
-                    let _ = response_sender.send(public_keys);
+                        let _ = response_sender.send(public_keys);
+                    }
+
+                    #[cfg(not(feature = "byos"))]
+                    {
+                        let _ = response_sender.send(peer_ids);
+                    }
+
                     Ok(())
                 }
                 QueryP2PStateCommand::GetMyListeningAddresses { response_sender } => {
@@ -1201,16 +1279,27 @@ impl P2P {
         &mut self,
         cmd: RequestResponseCommand,
     ) -> P2PResult<()> {
-        debug!(?cmd.target_app_public_key, "Got request message");
+        // Extract target peer ID based on feature mode
+        let target_peer_id = {
+            #[cfg(feature = "byos")]
+            {
+                debug!(?cmd.target_app_public_key, "Got request message");
+                self.swarm
+                    .behaviour()
+                    .setup
+                    .get_transport_id_by_application_key(&cmd.target_app_public_key)
+            }
+            #[cfg(not(feature = "byos"))]
+            {
+                debug!(?cmd.target_transport_id, "Got request message");
+                Some(cmd.target_transport_id)
+            }
+        };
+
         trace!(?cmd.data, "Got request message");
 
-        let option_request_target_peer_id = self
-            .swarm
-            .behaviour()
-            .setup
-            .get_transport_id_by_application_key(&cmd.target_app_public_key);
-
-        let signed_request_message: SignedMessage = match SignedMessage::new_signed_request(
+        // Create and serialize signed message
+        let signed_request_message = match SignedMessage::new_signed_request(
             self.config.app_public_key.clone(),
             cmd.data,
             self.signer.as_ref(),
@@ -1230,20 +1319,21 @@ impl P2P {
             }
         };
 
-        match option_request_target_peer_id {
-            Some(request_target_peer_id) => {
-                if self.swarm.is_connected(&request_target_peer_id) {
+        // Send request if peer is available and connected
+        match target_peer_id {
+            Some(peer_id) => {
+                if self.swarm.is_connected(&peer_id) {
                     self.swarm
                         .behaviour_mut()
                         .request_response
-                        .send_request(&request_target_peer_id, signed_request_message_data);
-                    return Ok(());
+                        .send_request(&peer_id, signed_request_message_data);
+                } else {
+                    debug!(%peer_id, "Peer not connected, cannot send request");
                 }
             }
             None => {
-                error!(
-                    "Logic error: Request response is attempted on a peer we haven't done Setup yet."
-                )
+                #[cfg(feature = "byos")]
+                error!("Logic error: Request response is attempted on a peer we haven't done Setup yet.");
             }
         }
 

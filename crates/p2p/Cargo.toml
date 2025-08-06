@@ -4,10 +4,11 @@ version.workspace = true
 edition.workspace = true
 
 [features]
-default = ["request-response", "quic", "gossipsub"]
+default = ["request-response", "quic", "gossipsub", "byos"]
 request-response = ["libp2p/request-response"]
 quic = ["libp2p/quic"]
 gossipsub = ["libp2p/gossipsub"]
+byos = []
 
 [lints]
 workspace = true
