@@ -4,11 +4,12 @@ version.workspace = true
 edition.workspace = true
 
 [features]
+byos = ["dep:asynchronous-codec", "serde_json", "serde"]
 default = ["request-response", "gossipsub", "quic", "byos"]
+gossipsub = ["libp2p/gossipsub", "serde_json", "serde"]
 quic = ["libp2p/quic"]
-request-response = ["libp2p/request-response", "serde_json"]
-gossipsub = ["libp2p/gossipsub", "serde_json"]
-byos = ["dep:asynchronous-codec", "serde_json"]
+request-response = ["libp2p/request-response", "serde_json", "serde"]
+
 
 [lints]
 workspace = true
@@ -27,7 +28,7 @@ libp2p = { workspace = true, features = [
   "identify",
   "serde",
 ] }
-serde.workspace = true
+serde = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }
 thiserror.workspace = true
 tokio = { workspace = true, features = ["macros", "time"] }
