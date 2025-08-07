@@ -1,29 +1,27 @@
 //! Helper functions for the P2P tests.
 
-use std::{
-    sync::{Arc, Once},
-    time::Duration,
-};
+#[cfg(feature = "byos")]
+use std::sync::Arc;
+use std::{sync::Once, time::Duration};
 
 use futures::future::join_all;
-use libp2p::{
-    Multiaddr, PeerId, build_multiaddr,
-    identity::{Keypair, PublicKey},
-};
+#[cfg(feature = "byos")]
+use libp2p::identity::PublicKey;
+use libp2p::{Multiaddr, PeerId, build_multiaddr, identity::Keypair};
 use rand::Rng;
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use tracing::debug;
 use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, util::SubscriberInitExt};
 
+#[cfg(feature = "byos")]
+use crate::signer::ApplicationSigner;
 #[cfg(feature = "gossipsub")]
 use crate::swarm::handle::GossipHandle;
 #[cfg(feature = "request-response")]
 use crate::swarm::handle::ReqRespHandle;
-use crate::{
-    signer::ApplicationSigner,
-    swarm::{self, P2P, P2PConfig, handle::CommandHandle},
-    validator::{DefaultP2PValidator, Validator},
-};
+use crate::swarm::{self, P2P, P2PConfig, handle::CommandHandle};
+#[cfg(not(feature = "byos"))]
+use crate::validator::{DefaultP2PValidator, Validator};
 
 /// Only attempt to start tracing once
 ///
@@ -40,18 +38,21 @@ pub(crate) fn init_tracing() {
 }
 
 /// Mock ApplicationSigner for testing that stores the actual keypair
+#[cfg(feature = "byos")]
 #[derive(Debug, Clone)]
 pub(crate) struct MockApplicationSigner {
     // Store the actual keypair that corresponds to the app public key
     app_keypair: Keypair,
 }
 
+#[cfg(feature = "byos")]
 impl MockApplicationSigner {
     pub(crate) const fn new(app_keypair: Keypair) -> Self {
         Self { app_keypair }
     }
 }
 
+#[cfg(feature = "byos")]
 impl ApplicationSigner for MockApplicationSigner {
     fn sign(
         &self,

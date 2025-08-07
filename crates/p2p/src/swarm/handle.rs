@@ -167,7 +167,7 @@ impl CommandHandle {
         let (sender, receiver) = oneshot::channel();
 
         let cmd = Command::QueryP2PState(QueryP2PStateCommand::IsConnected {
-            transport_id: transport_id.clone(),
+            transport_id: *transport_id,
             response_sender: sender,
         });
 

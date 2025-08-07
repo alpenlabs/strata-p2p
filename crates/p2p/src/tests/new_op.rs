@@ -1,6 +1,8 @@
 //! Tests for new operator functionality.
 
-use std::{sync::Arc, time::Duration};
+#[cfg(feature = "byos")]
+use std::sync::Arc;
+use std::time::Duration;
 
 use futures::SinkExt;
 use libp2p::{Multiaddr, build_multiaddr, identity::Keypair};
@@ -8,12 +10,14 @@ use tokio::{sync::oneshot::channel, time::sleep};
 use tracing::{debug, info};
 
 use super::common::Setup;
+#[cfg(feature = "byos")]
+use crate::tests::common::MockApplicationSigner;
 #[cfg(not(feature = "byos"))]
 use crate::validator::DefaultP2PValidator;
 use crate::{
     commands::{Command, GossipCommand, QueryP2PStateCommand},
     events::GossipEvent,
-    tests::common::{MockApplicationSigner, User, init_tracing},
+    tests::common::{User, init_tracing},
 };
 /// Tests sending a gossipsub message from a new user to all existing users.
 
@@ -23,6 +27,7 @@ async fn gossip_new_user() -> anyhow::Result<()> {
     const USERS_NUM: usize = 9;
 
     // Generate a keypair for the new user
+    #[cfg(feature = "byos")]
     let new_user_app_keypair = Keypair::generate_ed25519();
 
     info!(

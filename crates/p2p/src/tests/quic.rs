@@ -1,16 +1,21 @@
 //! Test QUIC and TCP connectivity on IPv4 and IPv6.
 
-use std::{sync::Arc, time::Duration};
+#[cfg(feature = "byos")]
+use std::sync::Arc;
+use std::time::Duration;
 
 use libp2p::{Multiaddr, identity::Keypair};
 use tokio::{join, spawn, sync::oneshot, time};
 use tokio_util::sync::CancellationToken;
 use tracing::info;
 
+#[cfg(feature = "byos")]
+use crate::tests::common::MockApplicationSigner;
+#[cfg(not(feature = "byos"))]
+use crate::validator::DefaultP2PValidator;
 use crate::{
     commands::{Command, QueryP2PStateCommand},
-    tests::common::{MockApplicationSigner, User, init_tracing},
-    validator::DefaultP2PValidator,
+    tests::common::{User, init_tracing},
 };
 
 /// Test QUIC and TCP connectivity on IPv4 and IPv6.

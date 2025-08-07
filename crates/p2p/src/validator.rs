@@ -159,7 +159,7 @@ impl PenaltyPeerStorage {
     ) -> Result<(), &'static str> {
         let penalty = self
             .penalties
-            .entry(peer_id.clone())
+            .entry(*peer_id)
             .or_insert_with(|| PenaltyInfo::new(None, None, None));
 
         if let Some(mute_until) = penalty.mute_gossip_until
@@ -181,7 +181,7 @@ impl PenaltyPeerStorage {
     ) -> Result<(), &'static str> {
         let penalty = self
             .penalties
-            .entry(peer_id.clone())
+            .entry(*peer_id)
             .or_insert_with(|| PenaltyInfo::new(None, None, None));
 
         if let Some(mute_until) = penalty.mute_req_resp_until
@@ -196,7 +196,7 @@ impl PenaltyPeerStorage {
 
     /// Bans the peer for the given duration.
     pub fn ban_peer(&mut self, peer_id: &PeerId, until: SystemTime) -> Result<(), &'static str> {
-        let penalty = self.penalties.entry(peer_id.clone()).or_insert_with(|| {
+        let penalty = self.penalties.entry(*peer_id).or_insert_with(|| {
             PenaltyInfo::new(
                 #[cfg(feature = "gossipsub")]
                 None,

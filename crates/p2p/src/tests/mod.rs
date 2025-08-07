@@ -2,6 +2,8 @@ pub(crate) mod common;
 
 pub(crate) mod is_connected;
 pub(crate) mod setup;
+
+#[cfg(feature = "byos")]
 pub(crate) mod setup_invalid_signature;
 
 #[cfg(feature = "gossipsub")]

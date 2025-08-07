@@ -7,6 +7,7 @@
 
 #[cfg(feature = "gossipsub")]
 use std::collections::HashSet;
+#[cfg(feature = "byos")]
 use std::sync::Arc;
 
 #[cfg(feature = "request-response")]
@@ -35,8 +36,10 @@ use super::TOPIC;
 #[cfg(feature = "request-response")]
 use super::codec_raw;
 #[cfg(feature = "byos")]
+use crate::signer::ApplicationSigner;
+use crate::swarm::Keypair;
+#[cfg(feature = "byos")]
 use crate::swarm::{PublicKey, setup::behavior::SetupBehaviour};
-use crate::{signer::ApplicationSigner, swarm::Keypair};
 
 /// Alias for request-response behaviour with messages serialized by using
 /// homebrewed codec implementation.

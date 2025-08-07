@@ -56,13 +56,13 @@ impl ScoreManager {
     /// Updates the gossipsub application score for a specific peer.
     #[cfg(feature = "gossipsub")]
     pub fn update_gossipsub_app_score(&mut self, peer_id: &PeerId, new_score: f64) {
-        self.gossipsub_app_score.insert(peer_id.clone(), new_score);
+        self.gossipsub_app_score.insert(*peer_id, new_score);
     }
 
     /// Updates the request-response application score for a specific peer.
     #[cfg(feature = "request-response")]
     pub fn update_req_resp_app_score(&mut self, peer_id: &PeerId, new_score: f64) {
-        self.req_resp_app_score.insert(peer_id.clone(), new_score);
+        self.req_resp_app_score.insert(*peer_id, new_score);
     }
 }
 

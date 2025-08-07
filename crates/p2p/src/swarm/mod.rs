@@ -57,10 +57,14 @@ use {
     tokio::sync::oneshot,
 };
 
-#[cfg(feature = "request-response")]
+#[cfg(all(feature = "gossipsub", not(feature = "byos")))]
+use crate::score_manager::DEFAULT_GOSSIP_APP_SCORE;
+#[cfg(all(feature = "request-response", not(feature = "byos")))]
 use crate::score_manager::DEFAULT_REQ_RESP_APP_SCORE;
 #[cfg(not(feature = "byos"))]
 use crate::signer::TransportKeypairSigner;
+#[cfg(feature = "gossipsub")]
+use crate::swarm::message::GossipMessage;
 #[cfg(any(feature = "gossipsub", feature = "request-response"))]
 use crate::swarm::message::SignedMessage;
 #[cfg(feature = "byos")]
@@ -69,8 +73,6 @@ use crate::{
     commands::{Command, QueryP2PStateCommand},
     signer::ApplicationSigner,
 };
-#[cfg(feature = "gossipsub")]
-use crate::{score_manager::DEFAULT_GOSSIP_APP_SCORE, swarm::message::GossipMessage};
 #[cfg(not(feature = "byos"))]
 use crate::{
     score_manager::{PeerScore, ScoreManager},
@@ -371,7 +373,7 @@ impl P2P {
         };
 
         #[cfg(not(feature = "byos"))]
-        let validator = validator.unwrap_or_else(|| Box::new(DefaultP2PValidator::default()));
+        let validator = validator.unwrap_or_else(|| Box::new(DefaultP2PValidator));
 
         let p2p = P2P {
             swarm,
@@ -732,7 +734,7 @@ impl P2P {
                 let until = SystemTime::now() + opt_time_amount.unwrap_or(DEFAULT_BAN_PERIOD);
                 match self.peer_penalty_storage.ban_peer(peer_id, until) {
                     Ok(()) => {
-                        let _ = self.swarm.disconnect_peer_id(peer_id.clone());
+                        let _ = self.swarm.disconnect_peer_id(*peer_id);
                         info!(?peer_id, ?until, "Peer banned");
                     }
                     Err(e) => error!(?peer_id, ?e, "Failed to ban peer"),
@@ -826,7 +828,10 @@ impl P2P {
                 Ok(())
             }
             SwarmEvent::OutgoingConnectionError {
+                #[cfg(feature = "byos")]
                 connection_id,
+                #[cfg(not(feature = "byos"))]
+                    connection_id: _,
                 error,
                 peer_id: _,
             } => {
@@ -1328,6 +1333,13 @@ impl P2P {
             }
         };
 
+        #[cfg(feature = "byos")]
+        if target_peer_id.is_none() {
+            error!(
+                "Logic error: Request response is attempted on a peer we haven't done Setup yet."
+            );
+        }
+
         trace!(?cmd.data, "Got request message");
 
         let app_public_key = {
@@ -1361,22 +1373,14 @@ impl P2P {
         };
 
         // Send request if peer is available and connected
-        match target_peer_id {
-            Some(peer_id) => {
-                if self.swarm.is_connected(&peer_id) {
-                    self.swarm
-                        .behaviour_mut()
-                        .request_response
-                        .send_request(&peer_id, signed_request_message_data);
-                } else {
-                    debug!(%peer_id, "Peer not connected, cannot send request");
-                }
-            }
-            None => {
-                #[cfg(feature = "byos")]
-                error!(
-                    "Logic error: Request response is attempted on a peer we haven't done Setup yet."
-                );
+        if let Some(peer_id) = target_peer_id {
+            if self.swarm.is_connected(&peer_id) {
+                self.swarm
+                    .behaviour_mut()
+                    .request_response
+                    .send_request(&peer_id, signed_request_message_data);
+            } else {
+                debug!(%peer_id, "Peer not connected, cannot send request");
             }
         }
 
@@ -1433,20 +1437,6 @@ impl P2P {
             .config
             .channel_timeout
             .unwrap_or(DEFAULT_CHANNEL_TIMEOUT);
-        // App public key lookup (only for BYOS)
-        #[cfg(feature = "byos")]
-        let app_public_key = match self
-            .swarm
-            .behaviour()
-            .setup
-            .get_app_public_key_by_transport_id(&peer_id)
-        {
-            Some(key) => key,
-            None => {
-                warn!(%peer_id, "No app public key found for peer");
-                return Ok(());
-            }
-        };
         match msg {
             request_response::Message::Request {
                 request, channel, ..

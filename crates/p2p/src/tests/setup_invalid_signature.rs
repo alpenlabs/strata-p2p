@@ -14,7 +14,6 @@ use crate::{
     commands::{Command, QueryP2PStateCommand},
     signer::ApplicationSigner,
     tests::common::{MockApplicationSigner, User, init_tracing},
-    validator::DefaultP2PValidator,
 };
 
 #[derive(Debug, Clone)]
@@ -37,7 +36,6 @@ impl ApplicationSigner for BadApplicationSigner {
     }
 }
 
-#[cfg(feature = "byos")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_setup_with_invalid_signature() {
     init_tracing();
@@ -60,8 +58,6 @@ async fn test_setup_with_invalid_signature() {
         vec![local_addr_good1.clone()],
         cancel_good1.child_token(),
         Arc::new(MockApplicationSigner::new(app_keypair_good1.clone())),
-        #[cfg(not(feature = "byos"))]
-        Box::new(DefaultP2PValidator),
     )
     .unwrap();
 
@@ -73,13 +69,10 @@ async fn test_setup_with_invalid_signature() {
         vec![local_addr_good2.clone()],
         cancel_good2.child_token(),
         Arc::new(MockApplicationSigner::new(app_keypair_good2.clone())),
-        #[cfg(not(feature = "byos"))]
-        Box::new(DefaultP2PValidator),
     )
     .unwrap();
 
     let good_peer_id1 = good_user1.transport_keypair.public().to_peer_id();
-    let good_peer_id2 = good_user2.transport_keypair.public().to_peer_id();
     let good_command_handle1 = good_user1.command.clone();
 
     tasks.spawn(async move {
@@ -107,8 +100,6 @@ async fn test_setup_with_invalid_signature() {
         vec![local_addr_bad.clone()],     // listening_addrs
         cancel_bad.child_token(),
         Arc::new(BadApplicationSigner::new(app_keypair_bad.clone())),
-        #[cfg(not(feature = "byos"))]
-        Box::new(DefaultP2PValidator),
     )
     .unwrap();
 
@@ -127,10 +118,7 @@ async fn test_setup_with_invalid_signature() {
     );
     good_command_handle1
         .send_command(Command::ConnectToPeer {
-            #[cfg(feature = "byos")]
             app_public_key: app_keypair_bad.public(),
-            #[cfg(not(feature = "byos"))]
-            transport_id: bad_peer_id,
             addresses: vec![local_addr_bad.clone()],
         })
         .await;
@@ -140,10 +128,7 @@ async fn test_setup_with_invalid_signature() {
     );
     bad_command_handle
         .send_command(Command::ConnectToPeer {
-            #[cfg(feature = "byos")]
             app_public_key: app_keypair_good1.public(),
-            #[cfg(not(feature = "byos"))]
-            transport_id: good_peer_id1,
             addresses: vec![local_addr_good1.clone()],
         })
         .await;
@@ -185,57 +170,27 @@ async fn test_setup_with_invalid_signature() {
     info!(?connected_peers_bad, "Bad user connected peers");
 
     assert!(
-        !connected_peers_good1.contains(
-            #[cfg(feature = "byos")]
-            &app_keypair_bad.public(),
-            #[cfg(not(feature = "byos"))]
-            &bad_peer_id
-        ),
+        !connected_peers_good1.contains(&app_keypair_bad.public(),),
         "Good user should NOT be connected to bad user due to invalid signature from bad user."
     );
     assert!(
-        connected_peers_good1.contains(
-            #[cfg(feature = "byos")]
-            &app_keypair_good2.public(),
-            #[cfg(not(feature = "byos"))]
-            &good_peer_id2
-        ),
+        connected_peers_good1.contains(&app_keypair_good2.public(),),
         "Good user should be connected to second good user."
     );
     assert!(
-        !connected_peers_good2.contains(
-            #[cfg(feature = "byos")]
-            &app_keypair_bad.public(),
-            #[cfg(not(feature = "byos"))]
-            &bad_peer_id
-        ),
+        !connected_peers_good2.contains(&app_keypair_bad.public(),),
         "Second good user should NOT be connected to bad user due to invalid signature from bad user."
     );
     assert!(
-        connected_peers_good2.contains(
-            #[cfg(feature = "byos")]
-            &app_keypair_good1.public(),
-            #[cfg(not(feature = "byos"))]
-            &good_peer_id1
-        ),
+        connected_peers_good2.contains(&app_keypair_good1.public(),),
         "Good user should be connected to good user."
     );
     assert!(
-        !connected_peers_bad.contains(
-            #[cfg(feature = "byos")]
-            &app_keypair_good1.public(),
-            #[cfg(not(feature = "byos"))]
-            &good_peer_id1
-        ),
+        !connected_peers_bad.contains(&app_keypair_good1.public(),),
         "Bad user should NOT be connected to good user (or anyone else via this connection attempt)."
     );
     assert!(
-        !connected_peers_bad.contains(
-            #[cfg(feature = "byos")]
-            &app_keypair_good2.public(),
-            #[cfg(not(feature = "byos"))]
-            &good_peer_id2
-        ),
+        !connected_peers_bad.contains(&app_keypair_good2.public(),),
         "Bad user should NOT be connected to second good user (or anyone else via this connection attempt)."
     );
 

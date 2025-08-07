@@ -2,7 +2,9 @@
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use libp2p::{PeerId, identity::PublicKey};
+#[cfg(feature = "byos")]
+use libp2p::PeerId;
+use libp2p::identity::PublicKey;
 use serde::{Deserialize, Serialize};
 
 use super::errors::{SetupError, SignedMessageError};
@@ -177,6 +179,7 @@ impl SignedMessage {
 
 impl SignedMessage {
     /// Creates a new signed setup message with the given signer.
+    #[cfg(feature = "byos")]
     pub(crate) fn new_signed_setup(
         app_public_key: PublicKey,
         local_transport_id: PeerId,
@@ -231,6 +234,7 @@ impl SignedMessage {
 
 /// Setup message structure for the handshake protocol.
 /// Now serialized/deserialized using JSON instead of custom binary format.
+#[cfg(feature = "byos")]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub(crate) struct SetupMessage {
     /// Protocol version.
@@ -248,6 +252,7 @@ pub(crate) struct SetupMessage {
     pub date: u64,
 }
 
+#[cfg(feature = "byos")]
 impl SetupMessage {
     /// Creates a new setup message with the given parameters.
     pub(crate) fn new(

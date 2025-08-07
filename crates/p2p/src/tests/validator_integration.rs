@@ -141,15 +141,14 @@ async fn test_reqresp_mute_penalty() -> anyhow::Result<()> {
     #[cfg(feature = "byos")]
     let target_public_key = user1[0].app_keypair.public().clone();
     #[cfg(not(feature = "byos"))]
-    let target_transport_id = user1[0].peer_id.clone();
+    let target_transport_id = user1[0].peer_id;
 
     user0[0]
         .reqresp
         .send(RequestResponseCommand {
             #[cfg(feature = "byos")]
             target_app_public_key: target_public_key.clone(),
-            #[cfg(not(feature = "byos"))]
-            target_transport_id: target_transport_id.clone(),
+            target_transport_id,
             data: "normal request".into(),
         })
         .await?;
@@ -163,8 +162,7 @@ async fn test_reqresp_mute_penalty() -> anyhow::Result<()> {
         .send(RequestResponseCommand {
             #[cfg(feature = "byos")]
             target_app_public_key: target_public_key.clone(),
-            #[cfg(not(feature = "byos"))]
-            target_transport_id: target_transport_id.clone(),
+            target_transport_id,
             data: "mute reqresp".into(),
         })
         .await?;
@@ -176,7 +174,7 @@ async fn test_reqresp_mute_penalty() -> anyhow::Result<()> {
             #[cfg(feature = "byos")]
             target_app_public_key: target_public_key.clone(),
             #[cfg(not(feature = "byos"))]
-            target_transport_id: target_transport_id.clone(),
+            target_transport_id,
             data: "this should be muted".into(),
         })
         .await?;
@@ -203,7 +201,7 @@ async fn test_reqresp_mute_penalty() -> anyhow::Result<()> {
             #[cfg(feature = "byos")]
             target_app_public_key: target_public_key.clone(),
             #[cfg(not(feature = "byos"))]
-            target_transport_id: target_transport_id.clone(),
+            target_transport_id,
             data: "after mute expired".into(),
         })
         .await?;
@@ -362,7 +360,7 @@ async fn test_reqresp_ban_penalty() -> anyhow::Result<()> {
     #[cfg(feature = "byos")]
     let target_public_key = user1[0].app_keypair.public().clone();
     #[cfg(not(feature = "byos"))]
-    let target_transport_id = user1[0].peer_id.clone();
+    let target_transport_id = user1[0].peer_id;
 
     user0[0]
         .reqresp
@@ -370,7 +368,7 @@ async fn test_reqresp_ban_penalty() -> anyhow::Result<()> {
             #[cfg(feature = "byos")]
             target_app_public_key: target_public_key.clone(),
             #[cfg(not(feature = "byos"))]
-            target_transport_id: target_transport_id.clone(),
+            target_transport_id,
             data: "ban me".into(),
         })
         .await
@@ -570,7 +568,7 @@ async fn test_reqresp_mute_both_penalty() -> anyhow::Result<()> {
     #[cfg(feature = "byos")]
     let target_public_key = user1[0].app_keypair.public().clone();
     #[cfg(not(feature = "byos"))]
-    let target_transport_id = user1[0].peer_id.clone();
+    let target_transport_id = user1[0].peer_id;
 
     user0[0]
         .reqresp
@@ -578,7 +576,7 @@ async fn test_reqresp_mute_both_penalty() -> anyhow::Result<()> {
             #[cfg(feature = "byos")]
             target_app_public_key: target_public_key.clone(),
             #[cfg(not(feature = "byos"))]
-            target_transport_id: target_transport_id.clone(),
+            target_transport_id,
             data: "normal request".into(),
         })
         .await?;
@@ -594,7 +592,7 @@ async fn test_reqresp_mute_both_penalty() -> anyhow::Result<()> {
             #[cfg(feature = "byos")]
             target_app_public_key: target_public_key.clone(),
             #[cfg(not(feature = "byos"))]
-            target_transport_id: target_transport_id.clone(),
+            target_transport_id,
             data: "mute both".into(),
         })
         .await?;
@@ -607,7 +605,7 @@ async fn test_reqresp_mute_both_penalty() -> anyhow::Result<()> {
             #[cfg(feature = "byos")]
             target_app_public_key: target_public_key.clone(),
             #[cfg(not(feature = "byos"))]
-            target_transport_id: target_transport_id.clone(),
+            target_transport_id,
             data: "this should be muted reqresp".into(),
         })
         .await?;
@@ -633,7 +631,7 @@ async fn test_reqresp_mute_both_penalty() -> anyhow::Result<()> {
             #[cfg(feature = "byos")]
             target_app_public_key: target_public_key.clone(),
             #[cfg(not(feature = "byos"))]
-            target_transport_id: target_transport_id.clone(),
+            target_transport_id,
             data: "after mute expired".into(),
         })
         .await?;
