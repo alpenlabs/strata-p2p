@@ -8,7 +8,6 @@ use std::fmt::Debug;
 
 #[cfg(not(feature = "byos"))]
 use libp2p::identity::Keypair;
-use libp2p::identity::PublicKey;
 
 /// Trait for signing setup messages with application private keys.
 ///
@@ -16,11 +15,7 @@ use libp2p::identity::PublicKey;
 pub trait ApplicationSigner: Debug + Send + Sync + 'static {
     /// Signs the given message with the application private key that corresponds to the
     /// app_public_key.
-    fn sign(
-        &self,
-        message: &[u8],
-        app_public_key: PublicKey,
-    ) -> Result<[u8; 64], Box<dyn std::error::Error + Send + Sync>>;
+    fn sign(&self, message: &[u8]) -> Result<[u8; 64], Box<dyn std::error::Error + Send + Sync>>;
 }
 
 /// Internal signer that uses the transport keypair for signing when BYOS is disabled.
@@ -43,11 +38,7 @@ impl TransportKeypairSigner {
 
 #[cfg(not(feature = "byos"))]
 impl ApplicationSigner for TransportKeypairSigner {
-    fn sign(
-        &self,
-        message: &[u8],
-        _app_public_key: PublicKey,
-    ) -> Result<[u8; 64], Box<dyn std::error::Error + Send + Sync>> {
+    fn sign(&self, message: &[u8]) -> Result<[u8; 64], Box<dyn std::error::Error + Send + Sync>> {
         // When BYOS is disabled, we ignore the app_public_key parameter and always
         // sign with the transport keypair
         let signature = self.keypair.sign(message)?;

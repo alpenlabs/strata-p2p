@@ -2,10 +2,7 @@
 
 use std::{sync::Arc, time::Duration};
 
-use libp2p::{
-    build_multiaddr,
-    identity::{Keypair, PublicKey},
-};
+use libp2p::{build_multiaddr, identity::Keypair};
 use tokio::{sync::oneshot, time::sleep};
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use tracing::info;
@@ -26,11 +23,7 @@ impl BadApplicationSigner {
 }
 
 impl ApplicationSigner for BadApplicationSigner {
-    fn sign(
-        &self,
-        _message: &[u8],
-        _app_public_key: PublicKey,
-    ) -> Result<[u8; 64], Box<dyn std::error::Error + Send + Sync>> {
+    fn sign(&self, _message: &[u8]) -> Result<[u8; 64], Box<dyn std::error::Error + Send + Sync>> {
         let signature = [0x02; 64];
         Ok(signature)
     }
