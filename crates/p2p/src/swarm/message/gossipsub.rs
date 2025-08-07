@@ -9,14 +9,15 @@ use crate::swarm::message::{
     signed::{HasPublicKey, SignedMessage},
 };
 
-/// GossipSub protocol version enum.
+/// Gossipsub protocol version.
 #[repr(u8)]
 #[non_exhaustive]
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum GossipSubProtocolVersion {
-    /// first version.
+    /// First version.
     V1,
-    /// second (current last) version.
+    /// Second version.
+    #[default]
     V2,
 }
 
@@ -30,8 +31,8 @@ pub struct GossipMessage {
     pub protocol: ProtocolId,
     /// Gossipsub message data
     pub message: Vec<u8>,
-    /// The public key (Ed25519). Application public key if BYOS is enabled, otherwise transport
-    /// public key.
+    /// The public key (Ed25519). Application public key if `byos` feature is enabled, otherwise
+    /// transport
     #[serde(with = "pubkey_serializer")]
     pub public_key: PublicKey,
     /// Timestamp of message creation.
@@ -44,7 +45,7 @@ impl GossipMessage {
         let timestamp = get_timestamp();
 
         Self {
-            version: GossipSubProtocolVersion::V2,
+            version: GossipSubProtocolVersion::default(),
             protocol: ProtocolId::Gossip,
             message,
             public_key: app_public_key,

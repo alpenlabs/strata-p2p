@@ -12,11 +12,12 @@ use crate::swarm::message::{
 /// Request-response protocol version enum.
 #[repr(u8)]
 #[non_exhaustive]
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum RequestResponseProtocolVersion {
-    /// first version.
+    /// First version.
     V1,
-    /// second (current last) version.
+    /// Second version.
+    #[default]
     V2,
 }
 
@@ -30,8 +31,8 @@ pub struct RequestMessage {
     pub protocol: ProtocolId,
     /// Request-response message data
     pub message: Vec<u8>,
-    /// The public key (Ed25519). Application public key if BYOS is enabled, otherwise transport
-    /// public key.
+    /// The public key (Ed25519). Application public key if `byos` feature is enabled, otherwise
+    /// transport
     #[serde(with = "pubkey_serializer")]
     pub public_key: PublicKey,
     /// Timestamp of message creation.
@@ -82,7 +83,7 @@ impl ResponseMessage {
         let timestamp = get_timestamp();
 
         Self {
-            version: RequestResponseProtocolVersion::V2,
+            version: RequestResponseProtocolVersion::default(),
             protocol: ProtocolId::RequestResponse,
             message,
             app_public_key,

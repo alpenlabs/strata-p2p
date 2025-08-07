@@ -50,7 +50,7 @@ impl TryFrom<u8> for ProtocolId {
 fn get_timestamp() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .unwrap()
+        .expect("System time is before Unix epoch")
         .as_secs()
 }
 

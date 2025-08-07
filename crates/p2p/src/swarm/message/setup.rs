@@ -1,4 +1,5 @@
 //! Message types for P2P protocol communication inside of Setup behaviour's upgrade.
+//! It used for exchanging public key of the remote peer if `byos` is enabled.
 
 use libp2p::{PeerId, identity::PublicKey};
 use serde::{Deserialize, Serialize};
@@ -9,9 +10,10 @@ use crate::swarm::message::{get_timestamp, serde::pubkey_serializer};
 /// Setup protocol version enum.
 #[repr(u8)]
 #[non_exhaustive]
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum SetupProtocolVersion {
-    /// first version.
+    /// First version.
+    #[default]
     V1,
 }
 
@@ -42,7 +44,7 @@ impl SetupMessage {
         let timestamp = get_timestamp();
 
         Self {
-            version: SetupProtocolVersion::V1,
+            version: SetupProtocolVersion::default(),
             app_public_key,
             local_transport_id,
             remote_transport_id,
