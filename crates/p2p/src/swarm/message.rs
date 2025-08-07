@@ -11,6 +11,8 @@ use serde::{Deserialize, Serialize};
 
 #[cfg(any(feature = "gossipsub", feature = "request-response", feature = "byos"))]
 use super::errors::{SetupError, SignedMessageError};
+#[cfg(any(feature = "gossipsub", feature = "request-response", feature = "byos"))]
+use crate::signer::ApplicationSigner;
 
 #[cfg(any(feature = "gossipsub", feature = "request-response", feature = "byos"))]
 pub(super) mod pubkey_serializer {
@@ -142,7 +144,7 @@ impl SignedMessage {
     #[cfg(any(feature = "gossipsub", feature = "request-response", feature = "byos"))]
     pub(crate) fn new<T>(
         message: T,
-        signer: &dyn crate::signer::ApplicationSigner,
+        signer: &dyn ApplicationSigner,
         app_public_key: PublicKey,
     ) -> Result<Self, SignedMessageError>
     where
@@ -191,7 +193,7 @@ impl SignedMessage {
         app_public_key: PublicKey,
         local_transport_id: PeerId,
         remote_transport_id: PeerId,
-        signer: &dyn crate::signer::ApplicationSigner,
+        signer: &dyn ApplicationSigner,
     ) -> Result<Self, SignedMessageError> {
         let setup_message = SetupMessage::new(
             app_public_key.clone(),
@@ -207,7 +209,7 @@ impl SignedMessage {
     pub(crate) fn new_signed_gossip(
         app_public_key: PublicKey,
         message: Vec<u8>,
-        signer: &dyn crate::signer::ApplicationSigner,
+        signer: &dyn ApplicationSigner,
     ) -> Result<Self, SignedMessageError> {
         let gossip_message = GossipMessage::new(app_public_key.clone(), message);
 
@@ -219,7 +221,7 @@ impl SignedMessage {
     pub(crate) fn new_signed_request(
         app_public_key: PublicKey,
         message: Vec<u8>,
-        signer: &dyn crate::signer::ApplicationSigner,
+        signer: &dyn ApplicationSigner,
     ) -> Result<Self, SignedMessageError> {
         let request_message = RequestMessage::new(app_public_key.clone(), message);
 
@@ -231,7 +233,7 @@ impl SignedMessage {
     pub(crate) fn new_signed_response(
         app_public_key: PublicKey,
         message: Vec<u8>,
-        signer: &dyn crate::signer::ApplicationSigner,
+        signer: &dyn ApplicationSigner,
     ) -> Result<Self, SignedMessageError> {
         let response_message = ResponseMessage::new(app_public_key.clone(), message);
 
