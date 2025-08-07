@@ -1,14 +1,18 @@
 //! Score manager for the P2P network.
 
-use std::collections::HashMap;
-
-use libp2p::identity::PublicKey;
-
 /// Default application score for request-response protocol.
+#[cfg(feature = "request-response")]
 pub const DEFAULT_REQ_RESP_APP_SCORE: f64 = 0.0;
 
 /// Default application score for gossipsub protocol.
+#[cfg(feature = "gossipsub")]
 pub const DEFAULT_GOSSIP_APP_SCORE: f64 = 0.0;
+
+#[cfg(any(feature = "gossipsub", feature = "request-response"))]
+use std::collections::HashMap;
+
+#[cfg(any(feature = "gossipsub", feature = "request-response"))]
+use libp2p::identity::PeerId;
 
 /// Manages peer scoring for different protocols in the P2P network.
 ///
@@ -16,17 +20,22 @@ pub const DEFAULT_GOSSIP_APP_SCORE: f64 = 0.0;
 #[derive(Debug, Clone, Default)]
 pub struct ScoreManager {
     /// [`HashMap`] of `gossipsub` app score for each peer.
-    gossipsub_app_score: HashMap<PublicKey, f64>,
+    #[cfg(feature = "gossipsub")]
+    gossipsub_app_score: HashMap<PeerId, f64>,
 
     /// [`HashMap`] of request-response score for each peer.
-    req_resp_app_score: HashMap<PublicKey, f64>,
+    #[cfg(feature = "request-response")]
+    req_resp_app_score: HashMap<PeerId, f64>,
 }
 
 impl ScoreManager {
     /// Creates a new [`ScoreManager`] with empty score maps.
     pub fn new() -> Self {
         Self {
+            #[cfg(feature = "gossipsub")]
             gossipsub_app_score: HashMap::new(),
+
+            #[cfg(feature = "request-response")]
             req_resp_app_score: HashMap::new(),
         }
     }
@@ -34,32 +43,33 @@ impl ScoreManager {
     /// Retrieves the gossipsub application score for a specific peer.
     ///
     /// Returns [`None`] if no score exists for the peer.
-    pub fn get_gossipsub_app_score(&self, app_public_key: &PublicKey) -> Option<f64> {
-        self.gossipsub_app_score.get(app_public_key).cloned()
+    #[cfg(feature = "gossipsub")]
+    pub fn get_gossipsub_app_score(&self, peer_id: &PeerId) -> Option<f64> {
+        self.gossipsub_app_score.get(peer_id).cloned()
     }
 
     /// Retrieves the request-response application score for a specific peer.
     ///
     /// Returns [`None`] if no score exists for the peer.
-    pub fn get_req_resp_score(&self, app_public_key: &PublicKey) -> Option<f64> {
-        self.req_resp_app_score.get(app_public_key).cloned()
+    #[cfg(feature = "request-response")]
+    pub fn get_req_resp_score(&self, peer_id: &PeerId) -> Option<f64> {
+        self.req_resp_app_score.get(peer_id).cloned()
     }
 
     /// Updates the gossipsub application score for a specific peer.
-    pub fn update_gossipsub_app_score(&mut self, app_public_key: &PublicKey, new_score: f64) {
-        self.gossipsub_app_score
-            .insert(app_public_key.clone(), new_score);
+    #[cfg(feature = "gossipsub")]
+    pub fn update_gossipsub_app_score(&mut self, peer_id: &PeerId, new_score: f64) {
+        self.gossipsub_app_score.insert(*peer_id, new_score);
     }
 
     /// Updates the request-response application score for a specific peer.
-    pub fn update_req_resp_app_score(&mut self, app_public_key: &PublicKey, new_score: f64) {
-        self.req_resp_app_score
-            .insert(app_public_key.clone(), new_score);
+    #[cfg(feature = "request-response")]
+    pub fn update_req_resp_app_score(&mut self, peer_id: &PeerId, new_score: f64) {
+        self.req_resp_app_score.insert(*peer_id, new_score);
     }
 }
 
 /// All scores for a peer.
-#[cfg(any(feature = "gossipsub", feature = "request-response"))]
 #[derive(Debug, Clone, Default)]
 pub struct PeerScore {
     /// Gossipsub application score.

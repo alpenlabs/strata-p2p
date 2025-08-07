@@ -1,5 +1,7 @@
 //! Tests for new operator functionality.
 
+#[cfg(feature = "byos")]
+use std::sync::Arc;
 use std::time::Duration;
 
 use futures::SinkExt;
@@ -8,13 +10,15 @@ use tokio::{sync::oneshot::channel, time::sleep};
 use tracing::{debug, info};
 
 use super::common::Setup;
+#[cfg(feature = "byos")]
+use crate::tests::common::MockApplicationSigner;
+#[cfg(not(feature = "byos"))]
+use crate::validator::DefaultP2PValidator;
 use crate::{
     commands::{Command, GossipCommand, QueryP2PStateCommand},
     events::GossipEvent,
-    tests::common::{MockApplicationSigner, User, init_tracing},
-    validator::DefaultP2PValidator,
+    tests::common::{User, init_tracing},
 };
-
 /// Tests sending a gossipsub message from a new user to all existing users.
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
@@ -23,6 +27,7 @@ async fn gossip_new_user() -> anyhow::Result<()> {
     const USERS_NUM: usize = 9;
 
     // Generate a keypair for the new user
+    #[cfg(feature = "byos")]
     let new_user_app_keypair = Keypair::generate_ed25519();
 
     info!(
@@ -30,11 +35,20 @@ async fn gossip_new_user() -> anyhow::Result<()> {
         "Setting up users in all-to-all topology with new user in allowlist"
     );
     // Create the original users with allowlist containing the new user
+    #[cfg(feature = "byos")]
     let Setup {
         mut user_handles,
         cancel,
         tasks,
-    } = Setup::all_to_all_with_new_user_allowlist(USERS_NUM, &new_user_app_keypair).await?;
+    } = Setup::all_to_all_with_new_user_allowlist(USERS_NUM, &new_user_app_keypair.public())
+        .await?;
+
+    #[cfg(not(feature = "byos"))]
+    let Setup {
+        mut user_handles,
+        cancel,
+        tasks,
+    } = Setup::all_to_all(USERS_NUM).await?;
 
     // Get connection addresses of old users for the new user to connect to.
     info!("Getting listening addresses for new user");
@@ -62,24 +76,26 @@ async fn gossip_new_user() -> anyhow::Result<()> {
     let new_user_transport_keypair = Keypair::generate_ed25519();
 
     // Create allowlist for new user (all existing users)
+    #[cfg(feature = "byos")]
     let new_user_allowlist = user_handles
         .iter()
         .map(|handle| handle.app_keypair.public())
         .collect::<Vec<_>>();
 
     let mut new_user = User::new(
+        #[cfg(feature = "byos")]
         new_user_app_keypair.clone(),
         new_user_transport_keypair.clone(),
         connect_addrs.clone(), // Connect directly to existing users
-        new_user_allowlist,    // Allow all existing users
+        #[cfg(feature = "byos")]
+        new_user_allowlist, // Allow all existing users
         vec![local_addr.clone()],
         cancel.child_token(),
-        MockApplicationSigner::new(new_user_app_keypair.clone()),
-        DefaultP2PValidator,
+        #[cfg(feature = "byos")]
+        Arc::new(MockApplicationSigner::new(new_user_app_keypair.clone())),
+        #[cfg(not(feature = "byos"))]
+        Box::new(DefaultP2PValidator),
     )?;
-
-    // Wait for existing users to fully initialize
-    sleep(Duration::from_millis(5_000)).await;
 
     // Run the new user in a separate task - this call will handle connections
     tasks.spawn(async move {
@@ -93,29 +109,35 @@ async fn gossip_new_user() -> anyhow::Result<()> {
     });
 
     // Wait for existing users to fully initialize
-    sleep(Duration::from_millis(5_000)).await;
+    sleep(Duration::from_secs(3)).await;
 
     // Connect the old users to the new one
     for (index, addr) in connect_addrs.iter().enumerate() {
         info!(
             index,
             addr = %addr,
-            old_peer = %user_handles[index].peer_id,
-            new_peer = %new_user.app_keypair.public().to_peer_id(),
+            old_user_tid = %user_handles[index].peer_id,
+            new_user_tid = %new_user.transport_keypair.public().to_peer_id(),
             "Old user connecting to new user"
         );
+        #[cfg(feature = "byos")]
         let app_public_key = user_handles[index].app_keypair.public();
+        #[cfg(not(feature = "byos"))]
+        let transport_id = user_handles[index].peer_id;
         user_handles[index]
             .command
             .send_command(Command::ConnectToPeer {
+                #[cfg(feature = "byos")]
                 app_public_key,
+                #[cfg(not(feature = "byos"))]
+                transport_id,
                 addresses: vec![local_addr.clone()],
             })
             .await;
     }
 
     // Give time for the new user to establish connections
-    sleep(Duration::from_secs(5)).await;
+    sleep(Duration::from_secs(1)).await;
 
     let message_from_inside = b"Hello my friends!".to_vec();
     let message_from_outsider = b"Hi, I'm new here.".to_vec();

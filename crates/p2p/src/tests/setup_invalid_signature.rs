@@ -1,12 +1,9 @@
 //! Tests for the setup phase of P2P connections where signature is invalid.
 
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
-use libp2p::{
-    build_multiaddr,
-    identity::{Keypair, PublicKey},
-};
-use tokio::{sync::oneshot::channel, time::sleep};
+use libp2p::{build_multiaddr, identity::Keypair};
+use tokio::{sync::oneshot, time::sleep};
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use tracing::info;
 
@@ -14,7 +11,6 @@ use crate::{
     commands::{Command, QueryP2PStateCommand},
     signer::ApplicationSigner,
     tests::common::{MockApplicationSigner, User, init_tracing},
-    validator::DefaultP2PValidator,
 };
 
 #[derive(Debug, Clone)]
@@ -27,11 +23,7 @@ impl BadApplicationSigner {
 }
 
 impl ApplicationSigner for BadApplicationSigner {
-    fn sign(
-        &self,
-        _message: &[u8],
-        _app_public_key: PublicKey,
-    ) -> Result<[u8; 64], Box<dyn std::error::Error + Send + Sync>> {
+    fn sign(&self, _message: &[u8]) -> Result<[u8; 64], Box<dyn std::error::Error + Send + Sync>> {
         let signature = [0x02; 64];
         Ok(signature)
     }
@@ -58,8 +50,7 @@ async fn test_setup_with_invalid_signature() {
         vec![app_keypair_good2.public()],
         vec![local_addr_good1.clone()],
         cancel_good1.child_token(),
-        MockApplicationSigner::new(app_keypair_good1.clone()),
-        DefaultP2PValidator,
+        Arc::new(MockApplicationSigner::new(app_keypair_good1.clone())),
     )
     .unwrap();
 
@@ -70,8 +61,7 @@ async fn test_setup_with_invalid_signature() {
         vec![app_keypair_good1.public()],
         vec![local_addr_good2.clone()],
         cancel_good2.child_token(),
-        MockApplicationSigner::new(app_keypair_good2.clone()),
-        DefaultP2PValidator,
+        Arc::new(MockApplicationSigner::new(app_keypair_good2.clone())),
     )
     .unwrap();
 
@@ -102,8 +92,7 @@ async fn test_setup_with_invalid_signature() {
         vec![app_keypair_good1.public()], // allowlist
         vec![local_addr_bad.clone()],     // listening_addrs
         cancel_bad.child_token(),
-        BadApplicationSigner::new(app_keypair_bad.clone()),
-        DefaultP2PValidator,
+        Arc::new(BadApplicationSigner::new(app_keypair_bad.clone())),
     )
     .unwrap();
 
@@ -140,7 +129,7 @@ async fn test_setup_with_invalid_signature() {
     // Wait for connection attempts to resolve (or fail due to bad signature)
     sleep(Duration::from_secs(1)).await;
 
-    let (tx_good_peers, rx_good_peers) = channel::<Vec<PublicKey>>();
+    let (tx_good_peers, rx_good_peers) = oneshot::channel();
     good_command_handle1
         .send_command(Command::QueryP2PState(
             QueryP2PStateCommand::GetConnectedPeers {
@@ -151,7 +140,7 @@ async fn test_setup_with_invalid_signature() {
     let connected_peers_good1 = rx_good_peers.await.unwrap();
     info!(?connected_peers_good1, "Good user connected peers");
 
-    let (tx_good_peers, rx_good_peers) = channel::<Vec<PublicKey>>();
+    let (tx_good_peers, rx_good_peers) = oneshot::channel();
     good_command_handle2
         .send_command(Command::QueryP2PState(
             QueryP2PStateCommand::GetConnectedPeers {
@@ -162,7 +151,7 @@ async fn test_setup_with_invalid_signature() {
     let connected_peers_good2 = rx_good_peers.await.unwrap();
     info!(?connected_peers_good2, "Second good user connected peers");
 
-    let (tx_bad_peers, rx_bad_peers) = channel::<Vec<PublicKey>>();
+    let (tx_bad_peers, rx_bad_peers) = oneshot::channel();
     bad_command_handle
         .send_command(Command::QueryP2PState(
             QueryP2PStateCommand::GetConnectedPeers {
@@ -174,27 +163,27 @@ async fn test_setup_with_invalid_signature() {
     info!(?connected_peers_bad, "Bad user connected peers");
 
     assert!(
-        !connected_peers_good1.contains(&app_keypair_bad.public()),
+        !connected_peers_good1.contains(&app_keypair_bad.public(),),
         "Good user should NOT be connected to bad user due to invalid signature from bad user."
     );
     assert!(
-        connected_peers_good1.contains(&app_keypair_good2.public()),
+        connected_peers_good1.contains(&app_keypair_good2.public(),),
         "Good user should be connected to second good user."
     );
     assert!(
-        !connected_peers_good2.contains(&app_keypair_bad.public()),
+        !connected_peers_good2.contains(&app_keypair_bad.public(),),
         "Second good user should NOT be connected to bad user due to invalid signature from bad user."
     );
     assert!(
-        connected_peers_good2.contains(&app_keypair_good1.public()),
+        connected_peers_good2.contains(&app_keypair_good1.public(),),
         "Good user should be connected to good user."
     );
     assert!(
-        !connected_peers_bad.contains(&app_keypair_good1.public()),
+        !connected_peers_bad.contains(&app_keypair_good1.public(),),
         "Bad user should NOT be connected to good user (or anyone else via this connection attempt)."
     );
     assert!(
-        !connected_peers_bad.contains(&app_keypair_good2.public()),
+        !connected_peers_bad.contains(&app_keypair_good2.public(),),
         "Bad user should NOT be connected to second good user (or anyone else via this connection attempt)."
     );
 

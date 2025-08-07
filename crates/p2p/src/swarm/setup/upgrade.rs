@@ -4,7 +4,9 @@
 //! setup protocols, handling the serialization and exchange of setup messages
 //! over libp2p streams.
 
-use std::{future::Future, iter, pin::Pin};
+#![cfg(feature = "byos")]
+
+use std::{future::Future, iter, pin::Pin, sync::Arc};
 
 use asynchronous_codec::{Framed, JsonCodec};
 use futures::{SinkExt, StreamExt};
@@ -14,7 +16,13 @@ use libp2p::{
 
 use crate::{
     signer::ApplicationSigner,
-    swarm::{errors::SetupUpgradeError, message::SignedMessage},
+    swarm::{
+        errors::SetupUpgradeError,
+        message::{
+            setup::{SetupMessage, SignedSetupMessage},
+            signed::SignedMessage,
+        },
+    },
 };
 
 /// Inbound upgrade for handling incoming setup requests.
@@ -40,13 +48,16 @@ impl UpgradeInfo for InboundSetupUpgrade {
 }
 
 impl InboundUpgrade<Stream> for InboundSetupUpgrade {
-    type Output = SignedMessage;
+    type Output = SignedSetupMessage;
     type Error = SetupUpgradeError;
     type Future = Pin<Box<dyn Future<Output = Result<Self::Output, Self::Error>> + Send>>;
 
     fn upgrade_inbound(self, stream: Stream, _: Self::Info) -> Self::Future {
         Box::pin(async move {
-            let mut framed = Framed::new(stream, JsonCodec::<SignedMessage, SignedMessage>::new());
+            let mut framed = Framed::new(
+                stream,
+                JsonCodec::<SignedSetupMessage, SignedSetupMessage>::new(),
+            );
 
             match StreamExt::next(&mut framed).await {
                 Some(Ok(signed_message)) => Ok(signed_message),
@@ -61,14 +72,14 @@ impl InboundUpgrade<Stream> for InboundSetupUpgrade {
 ///
 /// This upgrade sends the setup messages to remote peers.
 #[derive(Clone, Debug)]
-pub struct OutboundSetupUpgrade<S: ApplicationSigner> {
+pub struct OutboundSetupUpgrade<S> {
     app_public_key: PublicKey,
     local_transport_id: PeerId,
     remote_transport_id: PeerId,
     signer: S,
 }
 
-impl<S: ApplicationSigner> OutboundSetupUpgrade<S> {
+impl<S> OutboundSetupUpgrade<S> {
     pub(crate) const fn new(
         app_public_key: PublicKey,
         local_transport_id: PeerId,
@@ -84,7 +95,7 @@ impl<S: ApplicationSigner> OutboundSetupUpgrade<S> {
     }
 }
 
-impl<S: ApplicationSigner> UpgradeInfo for OutboundSetupUpgrade<S> {
+impl<S> UpgradeInfo for OutboundSetupUpgrade<S> {
     type Info = &'static str;
     type InfoIter = iter::Once<Self::Info>;
 
@@ -93,24 +104,28 @@ impl<S: ApplicationSigner> UpgradeInfo for OutboundSetupUpgrade<S> {
     }
 }
 
-impl<S: ApplicationSigner> OutboundUpgrade<Stream> for OutboundSetupUpgrade<S> {
+impl OutboundUpgrade<Stream> for OutboundSetupUpgrade<Arc<dyn ApplicationSigner>> {
     type Output = ();
     type Error = SetupUpgradeError;
     type Future = Pin<Box<dyn Future<Output = Result<Self::Output, Self::Error>> + Send>>;
 
     fn upgrade_outbound(self, stream: Stream, _: Self::Info) -> Self::Future {
         Box::pin(async move {
-            let setup_message = SignedMessage::new_signed_setup(
+            let setup_message = SetupMessage::new(
                 self.app_public_key.clone(),
                 self.local_transport_id,
                 self.remote_transport_id,
-                &self.signer,
-            )
-            .map_err(|e| SetupUpgradeError::SignedMessageCreation(e.into()))?;
+            );
 
-            let mut framed = Framed::new(stream, JsonCodec::<SignedMessage, SignedMessage>::new());
+            let signed_setup_message = SignedMessage::new(setup_message, self.signer.as_ref())
+                .map_err(SetupUpgradeError::SignedMessageCreation)?;
+
+            let mut framed = Framed::new(
+                stream,
+                JsonCodec::<SignedMessage<SetupMessage>, SignedMessage<SetupMessage>>::new(),
+            );
             framed
-                .send(setup_message)
+                .send(signed_setup_message)
                 .await
                 .map_err(|e| SetupUpgradeError::JsonCodec(e.into()))?;
             framed

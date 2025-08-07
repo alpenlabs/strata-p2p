@@ -33,15 +33,35 @@ async fn test_connection_by_app_public_key() {
         "User 2 should have connected peers"
     );
 
+    #[cfg(feature = "byos")]
     let user2_app_pk = user2.app_keypair.public();
-    let is_connected_1_to_2 = user1.command.is_connected(&user2_app_pk, None).await;
+    let is_connected_1_to_2 = user1
+        .command
+        .is_connected(
+            #[cfg(feature = "byos")]
+            &user2_app_pk,
+            #[cfg(not(feature = "byos"))]
+            &user2.peer_id,
+            None,
+        )
+        .await;
     assert!(
         is_connected_1_to_2,
         "User 1 should be connected to user 2 by app public key"
     );
 
+    #[cfg(feature = "byos")]
     let user1_app_pk = user1.app_keypair.public();
-    let is_connected_2_to_1 = user2.command.is_connected(&user1_app_pk, None).await;
+    let is_connected_2_to_1 = user2
+        .command
+        .is_connected(
+            #[cfg(feature = "byos")]
+            &user1_app_pk,
+            #[cfg(not(feature = "byos"))]
+            &user1.peer_id,
+            None,
+        )
+        .await;
     assert!(
         is_connected_2_to_1,
         "User 2 should be connected to user 1 by app public key"
@@ -49,7 +69,16 @@ async fn test_connection_by_app_public_key() {
 
     let fake_keypair = libp2p::identity::Keypair::generate_ed25519();
     let fake_app_pk = fake_keypair.public();
-    let is_connected_to_fake = user1.command.is_connected(&fake_app_pk, None).await;
+    let is_connected_to_fake = user1
+        .command
+        .is_connected(
+            #[cfg(feature = "byos")]
+            &fake_app_pk,
+            #[cfg(not(feature = "byos"))]
+            &fake_app_pk.to_peer_id(),
+            None,
+        )
+        .await;
     assert!(
         !is_connected_to_fake,
         "Should not be connected to non-existent app public key"

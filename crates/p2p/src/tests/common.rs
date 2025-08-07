@@ -1,26 +1,30 @@
 //! Helper functions for the P2P tests.
 
+#[cfg(feature = "byos")]
+use std::sync::Arc;
 use std::{sync::Once, time::Duration};
 
 use futures::future::join_all;
-use libp2p::{
-    Multiaddr, PeerId, build_multiaddr,
-    identity::{Keypair, PublicKey},
-};
+#[cfg(feature = "byos")]
+use libp2p::identity::PublicKey;
+use libp2p::{Multiaddr, PeerId, build_multiaddr, identity::Keypair};
 use rand::Rng;
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use tracing::debug;
 use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, util::SubscriberInitExt};
 
+#[cfg(feature = "byos")]
+use crate::signer::ApplicationSigner;
 #[cfg(feature = "gossipsub")]
 use crate::swarm::handle::GossipHandle;
 #[cfg(feature = "request-response")]
 use crate::swarm::handle::ReqRespHandle;
-use crate::{
-    signer::ApplicationSigner,
-    swarm::{self, P2P, P2PConfig, handle::CommandHandle},
-    validator::{DefaultP2PValidator, Validator},
-};
+use crate::swarm::{self, P2P, P2PConfig, handle::CommandHandle};
+#[cfg(all(
+    any(feature = "gossipsub", feature = "request-response"),
+    not(feature = "byos")
+))]
+use crate::validator::{DefaultP2PValidator, Validator};
 
 /// Only attempt to start tracing once
 ///
@@ -37,24 +41,23 @@ pub(crate) fn init_tracing() {
 }
 
 /// Mock ApplicationSigner for testing that stores the actual keypair
+#[cfg(feature = "byos")]
 #[derive(Debug, Clone)]
 pub(crate) struct MockApplicationSigner {
     // Store the actual keypair that corresponds to the app public key
     app_keypair: Keypair,
 }
 
+#[cfg(feature = "byos")]
 impl MockApplicationSigner {
     pub(crate) const fn new(app_keypair: Keypair) -> Self {
         Self { app_keypair }
     }
 }
 
+#[cfg(feature = "byos")]
 impl ApplicationSigner for MockApplicationSigner {
-    fn sign(
-        &self,
-        message: &[u8],
-        _app_public_key: PublicKey,
-    ) -> Result<[u8; 64], Box<dyn std::error::Error + Send + Sync>> {
+    fn sign(&self, message: &[u8]) -> Result<[u8; 64], Box<dyn std::error::Error + Send + Sync>> {
         // Sign with the stored keypair
         let signature = self.app_keypair.sign(message)?;
         let sign_array: [u8; 64] = signature.try_into().unwrap();
@@ -62,31 +65,34 @@ impl ApplicationSigner for MockApplicationSigner {
     }
 }
 
-pub(crate) struct User<
-    S: ApplicationSigner = MockApplicationSigner,
-    V: Validator = DefaultP2PValidator,
-> {
-    pub(crate) p2p: P2P<S, V>,
+pub(crate) struct User {
+    pub(crate) p2p: P2P,
     #[cfg(feature = "gossipsub")]
     pub(crate) gossip: GossipHandle,
     #[cfg(feature = "request-response")]
     pub(crate) reqresp: ReqRespHandle,
     pub(crate) command: CommandHandle,
+    #[cfg(feature = "byos")]
     pub(crate) app_keypair: Keypair,
+    #[cfg(any(feature = "gossipsub", feature = "byos", feature = "kad"))]
     pub(crate) transport_keypair: Keypair,
 }
 
-impl<S: ApplicationSigner, V: Validator> User<S, V> {
+impl User {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
-        app_keypair: Keypair,
+        #[cfg(feature = "byos")] app_keypair: Keypair,
         transport_keypair: Keypair,
         connect_to: Vec<Multiaddr>,
-        allowlist: Vec<PublicKey>,
+        #[cfg(feature = "byos")] allowlist: Vec<PublicKey>,
         listening_addrs: Vec<Multiaddr>,
         cancel: CancellationToken,
-        signer: S,
-        validator: V,
+        #[cfg(feature = "byos")] signer: Arc<dyn ApplicationSigner>,
+        #[cfg(all(
+            any(feature = "gossipsub", feature = "request-response"),
+            not(feature = "byos")
+        ))]
+        validator: Box<dyn Validator>,
     ) -> anyhow::Result<Self> {
         debug!(
             ?listening_addrs,
@@ -94,6 +100,7 @@ impl<S: ApplicationSigner, V: Validator> User<S, V> {
         );
 
         let config = P2PConfig {
+            #[cfg(feature = "byos")]
             app_public_key: app_keypair.public(),
             transport_keypair: transport_keypair.clone(),
             idle_connection_timeout: Duration::from_secs(30),
@@ -116,6 +123,8 @@ impl<S: ApplicationSigner, V: Validator> User<S, V> {
             req_resp_event_buffer_size: None,
             #[cfg(feature = "gossipsub")]
             gossip_command_buffer_size: None,
+            #[cfg(feature = "kad")]
+            kad_protocol_name: None, // this will take default one.
         };
 
         // Determine transport type based on the first listening address
@@ -126,9 +135,17 @@ impl<S: ApplicationSigner, V: Validator> User<S, V> {
             .unwrap_or(false);
 
         let swarm = if use_inmemory {
-            swarm::with_inmemory_transport(&config, signer.clone())?
+            swarm::with_inmemory_transport(
+                &config,
+                #[cfg(feature = "byos")]
+                signer.clone(),
+            )?
         } else {
-            swarm::with_default_transport(&config, signer.clone())?
+            swarm::with_default_transport(
+                &config,
+                #[cfg(feature = "byos")]
+                signer.clone(),
+            )?
         };
 
         #[cfg(feature = "request-response")]
@@ -136,10 +153,13 @@ impl<S: ApplicationSigner, V: Validator> User<S, V> {
             config,
             cancel,
             swarm,
+            #[cfg(feature = "byos")]
             allowlist,
             #[cfg(feature = "gossipsub")]
             None,
+            #[cfg(feature = "byos")]
             signer.clone(),
+            #[cfg(not(feature = "byos"))]
             Some(validator),
         )?;
         #[cfg(not(feature = "request-response"))]
@@ -147,10 +167,13 @@ impl<S: ApplicationSigner, V: Validator> User<S, V> {
             config,
             cancel,
             swarm,
+            #[cfg(feature = "byos")]
             allowlist,
             #[cfg(feature = "gossipsub")]
             None,
+            #[cfg(all(feature = "byos", feature = "gossipsub"))]
             signer,
+            #[cfg(all(feature = "gossipsub", not(feature = "byos")))]
             Some(validator),
         )?;
         #[cfg(feature = "gossipsub")]
@@ -164,7 +187,9 @@ impl<S: ApplicationSigner, V: Validator> User<S, V> {
             #[cfg(feature = "request-response")]
             reqresp,
             command,
+            #[cfg(feature = "byos")]
             app_keypair,
+            #[cfg(any(feature = "gossipsub", feature = "byos", feature = "kad"))]
             transport_keypair,
         })
     }
@@ -179,6 +204,7 @@ pub(crate) struct UserHandle {
     #[cfg(feature = "request-response")]
     pub(crate) reqresp: ReqRespHandle,
     pub(crate) command: CommandHandle,
+    #[cfg(feature = "byos")]
     pub(crate) app_keypair: Keypair,
 }
 
@@ -189,6 +215,7 @@ pub(crate) struct Setup {
 }
 
 pub(crate) struct SetupInitialData {
+    #[cfg(feature = "byos")]
     pub(crate) app_keypairs: Vec<Keypair>,
     pub(crate) transport_keypairs: Vec<Keypair>,
     pub(crate) peer_ids: Vec<PeerId>,
@@ -200,6 +227,7 @@ impl Setup {
     /// to stop control async tasks they are spawned in.
     pub(crate) async fn all_to_all(n: usize) -> anyhow::Result<Self> {
         let SetupInitialData {
+            #[cfg(feature = "byos")]
             app_keypairs,
             transport_keypairs,
             peer_ids,
@@ -209,6 +237,7 @@ impl Setup {
         let cancel = CancellationToken::new();
         let mut users = Vec::new();
 
+        #[cfg(feature = "byos")]
         for (idx, ((app_keypair, transport_keypair), addr)) in app_keypairs
             .iter()
             .zip(&transport_keypairs)
@@ -232,10 +261,31 @@ impl Setup {
                 other_app_pk,
                 vec![addr.clone()],
                 cancel.child_token(),
-                MockApplicationSigner {
+                #[cfg(feature = "byos")]
+                Arc::new(MockApplicationSigner {
                     app_keypair: app_keypair.clone(),
-                },
-                DefaultP2PValidator,
+                }),
+            )?;
+
+            users.push(user);
+        }
+
+        #[cfg(not(feature = "byos"))]
+        for (idx, (transport_keypair, addr)) in
+            transport_keypairs.iter().zip(&multiaddresses).enumerate()
+        {
+            let mut other_addrs = multiaddresses.clone();
+            other_addrs.remove(idx);
+            let mut other_peerids = peer_ids.clone();
+            other_peerids.remove(idx);
+
+            let user = User::new(
+                transport_keypair.clone(),
+                other_addrs,
+                vec![addr.clone()],
+                cancel.child_token(),
+                #[cfg(any(feature = "gossipsub", feature = "request-response"))]
+                Box::new(DefaultP2PValidator),
             )?;
 
             users.push(user);
@@ -252,10 +302,10 @@ impl Setup {
 
     /// Spawn `n` users that are connected "all-to-all" with a new user's public key
     /// pre-included in their allowlist.
-    #[cfg(feature = "gossipsub")]
+    #[cfg(all(feature = "byos", any(feature = "gossipsub", feature = "kad")))]
     pub(crate) async fn all_to_all_with_new_user_allowlist(
         n: usize,
-        new_user_app_keypair: &Keypair,
+        new_user_app_public_key: &PublicKey,
     ) -> anyhow::Result<Self> {
         let SetupInitialData {
             app_keypairs,
@@ -278,24 +328,30 @@ impl Setup {
             let mut other_peerids = peer_ids.clone();
             other_peerids.remove(idx);
 
+            #[cfg(feature = "byos")]
             let mut allowlist = app_keypairs
                 .iter()
                 .map(|kp| kp.public())
                 .collect::<Vec<_>>();
+            #[cfg(feature = "byos")]
             allowlist.remove(idx);
-            allowlist.push(new_user_app_keypair.public());
+            #[cfg(feature = "byos")]
+            allowlist.push(new_user_app_public_key.clone());
 
             let user = User::new(
                 app_keypair.clone(),
                 transport_keypair.clone(),
                 other_addrs,
+                #[cfg(feature = "byos")]
                 allowlist,
                 vec![addr.clone()],
                 cancel.child_token(),
-                MockApplicationSigner {
+                #[cfg(feature = "byos")]
+                Arc::new(MockApplicationSigner {
                     app_keypair: app_keypair.clone(),
-                },
-                DefaultP2PValidator,
+                }),
+                #[cfg(not(feature = "byos"))]
+                Box::new(DefaultP2PValidator),
             )?;
 
             users.push(user);
@@ -311,13 +367,15 @@ impl Setup {
     }
 
     /// Spawn `n` users that are connected "all-to-all" with a custom validator.
-    #[cfg(feature = "gossipsub")]
-    pub(crate) async fn all_to_all_with_custom_validator<V: Validator>(
+    #[cfg(all(
+        any(feature = "gossipsub", feature = "request-response"),
+        not(feature = "byos")
+    ))]
+    pub(crate) async fn all_to_all_with_custom_validator<V: Validator + Clone>(
         n: usize,
         validator: V,
     ) -> anyhow::Result<Self> {
         let SetupInitialData {
-            app_keypairs,
             transport_keypairs,
             peer_ids,
             multiaddresses,
@@ -326,33 +384,21 @@ impl Setup {
         let cancel = CancellationToken::new();
         let mut users = Vec::new();
 
-        for (idx, ((app_keypair, transport_keypair), addr)) in app_keypairs
-            .iter()
-            .zip(&transport_keypairs)
-            .zip(&multiaddresses)
-            .enumerate()
+        #[cfg(not(feature = "byos"))]
+        for (idx, (transport_keypair, addr)) in
+            transport_keypairs.iter().zip(&multiaddresses).enumerate()
         {
             let mut other_addrs = multiaddresses.clone();
             other_addrs.remove(idx);
             let mut other_peerids = peer_ids.clone();
             other_peerids.remove(idx);
-            let mut other_app_pk = app_keypairs
-                .iter()
-                .map(|kp| kp.public())
-                .collect::<Vec<_>>();
-            other_app_pk.remove(idx);
 
             let user = User::new(
-                app_keypair.clone(),
                 transport_keypair.clone(),
                 other_addrs,
-                other_app_pk,
                 vec![addr.clone()],
                 cancel.child_token(),
-                MockApplicationSigner {
-                    app_keypair: app_keypair.clone(),
-                },
-                validator.clone(),
+                Box::new(validator.clone()),
             )?;
 
             users.push(user);
@@ -370,6 +416,7 @@ impl Setup {
     /// Create `n` random keypairs, transport ids from them and sequential in-memory
     /// addresses.
     fn setup_keys_ids_addrs_of_n_users(n: usize) -> SetupInitialData {
+        #[cfg(feature = "byos")]
         let app_keypairs = (0..n)
             .map(|_| Keypair::generate_ed25519())
             .collect::<Vec<_>>();
@@ -378,10 +425,13 @@ impl Setup {
             .map(|_| Keypair::generate_ed25519())
             .collect::<Vec<_>>();
 
+        #[cfg(feature = "byos")]
         debug!(
-            "len(app_keypairs):{}, len(transport_keypairs):{}",
-            app_keypairs.len(),
-            transport_keypairs.len()
+            len_app_keypairs = %app_keypairs.len(),
+        );
+
+        debug!(
+            len_transport_keypairs= %transport_keypairs.len()
         );
 
         let peer_ids = transport_keypairs
@@ -407,6 +457,7 @@ impl Setup {
             .collect::<Vec<_>>();
 
         SetupInitialData {
+            #[cfg(feature = "byos")]
             app_keypairs,
             transport_keypairs,
             peer_ids,
@@ -417,9 +468,7 @@ impl Setup {
     /// Waits for all users to establish connections and subscriptions, then spawns their listen
     /// tasks. Returns user handles for communication and a task tracker for managing the
     /// spawned tasks.
-    async fn start_users<S: ApplicationSigner, V: Validator>(
-        mut users: Vec<User<S, V>>,
-    ) -> (Vec<UserHandle>, TaskTracker) {
+    async fn start_users(mut users: Vec<User>) -> (Vec<UserHandle>, TaskTracker) {
         // wait until all of them established connections and subscriptions
         join_all(
             users
@@ -441,6 +490,7 @@ impl Setup {
                 reqresp: user.reqresp,
                 command: user.command,
                 peer_id,
+                #[cfg(feature = "byos")]
                 app_keypair: user.app_keypair,
             });
         }

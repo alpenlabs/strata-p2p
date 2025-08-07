@@ -4,7 +4,12 @@
 //! setup processes, handling both inbound and outbound substreams for the setup
 //! protocol.
 
-use std::task::{Context, Poll};
+#![cfg(feature = "byos")]
+
+use std::{
+    sync::Arc,
+    task::{Context, Poll},
+};
 
 use libp2p::{
     PeerId,
@@ -13,13 +18,11 @@ use libp2p::{
         ConnectionHandler, ConnectionHandlerEvent, SubstreamProtocol, handler::ConnectionEvent,
     },
 };
-use tracing::trace;
 
 use crate::{
     signer::ApplicationSigner,
     swarm::{
         errors::SetupError,
-        message::SetupMessage,
         setup::{
             events::SetupHandlerEvent,
             upgrade::{InboundSetupUpgrade, OutboundSetupUpgrade},
@@ -31,18 +34,26 @@ use crate::{
 ///
 /// This handler manages the lifecycle of setup substreams for a single connection,
 /// coordinating both inbound and outbound handshake processes.
+#[expect(clippy::type_complexity)]
 #[derive(Debug)]
-pub struct SetupHandler<S: ApplicationSigner> {
-    outbound_substream: Option<SubstreamProtocol<OutboundSetupUpgrade<S>, ()>>,
-    pending_events: Vec<ConnectionHandlerEvent<OutboundSetupUpgrade<S>, (), SetupHandlerEvent>>,
+pub struct SetupHandler {
+    outbound_substream:
+        Option<SubstreamProtocol<OutboundSetupUpgrade<Arc<dyn ApplicationSigner>>, ()>>,
+    pending_events: Vec<
+        ConnectionHandlerEvent<
+            OutboundSetupUpgrade<Arc<dyn ApplicationSigner>>,
+            (),
+            SetupHandlerEvent,
+        >,
+    >,
 }
 
-impl<S: ApplicationSigner> SetupHandler<S> {
+impl SetupHandler {
     pub(crate) fn new(
         app_public_key: PublicKey,
         local_transport_id: PeerId,
         remote_transport_id: PeerId,
-        signer: S,
+        signer: Arc<dyn ApplicationSigner>,
     ) -> Self {
         let upgrade = OutboundSetupUpgrade::new(
             app_public_key,
@@ -58,11 +69,11 @@ impl<S: ApplicationSigner> SetupHandler<S> {
     }
 }
 
-impl<S: ApplicationSigner> ConnectionHandler for SetupHandler<S> {
+impl ConnectionHandler for SetupHandler {
     type FromBehaviour = ();
     type ToBehaviour = SetupHandlerEvent;
     type InboundProtocol = InboundSetupUpgrade;
-    type OutboundProtocol = OutboundSetupUpgrade<S>;
+    type OutboundProtocol = OutboundSetupUpgrade<Arc<dyn ApplicationSigner>>;
     type InboundOpenInfo = ();
     type OutboundOpenInfo = ();
 
@@ -99,28 +110,9 @@ impl<S: ApplicationSigner> ConnectionHandler for SetupHandler<S> {
     ) {
         match event {
             ConnectionEvent::FullyNegotiatedInbound(inbound) => {
-                let setup_msg = inbound.protocol;
+                let signed_setup_msg = inbound.protocol;
 
-                let setup_message: SetupMessage = match setup_msg.deserialize_message() {
-                    Ok(msg) => msg,
-                    Err(e) => {
-                        trace!(
-                            "Failed to deserialize a message {}",
-                            String::from_utf8(setup_msg.message).unwrap()
-                        );
-                        self.pending_events
-                            .push(ConnectionHandlerEvent::NotifyBehaviour(
-                                SetupHandlerEvent::ErrorDuringSetupHandshake(
-                                    SetupError::DeserializationFailed(e.into()),
-                                ),
-                            ));
-                        return;
-                    }
-                };
-
-                let app_public_key = setup_message.app_public_key.clone();
-
-                let signature_valid = setup_msg.verify_signature(&app_public_key).unwrap_or(false);
+                let signature_valid = signed_setup_msg.verify().unwrap_or(false);
 
                 if !signature_valid {
                     self.pending_events
@@ -132,9 +124,13 @@ impl<S: ApplicationSigner> ConnectionHandler for SetupHandler<S> {
                     return;
                 }
 
+                let setup_message = signed_setup_msg.message;
+
                 self.pending_events
                     .push(ConnectionHandlerEvent::NotifyBehaviour(
-                        SetupHandlerEvent::AppKeyReceived { app_public_key },
+                        SetupHandlerEvent::AppKeyReceived {
+                            app_public_key: setup_message.app_public_key.clone(),
+                        },
                     ));
             }
             ConnectionEvent::DialUpgradeError(e) => {
