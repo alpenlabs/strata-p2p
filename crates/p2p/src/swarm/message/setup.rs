@@ -1,7 +1,5 @@
 //! Message types for P2P protocol communication inside of Setup behaviour's upgrade.
 
-#![cfg(feature = "byos")]
-
 use libp2p::{PeerId, identity::PublicKey};
 use serde::{Deserialize, Serialize};
 

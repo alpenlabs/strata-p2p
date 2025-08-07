@@ -1016,24 +1016,22 @@ impl P2P {
             }
         };
 
+        if !signed_gossipsub_message.verify().unwrap_or(false) {
+            warn!(%propagation_source, "Invalid signature for gossipsub message");
+            self.swarm
+                .behaviour_mut()
+                .gossipsub
+                .report_message_validation_result(
+                    &message_id,
+                    &propagation_source,
+                    MessageAcceptance::Reject,
+                );
+            return Ok(());
+        };
+
         // Allowlist validation (only for BYOS)
         #[cfg(feature = "byos")]
         {
-            if !signed_gossipsub_message.message.public_key.verify(
-                &serde_json::to_vec(&signed_gossipsub_message.message).unwrap(),
-                &signed_gossipsub_message.signature,
-            ) {
-                warn!(%propagation_source, "Invalid signature for gossipsub message");
-                self.swarm
-                    .behaviour_mut()
-                    .gossipsub
-                    .report_message_validation_result(
-                        &message_id,
-                        &propagation_source,
-                        MessageAcceptance::Reject,
-                    );
-                return Ok(());
-            };
             if !self
                 .allowlist
                 .contains(&signed_gossipsub_message.message.public_key)
@@ -1313,7 +1311,7 @@ impl P2P {
 
         let signed_gossip_message = match SignedGossipsubMessage::new(
             GossipMessage::new(public_key.clone(), cmd.data),
-            &self.signer,
+            self.signer.as_ref(),
         ) {
             Ok(signed_msg) => signed_msg,
             Err(e) => {
@@ -1409,14 +1407,14 @@ impl P2P {
         let request_message = RequestMessage::new(app_public_key, cmd.data);
 
         // Create and serialize signed message
-        let signed_request_message = match SignedRequestMessage::new(request_message, &self.signer)
-        {
-            Ok(signed_msg) => signed_msg,
-            Err(e) => {
-                error!(?e, "Failed to create signed request message");
-                return Ok(());
-            }
-        };
+        let signed_request_message =
+            match SignedRequestMessage::new(request_message, self.signer.as_ref()) {
+                Ok(signed_msg) => signed_msg,
+                Err(e) => {
+                    error!(?e, "Failed to create signed request message");
+                    return Ok(());
+                }
+            };
 
         let signed_request_message_data = match serde_json::to_vec(&signed_request_message) {
             Ok(data) => data,
@@ -1595,7 +1593,7 @@ impl P2P {
                             };
                             let signed_message = SignedResponseMessage::new(
                                 ResponseMessage::new(app_public_key, response),
-                                &self.signer,
+                                self.signer.as_ref(),
                             );
                             match signed_message {
                                 Ok(signed_msg) => signed_msg,

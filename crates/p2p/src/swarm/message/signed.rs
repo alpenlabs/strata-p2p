@@ -28,9 +28,9 @@ where
 {
     /// Create new [`SignedMessage`] from message and sign via signer that implements
     /// [`ApplicationSigner`]
-    pub fn new<S: ApplicationSigner>(
+    pub fn new(
         message: M,
-        signer: &S,
+        signer: &dyn ApplicationSigner,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let signature = signer.sign(&serde_json::to_vec(&message)?)?;
         Ok(Self { message, signature })

@@ -18,10 +18,6 @@ pub enum SetupError {
     #[error("Signature verification failed")]
     SignatureVerificationFailed,
 
-    /// Failed to deserialize something.
-    #[error("Deserialization failed: {0}")]
-    DeserializationFailed(Box<dyn error::Error + Send + Sync>),
-
     /// In received message application public key is invalid.
     #[error("Application public key invalid: {0}")]
     AppPublicKeyInvalid(Box<dyn error::Error + Send + Sync>),
@@ -46,13 +42,6 @@ pub enum SwarmError {
 /// Errors that can occur during the setup upgrade process.
 #[derive(Debug, Error)]
 pub enum SetupUpgradeError {
-    /// Invalid signature size - expected 64 bytes.
-    #[error("Invalid signature size: expected 64 bytes, got {actual}")]
-    InvalidSignatureSize {
-        /// The actual size of the signature that was received.
-        actual: usize,
-    },
-
     /// Failed to create a signed message.
     #[error("Failed to create signed message: {0}")]
     SignedMessageCreation(Box<dyn error::Error + Send + Sync>),
@@ -69,10 +58,6 @@ pub enum SetupUpgradeError {
 /// Generic errors that can occur during signed message operations.
 #[derive(Debug, Error)]
 pub enum SignedMessageError {
-    /// Failed to deserialize a message.
-    #[error("Deserialization failed: {0}")]
-    DeserializationFailed(Box<dyn error::Error + Send + Sync>),
-
     /// JSON encoding/decoding error during message serialization.
     #[error("JSON codec error: {0}")]
     JsonCodec(Box<dyn error::Error + Send + Sync>),

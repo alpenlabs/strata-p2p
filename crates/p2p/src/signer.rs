@@ -4,7 +4,7 @@
 //! libraries to provide signing functionality for messages without requiring
 //! strata-p2p to store private keys.
 
-use std::{fmt::Debug, sync::Arc};
+use std::fmt::Debug;
 
 #[cfg(not(feature = "byos"))]
 use libp2p::identity::Keypair;
@@ -42,19 +42,6 @@ impl ApplicationSigner for TransportKeypairSigner {
         // When BYOS is disabled, we ignore the app_public_key parameter and always
         // sign with the transport keypair
         let signature = self.keypair.sign(message)?;
-        // Convert Vec<u8> to [u8; 64] array
-        let mut array = [0u8; 64];
-        if signature.len() != 64 {
-            return Err("Signature length is not 64 bytes".into());
-        }
-        array.copy_from_slice(&signature);
-        Ok(array)
-    }
-}
-
-impl<T: ApplicationSigner + ?Sized> ApplicationSigner for Arc<T> {
-    fn sign(&self, message: &[u8]) -> Result<[u8; 64], Box<dyn std::error::Error + Send + Sync>> {
-        let signature = self.as_ref().sign(message)?;
         // Convert Vec<u8> to [u8; 64] array
         let mut array = [0u8; 64];
         if signature.len() != 64 {
