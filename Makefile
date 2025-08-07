@@ -91,14 +91,30 @@ fmt-toml: ensure-taplo ## Runs `taplo` to format TOML files
 
 .PHONY: lint-check-ws
 lint-check-ws: ## Checks for lint issues in the workspace.
-	cargo clippy \
-	--workspace \
-	--lib \
-	--examples \
-	--tests \
-	--benches \
-	--no-deps \
-	-- -D warnings
+	cargo clippy --workspace --lib --locked --examples --tests --benches --no-deps --all-targets --no-default-features  -- -D warnings && \
+	cargo clippy --workspace --lib --locked --examples --tests --benches --no-deps --all-targets --no-default-features --features "quic" -- -D warnings && \
+	cargo clippy --workspace --lib --locked --examples --tests --benches --no-deps --all-targets --no-default-features --features "byos" -- -D warnings && \
+	cargo clippy --workspace --lib --locked --examples --tests --benches --no-deps --all-targets --no-default-features --features "request-response" -- -D warnings && \
+	cargo clippy --workspace --lib --locked --examples --tests --benches --no-deps --all-targets --no-default-features --features "gossipsub" -- -D warnings && \
+	cargo clippy --workspace --lib --locked --examples --tests --benches --no-deps --all-targets --no-default-features --features "quic byos"  -- -D warnings && \
+	cargo clippy --workspace --lib --locked --examples --tests --benches --no-deps --all-targets --no-default-features --features "quic request-response"  -- -D warnings && \
+	cargo clippy --workspace --lib --locked --examples --tests --benches --no-deps --all-targets --no-default-features --features "quic gossipsub"  -- -D warnings && \
+	cargo clippy --workspace --lib --locked --examples --tests --benches --no-deps --all-targets --no-default-features --features "byos request-response"  -- -D warnings && \
+	cargo clippy --workspace --lib --locked --examples --tests --benches --no-deps --all-targets --no-default-features --features "byos gossipsub"  -- -D warnings && \
+	cargo clippy --workspace --lib --locked --examples --tests --benches --no-deps --all-targets --no-default-features --features "request-response gossipsub"  -- -D warnings && \
+	cargo clippy --workspace --lib --locked --examples --tests --benches --no-deps --all-targets --no-default-features --features "quic byos request-response"  -- -D warnings && \
+	cargo clippy --workspace --lib --locked --examples --tests --benches --no-deps --all-targets --no-default-features --features "quic byos gossipsub"  -- -D warnings && \
+	cargo clippy --workspace --lib --locked --examples --tests --benches --no-deps --all-targets --no-default-features --features "quic request-response gossipsub"  -- -D warnings && \
+	cargo clippy --workspace --lib --locked --examples --tests --benches --no-deps --all-targets --no-default-features --features "byos request-response gossipsub"  -- -D warnings && \
+	cargo clippy --workspace --lib --locked --examples --tests --benches --no-deps --all-targets --no-default-features --features "quic byos request-response gossipsub"  -- -D warnings && \
+	cargo clippy --workspace --lib --locked --examples --tests --benches --no-deps --all-targets --no-default-features --features "kad"  -- -D warnings && \
+	cargo clippy --workspace --lib --locked --examples --tests --benches --no-deps --all-targets --no-default-features --features "kad quic"  -- -D warnings && \
+	cargo clippy --workspace --lib --locked --examples --tests --benches --no-deps --all-targets --no-default-features --features "kad request-response"  -- -D warnings && \
+	cargo clippy --workspace --lib --locked --examples --tests --benches --no-deps --all-targets --no-default-features --features "kad gossipsub"  -- -D warnings && \
+	cargo clippy --workspace --lib --locked --examples --tests --benches --no-deps --all-targets --no-default-features --features "kad quic request-response"  -- -D warnings && \
+	cargo clippy --workspace --lib --locked --examples --tests --benches --no-deps --all-targets --no-default-features --features "kad quic gossipsub"  -- -D warnings && \
+	cargo clippy --workspace --lib --locked --examples --tests --benches --no-deps --all-targets --no-default-features --features "kad request-response gossipsub"  -- -D warnings && \
+	cargo clippy --workspace --lib --locked --examples --tests --benches --no-deps --all-targets --no-default-features --features "kad quic request-response gossipsub"  -- -D warnings
 
 .PHONY: lint-fix-ws
 lint-fix-ws: ## Lints the workspace and applies fixes where possible.
@@ -108,6 +124,7 @@ lint-fix-ws: ## Lints the workspace and applies fixes where possible.
 	--examples \
 	--tests \
 	--benches \
+	--all-features \
 	--fix \
 	--no-deps \
 	-- -D warnings
