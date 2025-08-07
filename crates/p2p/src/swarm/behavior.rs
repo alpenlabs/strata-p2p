@@ -34,12 +34,9 @@ use super::MAX_TRANSMIT_SIZE;
 use super::TOPIC;
 #[cfg(feature = "request-response")]
 use super::codec_raw;
-use crate::{
-    signer::ApplicationSigner,
-    swarm::Keypair,
-};
 #[cfg(feature = "byos")]
 use crate::swarm::{PublicKey, setup::behavior::SetupBehaviour};
+use crate::{signer::ApplicationSigner, swarm::Keypair};
 
 /// Alias for request-response behaviour with messages serialized by using
 /// homebrewed codec implementation.
@@ -173,7 +170,6 @@ impl Behaviour {
         #[cfg(feature = "gossipsub")] gossipsub_score_params: &Option<PeerScoreParams>,
         #[cfg(feature = "gossipsub")] gossipsub_score_thresholds: &Option<PeerScoreThresholds>,
         #[cfg(feature = "byos")] signer: Arc<dyn ApplicationSigner>,
-        #[cfg(not(feature = "byos"))] _signer: Arc<dyn ApplicationSigner>,
     ) -> Result<Self, &'static str> {
         #[cfg(feature = "gossipsub")]
         let gossipsub = create_gossipsub(

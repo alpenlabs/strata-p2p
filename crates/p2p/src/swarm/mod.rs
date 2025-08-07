@@ -732,9 +732,8 @@ impl P2P {
                 let until = SystemTime::now() + opt_time_amount.unwrap_or(DEFAULT_BAN_PERIOD);
                 match self.peer_penalty_storage.ban_peer(peer_id, until) {
                     Ok(()) => {
-                        info!(?peer_id, ?until, "Peer banned");
-
                         let _ = self.swarm.disconnect_peer_id(peer_id.clone());
+                        info!(?peer_id, ?until, "Peer banned");
                     }
                     Err(e) => error!(?peer_id, ?e, "Failed to ban peer"),
                 }
@@ -800,8 +799,11 @@ impl P2P {
         match event {
             SwarmEvent::ConnectionEstablished {
                 peer_id,
-                connection_id,
-                ..
+                connection_id: _,
+                endpoint: _,
+                num_established: _,
+                concurrent_dial_errors: _,
+                established_in: _,
             } => {
                 #[cfg(feature = "byos")]
                 {
@@ -823,7 +825,7 @@ impl P2P {
             SwarmEvent::OutgoingConnectionError {
                 connection_id,
                 error,
-                ..
+                peer_id: _,
             } => {
                 #[cfg(feature = "byos")]
                 {
@@ -1406,11 +1408,6 @@ impl P2P {
                 connection_id: _,
             } => {
                 error!(%peer, %error, %request_id, "Inbound failure");
-                // dial the peer
-                let _ = self.swarm.dial(peer).inspect_err(|err| {
-                    error!(%peer, %error, %request_id, "Inbound failure");
-                    error!(%err, "Failed to connect to peer '{peer}'");
-                });
             }
             RequestResponseEvent::ResponseSent {
                 peer, request_id, ..
@@ -1745,6 +1742,7 @@ macro_rules! finish_swarm {
                     &$cfg.gossipsub_score_params,
                     #[cfg(feature = "gossipsub")]
                     &$cfg.gossipsub_score_thresholds,
+                    #[cfg(feature = "byos")]
                     $signer.clone(),
                 )
                 .map_err(|e| e.into())
@@ -1759,7 +1757,7 @@ macro_rules! finish_swarm {
 /// `/memory/{n}` addresses.
 pub fn with_inmemory_transport(
     config: &P2PConfig,
-    signer: Arc<dyn ApplicationSigner>,
+    #[cfg(feature = "byos")] signer: Arc<dyn ApplicationSigner>,
 ) -> P2PResult<Swarm<Behaviour>> {
     let builder = init_swarm!(config);
     let swarm = finish_swarm!(
@@ -1771,6 +1769,7 @@ pub fn with_inmemory_transport(
                 .map(|(p, c), _| (p, StreamMuxerBox::new(c)))
         }),
         config,
+        #[cfg(feature = "byos")]
         signer
     );
 
@@ -1781,7 +1780,7 @@ pub fn with_inmemory_transport(
 /// TCP only otherwise.
 pub fn with_default_transport(
     config: &P2PConfig,
-    signer: Arc<dyn ApplicationSigner>,
+    #[cfg(feature = "byos")] signer: Arc<dyn ApplicationSigner>,
 ) -> P2PResult<Swarm<Behaviour>> {
     let builder = init_swarm!(config);
     #[cfg(feature = "quic")]
@@ -1803,6 +1802,7 @@ pub fn with_default_transport(
                 &config.gossipsub_score_params,
                 #[cfg(feature = "gossipsub")]
                 &config.gossipsub_score_thresholds,
+                #[cfg(feature = "byos")]
                 signer.clone(),
             )
             .map_err(|e| e.into())
@@ -1818,6 +1818,7 @@ pub fn with_default_transport(
             yamux::Config::default,
         ),
         config,
+        #[cfg(feature = "byos")]
         signer
     );
     Ok(swarm)

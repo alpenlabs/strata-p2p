@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 
 [features]
-default = ["request-response", "gossipsub", "byos"]
+default = ["request-response", "gossipsub", "quic", "byos"]
 request-response = ["libp2p/request-response"]
 quic = ["libp2p/quic"]
 gossipsub = ["libp2p/gossipsub"]
@@ -14,7 +14,7 @@ byos = ["dep:asynchronous-codec"]
 workspace = true
 
 [dependencies]
-asynchronous-codec = {workspace = true, optional = true}
+asynchronous-codec = { workspace = true, optional = true }
 cynosure.workspace = true
 futures.workspace = true
 libp2p = { workspace = true, features = [
