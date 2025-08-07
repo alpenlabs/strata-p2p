@@ -79,6 +79,7 @@ pub(crate) struct User {
     pub(crate) command: CommandHandle,
     #[cfg(feature = "byos")]
     pub(crate) app_keypair: Keypair,
+    #[cfg(any(feature = "gossipsub", feature = "byos"))]
     pub(crate) transport_keypair: Keypair,
 }
 
@@ -170,10 +171,16 @@ impl User {
             config,
             cancel,
             swarm,
+            #[cfg(feature = "byos")]
             allowlist,
             #[cfg(feature = "gossipsub")]
             None,
+            #[cfg(all(feature = "byos", feature = "gossipsub"))]
             signer,
+            #[cfg(all(
+                any(feature = "gossipsub", feature = "request-response"),
+                not(feature = "byos")
+            ))]
             Some(validator),
         )?;
         #[cfg(feature = "gossipsub")]
@@ -189,6 +196,7 @@ impl User {
             command,
             #[cfg(feature = "byos")]
             app_keypair,
+            #[cfg(any(feature = "gossipsub", feature = "byos"))]
             transport_keypair,
         })
     }
@@ -282,6 +290,7 @@ impl Setup {
                 other_addrs,
                 vec![addr.clone()],
                 cancel.child_token(),
+                #[cfg(any(feature = "gossipsub", feature = "request-response"))]
                 Box::new(DefaultP2PValidator),
             )?;
 
@@ -363,7 +372,10 @@ impl Setup {
     }
 
     /// Spawn `n` users that are connected "all-to-all" with a custom validator.
-    #[cfg(all(feature = "gossipsub", not(feature = "byos")))]
+    #[cfg(all(
+        any(feature = "gossipsub", feature = "request-response"),
+        not(feature = "byos")
+    ))]
     pub(crate) async fn all_to_all_with_custom_validator<V: Validator + Clone>(
         n: usize,
         validator: V,
