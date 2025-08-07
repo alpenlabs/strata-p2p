@@ -95,6 +95,7 @@ pub mod dial_manager;
 pub mod errors;
 pub mod handle;
 pub mod message;
+#[cfg(feature = "byos")]
 pub mod setup;
 
 use libp2p::tcp;
