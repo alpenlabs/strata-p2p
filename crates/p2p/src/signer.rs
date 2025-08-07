@@ -8,7 +8,6 @@ use std::{fmt::Debug, sync::Arc};
 
 #[cfg(not(feature = "byos"))]
 use libp2p::identity::Keypair;
-use libp2p::identity::PublicKey;
 
 /// Trait for signing setup messages with application private keys.
 ///
