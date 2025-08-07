@@ -799,7 +799,10 @@ impl P2P {
         match event {
             SwarmEvent::ConnectionEstablished {
                 peer_id,
-                connection_id: _,
+                #[cfg(feature = "byos")]
+                connection_id,
+                #[cfg(not(feature = "byos"))]
+                    connection_id: _,
                 endpoint: _,
                 num_established: _,
                 concurrent_dial_errors: _,

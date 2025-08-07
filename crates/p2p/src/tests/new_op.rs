@@ -8,13 +8,13 @@ use tokio::{sync::oneshot::channel, time::sleep};
 use tracing::{debug, info};
 
 use super::common::Setup;
+#[cfg(not(feature = "byos"))]
+use crate::validator::DefaultP2PValidator;
 use crate::{
     commands::{Command, GossipCommand, QueryP2PStateCommand},
     events::GossipEvent,
     tests::common::{MockApplicationSigner, User, init_tracing},
-    validator::DefaultP2PValidator,
 };
-
 /// Tests sending a gossipsub message from a new user to all existing users.
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
@@ -35,7 +35,8 @@ async fn gossip_new_user() -> anyhow::Result<()> {
         mut user_handles,
         cancel,
         tasks,
-    } = Setup::all_to_all_with_new_user_allowlist(USERS_NUM, &new_user_app_keypair).await?;
+    } = Setup::all_to_all_with_new_user_allowlist(USERS_NUM, &new_user_app_keypair.public())
+        .await?;
 
     #[cfg(not(feature = "byos"))]
     let Setup {

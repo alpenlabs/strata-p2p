@@ -323,7 +323,7 @@ impl Setup {
             #[cfg(feature = "byos")]
             allowlist.remove(idx);
             #[cfg(feature = "byos")]
-            allowlist.push(new_user_app_public_key);
+            allowlist.push(new_user_app_public_key.clone());
 
             let user = User::new(
                 app_keypair.clone(),
