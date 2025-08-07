@@ -2,6 +2,8 @@
 
 #[cfg(not(feature = "byos"))]
 use std::num::NonZeroU8;
+#[cfg(any(feature = "gossipsub", feature = "request-response", feature = "byos"))]
+use std::sync::Arc;
 #[cfg(all(
     any(feature = "gossipsub", feature = "request-response"),
     not(feature = "byos")
@@ -9,7 +11,6 @@ use std::num::NonZeroU8;
 use std::time::SystemTime;
 use std::{
     collections::HashSet,
-    sync::Arc,
     time::{Duration, Instant},
 };
 
@@ -60,10 +61,13 @@ use {
     tokio::sync::oneshot,
 };
 
+use crate::commands::{Command, QueryP2PStateCommand};
 #[cfg(all(feature = "gossipsub", not(feature = "byos")))]
 use crate::score_manager::DEFAULT_GOSSIP_APP_SCORE;
 #[cfg(all(feature = "request-response", not(feature = "byos")))]
 use crate::score_manager::DEFAULT_REQ_RESP_APP_SCORE;
+#[cfg(any(feature = "gossipsub", feature = "request-response", feature = "byos"))]
+use crate::signer::ApplicationSigner;
 #[cfg(all(
     any(feature = "gossipsub", feature = "request-response"),
     not(feature = "byos")
@@ -73,10 +77,6 @@ use crate::signer::TransportKeypairSigner;
 use crate::swarm::message::SignedMessage;
 #[cfg(feature = "byos")]
 use crate::swarm::{dial_manager::DialManager, setup::events::SetupBehaviourEvent};
-use crate::{
-    commands::{Command, QueryP2PStateCommand},
-    signer::ApplicationSigner,
-};
 #[cfg(all(
     any(feature = "gossipsub", feature = "request-response"),
     not(feature = "byos")
@@ -95,6 +95,7 @@ pub mod dial_manager;
 pub mod errors;
 pub mod handle;
 pub mod message;
+#[cfg(feature = "byos")]
 pub mod setup;
 
 use libp2p::tcp;
@@ -853,8 +854,16 @@ impl P2P {
     ) -> P2PResult<()> {
         match event {
             SwarmEvent::ConnectionEstablished {
-                #[cfg(any(feature = "gossipsub", feature = "request-response", feature = "byos"))]
+                #[cfg(all(
+                    any(feature = "gossipsub", feature = "request-response"),
+                    not(feature = "byos")
+                ))]
                 peer_id,
+                #[cfg(not(all(
+                    any(feature = "gossipsub", feature = "request-response"),
+                    not(feature = "byos")
+                )))]
+                    peer_id: _,
                 #[cfg(feature = "byos")]
                 connection_id,
                 #[cfg(not(feature = "byos"))]
@@ -872,7 +881,7 @@ impl P2P {
                     {
                         self.dial_manager.remove_queue(&app_public_key);
                         self.dial_manager.remove_connid(&connection_id);
-                        info!(peer_id = %peer_id, "connected to peer");
+                        info!(app_public_key = ?app_public_key, "connected to peer");
                     }
                 }
                 #[cfg(all(
