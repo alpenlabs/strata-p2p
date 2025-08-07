@@ -1,5 +1,7 @@
 //! Swarm implementation for P2P.
 
+#[cfg(feature = "kad")]
+use std::collections::HashMap;
 #[cfg(not(feature = "byos"))]
 use std::num::NonZeroU8;
 #[cfg(all(
@@ -26,11 +28,22 @@ use libp2p::identity::PublicKey;
 use libp2p::{
     Multiaddr, PeerId, Swarm, SwarmBuilder, Transport,
     core::{ConnectedPoint, muxing::StreamMuxerBox, transport::MemoryTransport},
+    identify,
     identity::Keypair,
     noise,
     swarm::{NetworkBehaviour, SwarmEvent, dial_opts::DialOpts},
     yamux,
 };
+#[cfg(feature = "kad")]
+use libp2p::{
+    StreamProtocol,
+    kad::{
+        AddProviderError, AddProviderOk, BootstrapOk, Event as KademliaEvent, GetClosestPeersError,
+        GetClosestPeersOk, GetProvidersError, PutRecordError, PutRecordOk, QueryId, QueryResult,
+    },
+};
+#[cfg(any(feature = "request-response", feature = "kad"))]
+use tokio::sync::oneshot;
 use tokio::{sync::mpsc, time::timeout};
 use tokio_util::sync::CancellationToken;
 #[cfg(any(feature = "gossipsub", feature = "request-response"))]
@@ -57,7 +70,6 @@ use {
     errors::SwarmError,
     handle::ReqRespHandle,
     libp2p::request_response::{self, Event as RequestResponseEvent},
-    tokio::sync::oneshot,
 };
 
 #[cfg(all(feature = "gossipsub", not(feature = "byos")))]
@@ -88,6 +100,24 @@ use crate::{
         PenaltyType, Validator,
     },
 };
+
+/// a non-exhaustive enum.
+#[cfg(feature = "kad")]
+#[non_exhaustive]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum KadProtocol {
+    /// first version of DHT
+    V1,
+}
+
+#[cfg(feature = "kad")]
+impl From<KadProtocol> for StreamProtocol {
+    fn from(protocol: KadProtocol) -> Self {
+        match protocol {
+            KadProtocol::V1 => StreamProtocol::new("/kad/strata/0.0.1"),
+        }
+    }
+}
 
 pub mod behavior;
 mod codec_raw;
@@ -228,6 +258,10 @@ pub struct P2PConfig {
     /// The default is [`DEFAULT_GOSSIP_COMMAND_BUFFER_SIZE`].
     #[cfg(feature = "gossipsub")]
     pub gossip_command_buffer_size: Option<usize>,
+
+    /// Kademlia protocol name
+    #[cfg(feature = "kad")]
+    pub kad_protocol_name: Option<KadProtocol>,
 }
 
 /// Implementation of P2P protocol data exchange.
@@ -306,6 +340,10 @@ pub struct P2P {
         not(feature = "byos")
     ))]
     validator: Box<dyn Validator>,
+
+    /// Sender to send to when we got exact PeerId during handling [`GetClosestPeersOk`] or
+    /// [`GetClosestPeersError`]
+    kad_get_closest_peers_query_to_tx: HashMap<QueryId, TidSender>,
 }
 
 /// Type alias that changes based on feature flags
@@ -315,6 +353,10 @@ pub type P2PFromConfig = (P2P, ReqRespHandle);
 /// Type alias that changes based on feature flags
 #[cfg(not(feature = "request-response"))]
 pub type P2PFromConfig = P2P;
+
+/// Type alias for (tid, sender(option(addresses)).
+#[cfg(feature = "kad")]
+pub type TidSender = (PeerId, oneshot::Sender<Option<Vec<Multiaddr>>>);
 
 impl P2P {
     /// Creates a new P2P instance from the given configuration.
@@ -446,6 +488,8 @@ impl P2P {
                 not(feature = "byos")
             ))]
             validator,
+            #[cfg(feature = "kad")]
+            kad_get_closest_peers_query_to_tx: HashMap::new(),
         };
 
         #[cfg(feature = "request-response")]
@@ -583,6 +627,8 @@ impl P2P {
                     SwarmEvent::ConnectionEstablished {
                         peer_id, endpoint, ..
                     } => {
+                        // TODO(Arniiiii): do filtering if not byos
+                        // or rewrite this function entirely
                         let ConnectedPoint::Dialer { address, .. } = endpoint else {
                             continue;
                         };
@@ -939,7 +985,326 @@ impl P2P {
             }
             #[cfg(feature = "byos")]
             behavior::BehaviourEvent::Setup(event) => self.handle_setup_event(event).await,
-            _ => Ok(()),
+            #[cfg(feature = "kad")]
+            BehaviourEvent::Kademlia(event) => self.handle_kademlia_event(event).await,
+            BehaviourEvent::Identify(event) => self.handle_identify_event(event).await,
+        }
+    }
+
+    async fn handle_identify_event(&mut self, event: identify::Event) -> P2PResult<()> {
+        match event {
+            identify::Event::Received {
+                connection_id,
+                peer_id,
+                info,
+            } => {
+                trace!(?connection_id, %peer_id, ?info, "identify::Event::Received");
+            }
+            identify::Event::Sent {
+                connection_id,
+                peer_id,
+            } => {
+                trace!(?connection_id, %peer_id, "identify::Event::Sent");
+            }
+            identify::Event::Pushed {
+                connection_id,
+                peer_id,
+                info,
+            } => {
+                trace!(?connection_id, %peer_id, ?info, "identify::Event::Pushed");
+            }
+            identify::Event::Error {
+                connection_id,
+                peer_id,
+                error,
+            } => {
+                trace!(?connection_id, %peer_id, %error, "identify::Event::Error");
+            }
+        };
+        Ok(())
+    }
+
+    /// Handles a [`KademliaEvent`] from the swarm.
+    #[cfg(feature = "kad")]
+    async fn handle_kademlia_event(&mut self, event: KademliaEvent) -> P2PResult<()> {
+        match event {
+            KademliaEvent::InboundRequest { request } => match request {
+                libp2p::kad::InboundRequest::FindNode { num_closer_peers } => {
+                    trace!(%num_closer_peers, "InboundRequest::FindNode");
+                    Ok(())
+                }
+                libp2p::kad::InboundRequest::PutRecord {
+                    source,
+                    connection,
+                    record: opt_record,
+                } => {
+                    trace!(
+                        %source, %connection, ?opt_record, "InboundRequest::PutRecord"
+                    );
+                    Ok(())
+                }
+                libp2p::kad::InboundRequest::GetRecord {
+                    num_closer_peers,
+                    present_locally,
+                } => {
+                    trace!(
+                        %num_closer_peers, %present_locally, "libp2p::kad::InboundRequest::GetRecord"
+                    );
+                    Ok(())
+                }
+                libp2p::kad::InboundRequest::GetProvider {
+                    num_closer_peers,
+                    num_provider_peers,
+                } => {
+                    trace!(
+                        %num_closer_peers, %num_provider_peers, "libp2p::kad::InboundRequest::GetProvider"
+                    );
+                    Ok(())
+                }
+                libp2p::kad::InboundRequest::AddProvider { record } => {
+                    trace!(?record, "libp2p::kad::InboundRequest::AddProvider");
+                    Ok(())
+                }
+            },
+
+            KademliaEvent::OutboundQueryProgressed {
+                id,
+                result,
+                stats,
+                step,
+            } => match result {
+                QueryResult::Bootstrap(Ok(BootstrapOk {
+                    peer,
+                    num_remaining,
+                })) => {
+                    trace!(
+                        %id, ?stats, ?step, %peer, %num_remaining, "QueryResult::Bootstrap(Ok(BootstrapOk "
+                    );
+                    Ok(())
+                }
+                QueryResult::Bootstrap(Err(libp2p::kad::BootstrapError::Timeout {
+                    peer,
+                    num_remaining,
+                })) => {
+                    trace!(
+                        %id, ?stats, ?step, %peer, ?num_remaining, "QueryResult::Bootstrap(Err(BootstrapErr "
+                    );
+                    Ok(())
+                }
+                QueryResult::GetRecord(Ok(libp2p::kad::GetRecordOk::FoundRecord(peer_record))) => {
+                    trace!(
+                        %id, ?stats, ?step, peer_key = ?peer_record.record.key, peer_record = %String::from_utf8_lossy(&peer_record.record.value), "QueryResult::GetRecord(Ok(libp2p::kad::GetRecordOk::FoundRecord"
+                    );
+                    Ok(())
+                }
+                QueryResult::GetRecord(Ok(
+                    libp2p::kad::GetRecordOk::FinishedWithNoAdditionalRecord { cache_candidates },
+                )) => {
+                    trace!(
+                        %id, ?stats, ?step, ?cache_candidates, "QueryResult::GetRecord(Ok(libp2p::kad::GetRecordOk::FinishedWithNoAdditionalRecord"
+                    );
+                    Ok(())
+                }
+                QueryResult::GetRecord(Err(libp2p::kad::GetRecordError::Timeout { key })) => {
+                    trace!(
+                        %id, ?stats, ?step, ?key, "QueryResult::GetRecord(Err(libp2p::kad::GetRecordError::Timeout"
+                    );
+                    Ok(())
+                }
+                QueryResult::GetRecord(Err(libp2p::kad::GetRecordError::NotFound {
+                    key,
+                    closest_peers,
+                })) => {
+                    trace!(
+                        %id, ?stats, ?step, ?key, ?closest_peers, "QueryResult::GetRecord(Err(libp2p::kad::GetRecordError::NotFound"
+                    );
+                    Ok(())
+                }
+                QueryResult::GetRecord(Err(libp2p::kad::GetRecordError::QuorumFailed {
+                    key,
+                    records,
+                    quorum,
+                })) => {
+                    trace!(
+                        %id, ?stats, ?step, ?key, ?records, %quorum, "QueryResult::GetRecord(Err(libp2p::kad::GetRecordError::QuorumFailed"
+                    );
+                    Ok(())
+                }
+                QueryResult::PutRecord(Ok(PutRecordOk { key })) => {
+                    trace!(%id, ?stats, ?step, ?key, "QueryResult::PutRecord(Ok(PutRecordOk");
+                    Ok(())
+                }
+                QueryResult::PutRecord(Err(PutRecordError::QuorumFailed {
+                    key,
+                    success: success_peerids,
+                    quorum,
+                })) => {
+                    trace!(
+                        %id, ?stats, ?step, ?key, ?success_peerids, %quorum, "QueryResult::PutRecord(Err(PutRecordError::QuorumFailed"
+                    );
+                    Ok(())
+                }
+                QueryResult::PutRecord(Err(PutRecordError::Timeout {
+                    key,
+                    success: success_peerids,
+                    quorum,
+                })) => {
+                    trace!(
+                        %id, ?stats, ?step, ?key, ?success_peerids, %quorum, "QueryResult::PutRecord(Err(PutRecordError::Timeout"
+                    );
+                    Ok(())
+                }
+                QueryResult::GetProviders(Ok(libp2p::kad::GetProvidersOk::FoundProviders {
+                    key,
+                    providers,
+                })) => {
+                    trace!(
+                        %id, ?stats, ?step, ?key, ?providers, "QueryResult::GetProviders(Ok(libp2p::kad::GetProvidersOk::FoundProviders"
+                    );
+                    Ok(())
+                }
+                QueryResult::GetProviders(Ok(
+                    libp2p::kad::GetProvidersOk::FinishedWithNoAdditionalRecord { closest_peers },
+                )) => {
+                    trace!(
+                        %id, ?stats, ?step, ?closest_peers, "QueryResult::GetProviders(Ok(libp2p::kad::GetProvidersOk::FinishedWithNoAdditionalRecord"
+                    );
+                    Ok(())
+                }
+                QueryResult::GetProviders(Err(GetProvidersError::Timeout {
+                    key,
+                    closest_peers,
+                })) => {
+                    trace!(
+                        %id, ?stats, ?step, ?key, ?closest_peers, "QueryResult::GetProviders(Err(GetProvidersError::Timeout"
+                    );
+                    Ok(())
+                }
+                QueryResult::GetClosestPeers(Ok(GetClosestPeersOk { key, mut peers })) => {
+                    trace!(
+                        %id, ?stats, ?step, ?key, ?peers, "QueryResult::GetClosestPeers(Ok(GetClosestPeersOk"
+                    );
+                    if let Some((tid, tx)) = self.kad_get_closest_peers_query_to_tx.remove(&id) {
+                        peers.retain(|peer_info| peer_info.peer_id == tid);
+                        let res_sending = match peers.is_empty() {
+                            false => tx.send(Some(peers[0].addrs.clone())),
+                            true => tx.send(None),
+                        };
+                        if res_sending.is_err() {
+                            error!(
+                                "Failed to send back result to oneshot channel given in DHTGetClosestPeerCommand."
+                            )
+                        }
+                    }
+                    Ok(())
+                }
+                QueryResult::GetClosestPeers(Err(GetClosestPeersError::Timeout {
+                    key,
+                    mut peers,
+                })) => {
+                    trace!(
+                        %id, ?stats, ?step, ?key, ?peers, "QueryResult::GetClosestPeers(Ok(GetClosestPeersOk"
+                    );
+                    if let Some((tid, tx)) = self.kad_get_closest_peers_query_to_tx.remove(&id) {
+                        peers.retain(|peer_info| peer_info.peer_id == tid);
+                        let res_sending = match peers.is_empty() {
+                            false => tx.send(Some(peers[0].addrs.clone())),
+                            true => tx.send(None),
+                        };
+                        if res_sending.is_err() {
+                            error!(
+                                "Failed to send back result to oneshot channel given in DHTGetClosestPeerCommand."
+                            )
+                        }
+                    }
+                    Ok(())
+                }
+                QueryResult::StartProviding(Ok(AddProviderOk { key })) => {
+                    trace!(
+                        %id, ?stats, ?step, ?key, "QueryResult::StartProviding(Ok(AddProviderOk"
+                    );
+                    Ok(())
+                }
+                QueryResult::StartProviding(Err(AddProviderError::Timeout { key })) => {
+                    trace!(
+                        %id, ?stats, ?step, ?key, "QueryResult::StartProviding(Err(AddProviderError::Timeout"
+                    );
+                    Ok(())
+                }
+                QueryResult::RepublishRecord(Ok(PutRecordOk { key })) => {
+                    trace!(
+                        %id, ?stats, ?step, ?key, "QueryResult::RepublishRecord(Ok(PutRecordOk"
+                    );
+                    Ok(())
+                }
+                QueryResult::RepublishRecord(Err(PutRecordError::QuorumFailed {
+                    key,
+                    success,
+                    quorum,
+                })) => {
+                    trace!(
+                        %id, ?stats, ?step, ?key, ?success, ?quorum, "QueryResult::RepublishRecord(Err(PutRecordError::QuorumFailed"
+                    );
+                    Ok(())
+                }
+                QueryResult::RepublishRecord(Err(PutRecordError::Timeout {
+                    key,
+                    success,
+                    quorum,
+                })) => {
+                    trace!(
+                        %id, ?stats, ?step, ?key, ?success, %quorum, "QueryResult::RepublishRecord(Err(PutRecordError::QuorumFailed"
+                    );
+                    Ok(())
+                }
+                QueryResult::RepublishProvider(Ok(AddProviderOk { key })) => {
+                    trace!(
+                        %id, ?stats, ?step, ?key, "QueryResult::RepublishProvider(Ok(AddProviderOk"
+                    );
+                    Ok(())
+                }
+                QueryResult::RepublishProvider(Err(AddProviderError::Timeout { key })) => {
+                    trace!(
+                        %id, ?stats, ?step, ?key, "QueryResult::RepublishProvider(Err(AddProviderError::Timeout"
+                    );
+                    Ok(())
+                }
+            },
+
+            KademliaEvent::RoutingUpdated {
+                peer,
+                is_new_peer,
+                addresses,
+                bucket_range,
+                old_peer,
+            } => {
+                trace!(
+                    ?peer,
+                    ?is_new_peer,
+                    ?addresses,
+                    ?bucket_range,
+                    ?old_peer,
+                    "KademliaEvent::RoutingUpdated"
+                );
+                Ok(())
+            }
+            KademliaEvent::RoutablePeer { peer, address } => {
+                trace!(?peer, ?address, "KademliaEvent::RoutablePeer");
+                Ok(())
+            }
+            KademliaEvent::UnroutablePeer { peer } => {
+                trace!(?peer, "KademliaEvent::UnroutablePeer");
+                Ok(())
+            }
+
+            KademliaEvent::PendingRoutablePeer { peer, address } => {
+                trace!(?peer, ?address, "KademliaEvent::PendingRoutablePeer");
+                Ok(())
+            }
+            KademliaEvent::ModeChanged { new_mode } => {
+                trace!(?new_mode, "KademliaEvent::ModeChanged");
+                Ok(())
+            }
         }
     }
 
@@ -1302,6 +1667,19 @@ impl P2P {
                     Ok(())
                 }
             },
+            Command::DHTGetClosestPeer {
+                transport_id,
+                response_sender,
+            } => {
+                let query_id = self
+                    .swarm
+                    .behaviour_mut()
+                    .kademlia
+                    .get_closest_peers(transport_id);
+                self.kad_get_closest_peers_query_to_tx
+                    .insert(query_id, (transport_id, response_sender));
+                Ok(())
+            }
         }
     }
 
@@ -1810,6 +2188,8 @@ macro_rules! finish_swarm {
                     &$cfg.gossipsub_score_thresholds,
                     #[cfg(feature = "byos")]
                     $signer.clone(),
+                    #[cfg(feature = "kad")]
+                    &$cfg.kad_protocol_name,
                 )
                 .map_err(|e| e.into())
             })
@@ -1870,6 +2250,8 @@ pub fn with_default_transport(
                 &config.gossipsub_score_thresholds,
                 #[cfg(feature = "byos")]
                 signer.clone(),
+                #[cfg(feature = "kad")]
+                &config.kad_protocol_name,
             )
             .map_err(|e| e.into())
         })

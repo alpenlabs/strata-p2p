@@ -1,7 +1,7 @@
 //! Commands for P2P implementation from operator implementation.
 
 use libp2p::Multiaddr;
-#[cfg(not(feature = "byos"))]
+#[cfg(any(not(feature = "byos"), feature = "kad"))]
 use libp2p::PeerId;
 #[cfg(feature = "byos")]
 use libp2p::identity::PublicKey;
@@ -37,6 +37,14 @@ pub enum Command {
 
     /// Directly queries P2P state (doesn't produce events).
     QueryP2PState(QueryP2PStateCommand),
+
+    /// Call Kademlia's get_closest_peers and return result somewhen later.
+    DHTGetClosestPeer {
+        /// Transport id of the peer we are trying to get multiaddresses of.
+        transport_id: PeerId,
+        /// Where to send results.
+        response_sender: oneshot::Sender<Option<Vec<Multiaddr>>>,
+    },
 }
 
 /// Command to publish a message through gossipsub.

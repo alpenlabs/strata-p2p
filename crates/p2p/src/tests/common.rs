@@ -20,7 +20,11 @@ use crate::swarm::handle::GossipHandle;
 #[cfg(feature = "request-response")]
 use crate::swarm::handle::ReqRespHandle;
 use crate::swarm::{self, P2P, P2PConfig, handle::CommandHandle};
-#[cfg(not(feature = "byos"))]
+#[cfg(any(
+    feature = "gossipsub",
+    feature = "request-response",
+    not(feature = "byos")
+))]
 use crate::validator::{DefaultP2PValidator, Validator};
 
 /// Only attempt to start tracing once
@@ -88,7 +92,12 @@ impl User {
         listening_addrs: Vec<Multiaddr>,
         cancel: CancellationToken,
         #[cfg(feature = "byos")] signer: Arc<dyn ApplicationSigner>,
-        #[cfg(not(feature = "byos"))] validator: Box<dyn Validator>,
+        #[cfg(any(
+            feature = "gossipsub",
+            feature = "request-response",
+            not(feature = "byos")
+        ))]
+        validator: Box<dyn Validator>,
     ) -> anyhow::Result<Self> {
         debug!(
             ?listening_addrs,
