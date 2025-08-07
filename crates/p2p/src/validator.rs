@@ -1,5 +1,6 @@
 //! Validator for the P2P network.
 
+#![cfg(not(feature = "byos"))]
 use std::{
     collections::HashMap,
     fmt::Debug,
@@ -88,9 +89,9 @@ pub trait Validator: Debug + Send + Sync + 'static {
     fn get_penalty(
         &self,
         msg: &Message,
-        gossip_internal_score: f64,
-        gossip_app_score: f64,
-        reqresp_app_score: f64,
+        #[cfg(feature = "gossipsub")] gossip_internal_score: f64,
+        #[cfg(feature = "gossipsub")] gossip_app_score: f64,
+        #[cfg(feature = "request-response")] reqresp_app_score: f64,
     ) -> Option<PenaltyType>;
 }
 
@@ -108,9 +109,9 @@ impl Validator for DefaultP2PValidator {
     fn get_penalty(
         &self,
         msg: &Message,
-        gossip_internal_score: f64,
-        gossip_app_score: f64,
-        reqresp_app_score: f64,
+        #[cfg(feature = "gossipsub")] gossip_internal_score: f64,
+        #[cfg(feature = "gossipsub")] gossip_app_score: f64,
+        #[cfg(feature = "request-response")] reqresp_app_score: f64,
     ) -> Option<PenaltyType> {
         None
     }
@@ -157,10 +158,14 @@ impl PenaltyPeerStorage {
         peer_id: &PeerId,
         until: SystemTime,
     ) -> Result<(), &'static str> {
-        let penalty = self
-            .penalties
-            .entry(*peer_id)
-            .or_insert_with(|| PenaltyInfo::new(None, None, None));
+        let penalty = self.penalties.entry(peer_id.clone()).or_insert_with(|| {
+            PenaltyInfo::new(
+                None,
+                None,
+                #[cfg(feature = "request-response")]
+                None,
+            )
+        });
 
         if let Some(mute_until) = penalty.mute_gossip_until
             && mute_until > SystemTime::now()
@@ -179,10 +184,15 @@ impl PenaltyPeerStorage {
         peer_id: &PeerId,
         until: SystemTime,
     ) -> Result<(), &'static str> {
-        let penalty = self
-            .penalties
-            .entry(*peer_id)
-            .or_insert_with(|| PenaltyInfo::new(None, None, None));
+        let penalty = self.penalties.entry(peer_id.clone()).or_insert_with(|| {
+            PenaltyInfo::new(
+                #[cfg(feature = "gossipsub")]
+                None,
+                #[cfg(feature = "request-response")]
+                None,
+                None,
+            )
+        });
 
         if let Some(mute_until) = penalty.mute_req_resp_until
             && mute_until > SystemTime::now()

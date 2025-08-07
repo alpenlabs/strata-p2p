@@ -6,6 +6,8 @@
 //! Copied from `rust-libp2p/protocols/request-response/src/json.rs` and
 //! rewritten so that it exposes raw bytes.
 
+#![cfg(feature = "request-response")]
+
 use std::{io, marker::PhantomData, pin::Pin};
 
 use futures::prelude::*;
@@ -15,9 +17,11 @@ use libp2p::swarm::StreamProtocol;
 // TODO(Arniiiii): make this configurable
 // NOTE(Velnbur): commit f096394 in rust-libp2p repo made this one
 // configurable recently, so we may want to configure it too.
+#[cfg(feature = "request-response")]
 const REQUEST_SIZE_MAXIMUM: u64 = 1024 * 1024;
 
 /// Max response size in bytes.
+#[cfg(feature = "request-response")]
 const RESPONSE_SIZE_MAXIMUM: u64 = 10 * 1024 * 1024;
 
 /// A [`Codec`] defines the request and response types
@@ -50,6 +54,7 @@ impl Clone for Codec {
 // because the old workaround and new way are not strictly compatible, we had to desugar it
 // in a spectacular way because Rust has some problems with implicit lifetimes in
 // such contexts.
+#[cfg(feature = "request-response")]
 impl libp2p::request_response::Codec for Codec {
     type Protocol = StreamProtocol;
     type Request = Vec<u8>;

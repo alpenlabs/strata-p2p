@@ -1,14 +1,20 @@
 //! Message types for P2P protocol communication.
 
+#[cfg(any(feature = "gossipsub", feature = "request-response", feature = "byos"))]
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[cfg(feature = "byos")]
 use libp2p::PeerId;
+#[cfg(any(feature = "gossipsub", feature = "request-response", feature = "byos"))]
 use libp2p::identity::PublicKey;
 use serde::{Deserialize, Serialize};
 
+#[cfg(any(feature = "gossipsub", feature = "request-response", feature = "byos"))]
 use super::errors::{SetupError, SignedMessageError};
+#[cfg(any(feature = "gossipsub", feature = "request-response", feature = "byos"))]
+use crate::signer::ApplicationSigner;
 
+#[cfg(any(feature = "gossipsub", feature = "request-response", feature = "byos"))]
 pub(super) mod pubkey_serializer {
     use serde::{self, Deserializer, Serializer, de};
 
@@ -135,9 +141,10 @@ pub struct SignedMessage {
 
 impl SignedMessage {
     /// Creates a new signed message with the given signer.
+    #[cfg(any(feature = "gossipsub", feature = "request-response", feature = "byos"))]
     pub(crate) fn new<T>(
         message: T,
-        signer: &dyn crate::signer::ApplicationSigner,
+        signer: &dyn ApplicationSigner,
         app_public_key: PublicKey,
     ) -> Result<Self, SignedMessageError>
     where
@@ -156,11 +163,13 @@ impl SignedMessage {
     }
 
     /// Verifies the signature of this message.
+    #[cfg(any(feature = "gossipsub", feature = "request-response", feature = "byos"))]
     pub(crate) fn verify_signature(&self, app_public_key: &PublicKey) -> Result<bool, SetupError> {
         Ok(app_public_key.verify(&self.message, &self.signature))
     }
 
     /// Deserializes the inner message.
+    #[cfg(any(feature = "gossipsub", feature = "request-response", feature = "byos"))]
     pub(crate) fn deserialize_message<T>(&self) -> Result<T, SignedMessageError>
     where
         T: for<'de> serde::Deserialize<'de>,
@@ -184,7 +193,7 @@ impl SignedMessage {
         app_public_key: PublicKey,
         local_transport_id: PeerId,
         remote_transport_id: PeerId,
-        signer: &dyn crate::signer::ApplicationSigner,
+        signer: &dyn ApplicationSigner,
     ) -> Result<Self, SignedMessageError> {
         let setup_message = SetupMessage::new(
             app_public_key.clone(),
@@ -200,7 +209,7 @@ impl SignedMessage {
     pub(crate) fn new_signed_gossip(
         app_public_key: PublicKey,
         message: Vec<u8>,
-        signer: &dyn crate::signer::ApplicationSigner,
+        signer: &dyn ApplicationSigner,
     ) -> Result<Self, SignedMessageError> {
         let gossip_message = GossipMessage::new(app_public_key.clone(), message);
 
@@ -212,7 +221,7 @@ impl SignedMessage {
     pub(crate) fn new_signed_request(
         app_public_key: PublicKey,
         message: Vec<u8>,
-        signer: &dyn crate::signer::ApplicationSigner,
+        signer: &dyn ApplicationSigner,
     ) -> Result<Self, SignedMessageError> {
         let request_message = RequestMessage::new(app_public_key.clone(), message);
 
@@ -224,7 +233,7 @@ impl SignedMessage {
     pub(crate) fn new_signed_response(
         app_public_key: PublicKey,
         message: Vec<u8>,
-        signer: &dyn crate::signer::ApplicationSigner,
+        signer: &dyn ApplicationSigner,
     ) -> Result<Self, SignedMessageError> {
         let response_message = ResponseMessage::new(app_public_key.clone(), message);
 
@@ -236,6 +245,7 @@ impl SignedMessage {
 /// Now serialized/deserialized using JSON instead of custom binary format.
 #[cfg(feature = "byos")]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg(feature = "byos")]
 pub(crate) struct SetupMessage {
     /// Protocol version.
     pub version: ProtocolVersion,
@@ -375,6 +385,7 @@ impl ResponseMessage {
     }
 }
 
+#[cfg(any(feature = "gossipsub", feature = "request-response", feature = "byos"))]
 fn get_timestamp() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)

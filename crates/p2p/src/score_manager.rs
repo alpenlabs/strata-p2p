@@ -1,16 +1,18 @@
 //! Score manager for the P2P network.
 
-#[cfg_attr(
-    not(any(feature = "gossipsub", feature = "request-response")),
-    allow(unused_imports)
-)]
-use {libp2p::identity::PeerId, std::collections::HashMap};
-
 /// Default application score for request-response protocol.
+#[cfg(feature = "request-response")]
 pub const DEFAULT_REQ_RESP_APP_SCORE: f64 = 0.0;
 
 /// Default application score for gossipsub protocol.
+#[cfg(feature = "gossipsub")]
 pub const DEFAULT_GOSSIP_APP_SCORE: f64 = 0.0;
+
+#[cfg(any(feature = "gossipsub", feature = "request-response"))]
+use std::collections::HashMap;
+
+#[cfg(any(feature = "gossipsub", feature = "request-response"))]
+use libp2p::identity::PeerId;
 
 /// Manages peer scoring for different protocols in the P2P network.
 ///
@@ -32,6 +34,7 @@ impl ScoreManager {
         Self {
             #[cfg(feature = "gossipsub")]
             gossipsub_app_score: HashMap::new(),
+
             #[cfg(feature = "request-response")]
             req_resp_app_score: HashMap::new(),
         }
@@ -67,7 +70,6 @@ impl ScoreManager {
 }
 
 /// All scores for a peer.
-#[cfg(any(feature = "gossipsub", feature = "request-response"))]
 #[derive(Debug, Clone, Default)]
 pub struct PeerScore {
     /// Gossipsub application score.
