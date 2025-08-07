@@ -1,7 +1,5 @@
 //! Serialization and deserialization of messages.
 
-#![cfg(any(feature = "byos", feature = "gossipsub", feature = "request-response"))]
-
 use libp2p::identity::PublicKey;
 
 pub(crate) mod pubkey_serializer {

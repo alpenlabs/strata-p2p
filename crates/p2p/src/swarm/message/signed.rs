@@ -1,7 +1,5 @@
 //! Common traits and signed message implementation.
 
-#![cfg(any(feature = "byos", feature = "gossipsub", feature = "request-response"))]
-
 use libp2p::identity::PublicKey;
 use serde::{Deserialize, Serialize};
 

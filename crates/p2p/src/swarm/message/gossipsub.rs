@@ -1,7 +1,5 @@
 //! Message type for GossipSub Message.
 
-#![cfg(feature = "gossipsub")]
-
 use libp2p::identity::PublicKey;
 use serde::{Deserialize, Serialize};
 

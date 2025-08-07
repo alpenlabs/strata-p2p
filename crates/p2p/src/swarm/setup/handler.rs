@@ -110,12 +110,26 @@ impl ConnectionHandler for SetupHandler {
     ) {
         match event {
             ConnectionEvent::FullyNegotiatedInbound(inbound) => {
-                let setup_msg = inbound.protocol;
+                let signed_setup_msg = inbound.protocol;
+
+                let signature_valid = signed_setup_msg.verify().unwrap_or(false);
+
+                if !signature_valid {
+                    self.pending_events
+                        .push(ConnectionHandlerEvent::NotifyBehaviour(
+                            SetupHandlerEvent::ErrorDuringSetupHandshake(
+                                SetupError::SignatureVerificationFailed,
+                            ),
+                        ));
+                    return;
+                }
+
+                let setup_message = signed_setup_msg.message;
 
                 self.pending_events
                     .push(ConnectionHandlerEvent::NotifyBehaviour(
                         SetupHandlerEvent::AppKeyReceived {
-                            app_public_key: setup_msg.message.app_public_key.clone(),
+                            app_public_key: setup_message.app_public_key.clone(),
                         },
                     ));
             }

@@ -57,11 +57,7 @@ impl MockApplicationSigner {
 
 #[cfg(feature = "byos")]
 impl ApplicationSigner for MockApplicationSigner {
-    fn sign(
-        &self,
-        message: &[u8],
-        _app_public_key: PublicKey,
-    ) -> Result<[u8; 64], Box<dyn std::error::Error + Send + Sync>> {
+    fn sign(&self, message: &[u8]) -> Result<[u8; 64], Box<dyn std::error::Error + Send + Sync>> {
         // Sign with the stored keypair
         let signature = self.app_keypair.sign(message)?;
         let sign_array: [u8; 64] = signature.try_into().unwrap();

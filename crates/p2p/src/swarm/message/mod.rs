@@ -57,6 +57,7 @@ fn get_timestamp() -> u64 {
 #[cfg(any(feature = "byos", feature = "gossipsub", feature = "request-response"))]
 pub mod serde;
 pub mod setup;
+#[cfg(any(feature = "byos", feature = "gossipsub", feature = "request-response"))]
 pub mod signed;
 
 #[cfg(feature = "gossipsub")]
