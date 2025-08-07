@@ -1,6 +1,9 @@
 //! Strata P2P implementation.
 
-compile_error!("Enabling both \"kad\" any \"byos\" features is not supported, please choose one of them, or none.");
+#[cfg(all(feature = "kad", feature = "byos"))]
+compile_error!(
+    "Enabling both \"kad\" any \"byos\" features is not supported, please choose one of them, or none."
+);
 
 pub mod commands;
 pub mod events;
