@@ -2,7 +2,10 @@
 
 #[cfg(not(feature = "byos"))]
 use std::num::NonZeroU8;
-#[cfg(not(feature = "byos"))]
+#[cfg(all(
+    any(feature = "gossipsub", feature = "request-response"),
+    not(feature = "byos")
+))]
 use std::time::SystemTime;
 use std::{
     collections::HashSet,
@@ -10,7 +13,9 @@ use std::{
     time::{Duration, Instant},
 };
 
-use behavior::{Behaviour, BehaviourEvent};
+use behavior::Behaviour;
+#[cfg(any(feature = "gossipsub", feature = "request-response", feature = "byos"))]
+use behavior::BehaviourEvent;
 #[cfg(feature = "byos")]
 use cynosure::site_c::queue::Queue;
 use errors::{P2PResult, ProtocolError};
@@ -35,7 +40,7 @@ use tracing::instrument;
 use tracing::{debug, error, info, trace, warn};
 #[cfg(feature = "gossipsub")]
 use {
-    crate::{commands::GossipCommand, events::GossipEvent},
+    crate::{commands::GossipCommand, events::GossipEvent, swarm::message::GossipMessage},
     handle::GossipHandle,
     libp2p::gossipsub::{
         Event as GossipsubEvent, Message, MessageAcceptance, MessageId, PeerScoreParams,
@@ -57,9 +62,14 @@ use {
     tokio::sync::oneshot,
 };
 
-#[cfg(feature = "request-response")]
+#[cfg(all(feature = "gossipsub", not(feature = "byos")))]
+use crate::score_manager::DEFAULT_GOSSIP_APP_SCORE;
+#[cfg(all(feature = "request-response", not(feature = "byos")))]
 use crate::score_manager::DEFAULT_REQ_RESP_APP_SCORE;
-#[cfg(not(feature = "byos"))]
+#[cfg(all(
+    any(feature = "gossipsub", feature = "request-response"),
+    not(feature = "byos")
+))]
 use crate::signer::TransportKeypairSigner;
 #[cfg(any(feature = "gossipsub", feature = "request-response"))]
 use crate::swarm::message::SignedMessage;
@@ -69,9 +79,10 @@ use crate::{
     commands::{Command, QueryP2PStateCommand},
     signer::ApplicationSigner,
 };
-#[cfg(feature = "gossipsub")]
-use crate::{score_manager::DEFAULT_GOSSIP_APP_SCORE, swarm::message::GossipMessage};
-#[cfg(not(feature = "byos"))]
+#[cfg(all(
+    any(feature = "gossipsub", feature = "request-response"),
+    not(feature = "byos")
+))]
 use crate::{
     score_manager::{PeerScore, ScoreManager},
     validator::{
@@ -269,7 +280,7 @@ pub struct P2P {
     allowlist: HashSet<PublicKey>,
 
     /// Application signer for signing setup messages.
-    #[cfg(any(feature = "byos", feature = "gossipsub", feature = "request-response"))]
+    #[cfg(any(feature = "gossipsub", feature = "request-response"))]
     signer: Arc<dyn ApplicationSigner>,
 
     /// Manages dial sequences and address queues for multiaddress connections.
@@ -278,15 +289,24 @@ pub struct P2P {
     dial_manager: DialManager,
 
     /// Score manager.
-    #[cfg(not(feature = "byos"))]
+    #[cfg(all(
+        any(feature = "gossipsub", feature = "request-response"),
+        not(feature = "byos")
+    ))]
     score_manager: ScoreManager,
 
     /// Storage with penalty for peer's penalty. Only used when BYOS feature is enabled.
-    #[cfg(not(feature = "byos"))]
+    #[cfg(all(
+        any(feature = "gossipsub", feature = "request-response"),
+        not(feature = "byos")
+    ))]
     peer_penalty_storage: PenaltyPeerStorage,
 
     /// Manages message validation and penalty logic.
-    #[cfg(not(feature = "byos"))]
+    #[cfg(all(
+        any(feature = "gossipsub", feature = "request-response"),
+        not(feature = "byos")
+    ))]
     validator: Box<dyn Validator>,
 }
 
@@ -306,8 +326,16 @@ impl P2P {
         mut swarm: Swarm<Behaviour>,
         #[cfg(feature = "byos")] allowlist: Vec<PublicKey>,
         #[cfg(feature = "gossipsub")] channel_size: Option<usize>,
-        #[cfg(feature = "byos")] signer: Arc<dyn ApplicationSigner>,
-        #[cfg(not(feature = "byos"))] validator: Option<Box<dyn Validator>>,
+        #[cfg(all(
+            feature = "byos",
+            any(feature = "gossipsub", feature = "request-response")
+        ))]
+        signer: Arc<dyn ApplicationSigner>,
+        #[cfg(all(
+            any(feature = "gossipsub", feature = "request-response"),
+            not(feature = "byos")
+        ))]
+        validator: Option<Box<dyn Validator>>,
     ) -> P2PResult<P2PFromConfig> {
         for addr in &cfg.listening_addrs {
             swarm
@@ -321,12 +349,19 @@ impl P2P {
             .unwrap_or(DEFAULT_COMMAND_BUFFER_SIZE);
         let (cmds_tx, cmds_rx) = mpsc::channel(command_buffer_size);
 
-        #[cfg(not(feature = "byos"))]
+        #[cfg(all(
+            any(feature = "gossipsub", feature = "request-response"),
+            not(feature = "byos")
+        ))]
         let score_manager = ScoreManager::new();
-        #[cfg(not(feature = "byos"))]
+        #[cfg(all(
+            any(feature = "gossipsub", feature = "request-response"),
+            not(feature = "byos")
+        ))]
         let peer_penalty_storage = PenaltyPeerStorage::new();
 
         // Create signer - either provided (BYOS) or transport keypair signer (non-BYOS)
+        #[cfg(any(feature = "gossipsub", feature = "request-response"))]
         let signer: Arc<dyn ApplicationSigner> = {
             #[cfg(feature = "byos")]
             {
@@ -370,7 +405,10 @@ impl P2P {
             (gossip_events_tx, gossip_cmds_tx, gossip_cmds_rx)
         };
 
-        #[cfg(not(feature = "byos"))]
+        #[cfg(all(
+            any(feature = "gossipsub", feature = "request-response"),
+            not(feature = "byos")
+        ))]
         let validator = validator.unwrap_or_else(|| Box::new(DefaultP2PValidator::default()));
 
         let p2p = P2P {
@@ -391,14 +429,24 @@ impl P2P {
             #[cfg(feature = "byos")]
             allowlist: HashSet::from_iter(allowlist),
             config: cfg,
+            #[cfg(any(feature = "gossipsub", feature = "request-response"))]
             signer,
             #[cfg(feature = "byos")]
             dial_manager: DialManager::new(),
-            #[cfg(not(feature = "byos"))]
+            #[cfg(all(
+                any(feature = "gossipsub", feature = "request-response"),
+                not(feature = "byos")
+            ))]
             score_manager,
-            #[cfg(not(feature = "byos"))]
+            #[cfg(all(
+                any(feature = "gossipsub", feature = "request-response"),
+                not(feature = "byos")
+            ))]
             peer_penalty_storage,
-            #[cfg(not(feature = "byos"))]
+            #[cfg(all(
+                any(feature = "gossipsub", feature = "request-response"),
+                not(feature = "byos")
+            ))]
             validator,
         };
 
@@ -689,10 +737,14 @@ impl P2P {
     }
 
     // Apply penalties for peer
-    #[cfg(not(feature = "byos"))]
+    #[cfg(all(
+        any(feature = "gossipsub", feature = "request-response"),
+        not(feature = "byos")
+    ))]
     async fn apply_penalty(&mut self, peer_id: &PeerId, penalty: PenaltyType) {
         match penalty {
             PenaltyType::Ignore => (),
+            #[cfg(feature = "gossipsub")]
             PenaltyType::MuteGossip(time_amount) => {
                 let until = SystemTime::now() + time_amount;
                 match self.peer_penalty_storage.mute_peer_gossip(peer_id, until) {
@@ -700,6 +752,7 @@ impl P2P {
                     Err(e) => error!(?peer_id, ?e, "Failed to mute peer"),
                 }
             }
+            #[cfg(feature = "request-response")]
             PenaltyType::MuteReqresp(time_amount) => {
                 let until = SystemTime::now() + time_amount;
                 match self.peer_penalty_storage.mute_peer_req_resp(peer_id, until) {
@@ -707,6 +760,7 @@ impl P2P {
                     Err(e) => error!(?peer_id, ?e, "Failed to mute peer"),
                 }
             }
+            #[cfg(all(feature = "gossipsub", feature = "request-response"))]
             PenaltyType::MuteBoth(time_amount) => {
                 let until = SystemTime::now() + time_amount;
                 let gossip_mute_result = self.peer_penalty_storage.mute_peer_gossip(peer_id, until);
@@ -742,7 +796,10 @@ impl P2P {
         }
     }
 
-    #[cfg(not(feature = "byos"))]
+    #[cfg(all(
+        any(feature = "gossipsub", feature = "request-response"),
+        not(feature = "byos")
+    ))]
     fn get_all_scores(&self, peer_id: &PeerId) -> PeerScore {
         #[cfg(feature = "gossipsub")]
         let (gossipsub_internal_score, gossipsub_app_score) = {
@@ -786,13 +843,21 @@ impl P2P {
             SwarmEvent::Behaviour(event) => self.handle_behaviour_event(event).await,
             SwarmEvent::ConnectionEstablished { .. }
             | SwarmEvent::OutgoingConnectionError { .. } => {
-                self.handle_connection_event(event).await
+                #[cfg(feature = "byos")]
+                {
+                    self.handle_connection_event(event).await
+                }
+                #[cfg(not(feature = "byos"))]
+                {
+                    Ok(())
+                }
             }
             _ => Ok(()),
         }
     }
 
     /// Handles connection-related events (both successful and failed connections).
+    #[cfg(feature = "byos")]
     async fn handle_connection_event(
         &mut self,
         event: SwarmEvent<BehaviourEvent>,
@@ -1010,14 +1075,16 @@ impl P2P {
 
             let PeerScore {
                 gossipsub_app_score,
-                req_resp_app_score,
                 gossipsub_internal_score,
+                #[cfg(feature = "request-response")]
+                req_resp_app_score,
             } = self.get_all_scores(&propagation_source);
 
             if let Some(penalty) = self.validator.get_penalty(
                 &MessageType::Gossipsub(gossip_message.message.clone()),
                 gossipsub_internal_score,
                 gossipsub_app_score,
+                #[cfg(feature = "request-response")]
                 req_resp_app_score,
             ) {
                 self.apply_penalty(&propagation_source, penalty).await;
@@ -1433,20 +1500,6 @@ impl P2P {
             .config
             .channel_timeout
             .unwrap_or(DEFAULT_CHANNEL_TIMEOUT);
-        // App public key lookup (only for BYOS)
-        #[cfg(feature = "byos")]
-        let app_public_key = match self
-            .swarm
-            .behaviour()
-            .setup
-            .get_app_public_key_by_transport_id(&peer_id)
-        {
-            Some(key) => key,
-            None => {
-                warn!(%peer_id, "No app public key found for peer");
-                return Ok(());
-            }
-        };
         match msg {
             request_response::Message::Request {
                 request, channel, ..
@@ -1503,14 +1556,18 @@ impl P2P {
                         .update_req_resp_app_score(&peer_id, updated_score);
 
                     let PeerScore {
+                        #[cfg(feature = "gossipsub")]
                         gossipsub_internal_score,
+                        #[cfg(feature = "gossipsub")]
                         gossipsub_app_score,
                         req_resp_app_score,
                     } = self.get_all_scores(&peer_id);
 
                     if let Some(penalty) = self.validator.get_penalty(
                         &MessageType::Request(request.message.clone()),
+                        #[cfg(feature = "gossipsub")]
                         gossipsub_internal_score,
+                        #[cfg(feature = "gossipsub")]
                         gossipsub_app_score,
                         req_resp_app_score,
                     ) {
@@ -1647,14 +1704,18 @@ impl P2P {
                         .update_req_resp_app_score(&peer_id, updated_score);
 
                     let PeerScore {
+                        #[cfg(feature = "gossipsub")]
                         gossipsub_internal_score,
+                        #[cfg(feature = "gossipsub")]
                         gossipsub_app_score,
                         req_resp_app_score,
                     } = self.get_all_scores(&peer_id);
 
                     if let Some(penalty) = self.validator.get_penalty(
                         &MessageType::Response(response.message.clone()),
+                        #[cfg(feature = "gossipsub")]
                         gossipsub_internal_score,
+                        #[cfg(feature = "gossipsub")]
                         gossipsub_app_score,
                         req_resp_app_score,
                     ) {

@@ -34,12 +34,9 @@ use super::MAX_TRANSMIT_SIZE;
 use super::TOPIC;
 #[cfg(feature = "request-response")]
 use super::codec_raw;
-use crate::{
-    signer::ApplicationSigner,
-    swarm::Keypair,
-};
 #[cfg(feature = "byos")]
 use crate::swarm::{PublicKey, setup::behavior::SetupBehaviour};
+use crate::{signer::ApplicationSigner, swarm::Keypair};
 
 /// Alias for request-response behaviour with messages serialized by using
 /// homebrewed codec implementation.

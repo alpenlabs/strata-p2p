@@ -1,12 +1,18 @@
 //! Message types for P2P protocol communication.
 
+#[cfg(any(feature = "gossipsub", feature = "request-response", feature = "byos"))]
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use libp2p::{PeerId, identity::PublicKey};
+#[cfg(feature = "byos")]
+use libp2p::PeerId;
+#[cfg(any(feature = "gossipsub", feature = "request-response", feature = "byos"))]
+use libp2p::identity::PublicKey;
 use serde::{Deserialize, Serialize};
 
+#[cfg(any(feature = "gossipsub", feature = "request-response", feature = "byos"))]
 use super::errors::{SetupError, SignedMessageError};
 
+#[cfg(any(feature = "gossipsub", feature = "request-response", feature = "byos"))]
 pub(super) mod pubkey_serializer {
     use serde::{self, Deserializer, Serializer, de};
 
@@ -133,6 +139,7 @@ pub struct SignedMessage {
 
 impl SignedMessage {
     /// Creates a new signed message with the given signer.
+    #[cfg(any(feature = "gossipsub", feature = "request-response", feature = "byos"))]
     pub(crate) fn new<T>(
         message: T,
         signer: &dyn crate::signer::ApplicationSigner,
@@ -154,11 +161,13 @@ impl SignedMessage {
     }
 
     /// Verifies the signature of this message.
+    #[cfg(any(feature = "gossipsub", feature = "request-response", feature = "byos"))]
     pub(crate) fn verify_signature(&self, app_public_key: &PublicKey) -> Result<bool, SetupError> {
         Ok(app_public_key.verify(&self.message, &self.signature))
     }
 
     /// Deserializes the inner message.
+    #[cfg(any(feature = "gossipsub", feature = "request-response", feature = "byos"))]
     pub(crate) fn deserialize_message<T>(&self) -> Result<T, SignedMessageError>
     where
         T: for<'de> serde::Deserialize<'de>,
@@ -177,6 +186,7 @@ impl SignedMessage {
 
 impl SignedMessage {
     /// Creates a new signed setup message with the given signer.
+    #[cfg(feature = "byos")]
     pub(crate) fn new_signed_setup(
         app_public_key: PublicKey,
         local_transport_id: PeerId,
@@ -232,6 +242,7 @@ impl SignedMessage {
 /// Setup message structure for the handshake protocol.
 /// Now serialized/deserialized using JSON instead of custom binary format.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg(feature = "byos")]
 pub(crate) struct SetupMessage {
     /// Protocol version.
     pub version: ProtocolVersion,
@@ -248,6 +259,7 @@ pub(crate) struct SetupMessage {
     pub date: u64,
 }
 
+#[cfg(feature = "byos")]
 impl SetupMessage {
     /// Creates a new setup message with the given parameters.
     pub(crate) fn new(
@@ -370,6 +382,7 @@ impl ResponseMessage {
     }
 }
 
+#[cfg(any(feature = "gossipsub", feature = "request-response", feature = "byos"))]
 fn get_timestamp() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
