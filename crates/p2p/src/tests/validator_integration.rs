@@ -10,16 +10,34 @@ use tokio::{
 use tracing::info;
 
 use super::common::{Setup, init_tracing};
+use crate::commands::{Command, QueryP2PStateCommand};
+#[cfg(any(feature = "gossipsub", feature = "request-response"))]
+use crate::validator::{Message, PenaltyType, Validator};
+#[cfg(feature = "gossipsub")]
+use crate::{commands::GossipCommand, events::GossipEvent};
 #[cfg(feature = "request-response")]
 use crate::{commands::RequestResponseCommand, events::ReqRespEvent};
-use crate::{
-    commands::{Command, GossipCommand, QueryP2PStateCommand},
-    events::GossipEvent,
-    validator::{Message, PenaltyType, Validator},
-};
-
 #[derive(Debug, Default, Clone)]
 struct TestValidator;
+
+#[cfg(all(
+    any(feature = "gossipsub", feature = "request-response"),
+    not(feature = "byos")
+))]
+fn match_penalty(data: &[u8]) -> Option<PenaltyType> {
+    let content = String::from_utf8_lossy(data);
+    match content.as_ref() {
+        "ignore me" => Some(PenaltyType::Ignore),
+        #[cfg(feature = "gossipsub")]
+        "mute gossip" => Some(PenaltyType::MuteGossip(Duration::from_secs(4))),
+        #[cfg(feature = "request-response")]
+        "mute reqresp" => Some(PenaltyType::MuteReqresp(Duration::from_secs(4))),
+        #[cfg(all(feature = "request-response", feature = "gossipsub"))]
+        "mute both" => Some(PenaltyType::MuteBoth(Duration::from_secs(4))),
+        "ban me" => Some(PenaltyType::Ban(Some(Duration::from_secs(5)))),
+        _ => None,
+    }
+}
 
 impl Validator for TestValidator {
     #[allow(unused_variables)]
@@ -31,22 +49,15 @@ impl Validator for TestValidator {
     fn get_penalty(
         &self,
         msg: &Message,
-        gossip_internal_score: f64,
-        gossip_app_score: f64,
-        reqresp_app_score: f64,
+        #[cfg(feature = "gossipsub")] gossip_internal_score: f64,
+        #[cfg(feature = "gossipsub")] gossip_app_score: f64,
+        #[cfg(feature = "request-response")] reqresp_app_score: f64,
     ) -> Option<PenaltyType> {
         match msg {
-            Message::Gossipsub(data) | Message::Request(data) | Message::Response(data) => {
-                let content = String::from_utf8_lossy(data);
-                match content.as_ref() {
-                    "ignore me" => Some(PenaltyType::Ignore),
-                    "mute gossip" => Some(PenaltyType::MuteGossip(Duration::from_secs(4))),
-                    "mute reqresp" => Some(PenaltyType::MuteReqresp(Duration::from_secs(4))),
-                    "mute both" => Some(PenaltyType::MuteBoth(Duration::from_secs(4))),
-                    "ban me" => Some(PenaltyType::Ban(Some(Duration::from_secs(5)))),
-                    _ => None,
-                }
-            }
+            #[cfg(feature = "gossipsub")]
+            Message::Gossipsub(data) => match_penalty(data),
+            #[cfg(feature = "request-response")]
+            Message::Request(data) | Message::Response(data) => match_penalty(data),
         }
     }
 }
@@ -478,7 +489,7 @@ async fn test_gossipsub_ignore_penalty() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "gossipsub")]
+#[cfg(all(feature = "request-response", feature = "gossipsub"))]
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn test_gossipsub_mute_both_penalty() -> anyhow::Result<()> {
     init_tracing();

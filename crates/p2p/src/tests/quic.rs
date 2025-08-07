@@ -11,7 +11,10 @@ use tracing::info;
 
 #[cfg(feature = "byos")]
 use crate::tests::common::MockApplicationSigner;
-#[cfg(not(feature = "byos"))]
+#[cfg(all(
+    any(feature = "gossipsub", feature = "request-response"),
+    not(feature = "byos")
+))]
 use crate::validator::DefaultP2PValidator;
 use crate::{
     commands::{Command, QueryP2PStateCommand},
@@ -48,7 +51,10 @@ async fn test_quic_and_tcp_connectivity_ipv4_ipv6() {
         cancel.clone(),
         #[cfg(feature = "byos")]
         Arc::new(MockApplicationSigner::new(keypair_a.clone())),
-        #[cfg(not(feature = "byos"))]
+        #[cfg(all(
+            any(feature = "gossipsub", feature = "request-response"),
+            not(feature = "byos")
+        ))]
         Box::new(DefaultP2PValidator),
     )
     .expect("Failed to create listening node A");
@@ -64,7 +70,10 @@ async fn test_quic_and_tcp_connectivity_ipv4_ipv6() {
         cancel.clone(),
         #[cfg(feature = "byos")]
         Arc::new(MockApplicationSigner::new(keypair_b.clone())),
-        #[cfg(not(feature = "byos"))]
+        #[cfg(all(
+            any(feature = "gossipsub", feature = "request-response"),
+            not(feature = "byos")
+        ))]
         Box::new(DefaultP2PValidator),
     )
     .expect("Failed to create connecting node B");
@@ -179,7 +188,10 @@ async fn test_tcp_fallback_on_quic_failure() {
         cancel.clone(),
         #[cfg(feature = "byos")]
         Arc::new(MockApplicationSigner::new(keypair_a.clone())),
-        #[cfg(not(feature = "byos"))]
+        #[cfg(all(
+            any(feature = "gossipsub", feature = "request-response"),
+            not(feature = "byos")
+        ))]
         Box::new(DefaultP2PValidator),
     )
     .expect("Failed to create listening node");
@@ -195,7 +207,10 @@ async fn test_tcp_fallback_on_quic_failure() {
         cancel.clone(),
         #[cfg(feature = "byos")]
         Arc::new(MockApplicationSigner::new(keypair_b.clone())),
-        #[cfg(not(feature = "byos"))]
+        #[cfg(all(
+            any(feature = "gossipsub", feature = "request-response"),
+            not(feature = "byos")
+        ))]
         Box::new(DefaultP2PValidator),
     )
     .expect("Failed to create connecting node");

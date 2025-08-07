@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 
 [features]
-default = ["request-response", "gossipsub", "quic"]
+default = ["quic"]
 quic = ["libp2p/quic"]
 request-response = ["libp2p/request-response", "serde_json"]
 gossipsub = ["libp2p/gossipsub", "serde_json"]
