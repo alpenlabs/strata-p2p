@@ -96,12 +96,13 @@ use crate::{
     },
 };
 
-/// a non-exhaustive enum.
+/// DHT Kamdelia protocol versions.
 #[cfg(feature = "kad")]
 #[non_exhaustive]
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum KadProtocol {
-    /// first version of DHT
+    /// First version of DHT protocol.
+    #[default]
     V1,
 }
 
