@@ -16,7 +16,13 @@ use libp2p::{
 
 use crate::{
     signer::ApplicationSigner,
-    swarm::{errors::SetupUpgradeError, message::SignedMessage},
+    swarm::{
+        errors::SetupUpgradeError,
+        message::{
+            setup::{SetupMessage, SignedSetupMessage},
+            signed::SignedMessage,
+        },
+    },
 };
 
 /// Inbound upgrade for handling incoming setup requests.
@@ -42,13 +48,16 @@ impl UpgradeInfo for InboundSetupUpgrade {
 }
 
 impl InboundUpgrade<Stream> for InboundSetupUpgrade {
-    type Output = SignedMessage;
+    type Output = SignedSetupMessage;
     type Error = SetupUpgradeError;
     type Future = Pin<Box<dyn Future<Output = Result<Self::Output, Self::Error>> + Send>>;
 
     fn upgrade_inbound(self, stream: Stream, _: Self::Info) -> Self::Future {
         Box::pin(async move {
-            let mut framed = Framed::new(stream, JsonCodec::<SignedMessage, SignedMessage>::new());
+            let mut framed = Framed::new(
+                stream,
+                JsonCodec::<SignedSetupMessage, SignedSetupMessage>::new(),
+            );
 
             match StreamExt::next(&mut framed).await {
                 Some(Ok(signed_message)) => Ok(signed_message),
@@ -102,17 +111,21 @@ impl OutboundUpgrade<Stream> for OutboundSetupUpgrade<Arc<dyn ApplicationSigner>
 
     fn upgrade_outbound(self, stream: Stream, _: Self::Info) -> Self::Future {
         Box::pin(async move {
-            let setup_message = SignedMessage::new_signed_setup(
+            let setup_message = SetupMessage::new(
                 self.app_public_key.clone(),
                 self.local_transport_id,
                 self.remote_transport_id,
-                self.signer.as_ref(),
-            )
-            .map_err(|e| SetupUpgradeError::SignedMessageCreation(e.into()))?;
+            );
 
-            let mut framed = Framed::new(stream, JsonCodec::<SignedMessage, SignedMessage>::new());
+            let signed_setup_message = SignedMessage::new(setup_message, &self.signer)
+                .map_err(|e| SetupUpgradeError::SignedMessageCreation(e.into()))?;
+
+            let mut framed = Framed::new(
+                stream,
+                JsonCodec::<SignedMessage<SetupMessage>, SignedMessage<SetupMessage>>::new(),
+            );
             framed
-                .send(setup_message)
+                .send(signed_setup_message)
                 .await
                 .map_err(|e| SetupUpgradeError::JsonCodec(e.into()))?;
             framed

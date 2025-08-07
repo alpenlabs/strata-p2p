@@ -38,7 +38,11 @@ use tracing::instrument;
 use tracing::{debug, error, info, trace, warn};
 #[cfg(feature = "gossipsub")]
 use {
-    crate::{commands::GossipCommand, events::GossipEvent, swarm::message::GossipMessage},
+    crate::{
+        commands::GossipCommand,
+        events::GossipEvent,
+        swarm::message::gossipsub::{GossipMessage, SignedGossipsubMessage},
+    },
     handle::GossipHandle,
     libp2p::gossipsub::{
         Event as GossipsubEvent, Message, MessageAcceptance, MessageId, PeerScoreParams,
@@ -52,7 +56,9 @@ use {
     crate::{
         commands::RequestResponseCommand,
         events::ReqRespEvent,
-        swarm::message::{RequestMessage, ResponseMessage},
+        swarm::message::request_response::{
+            RequestMessage, ResponseMessage, SignedRequestMessage, SignedResponseMessage,
+        },
     },
     errors::SwarmError,
     handle::ReqRespHandle,
@@ -69,8 +75,6 @@ use crate::score_manager::DEFAULT_REQ_RESP_APP_SCORE;
     not(feature = "byos")
 ))]
 use crate::signer::TransportKeypairSigner;
-#[cfg(any(feature = "gossipsub", feature = "request-response"))]
-use crate::swarm::message::SignedMessage;
 #[cfg(feature = "byos")]
 use crate::swarm::{dial_manager::DialManager, setup::events::SetupBehaviourEvent};
 use crate::{
@@ -981,7 +985,9 @@ impl P2P {
             return Ok(());
         }
 
-        let signed_message = match SignedMessage::from_json_bytes(&message.data) {
+        let signed_gossipsub_message: SignedGossipsubMessage = match serde_json::from_slice(
+            &message.data,
+        ) {
             Ok(signed_msg) => signed_msg,
             Err(e) => {
                 error!(%propagation_source, ?e, "Failed to deserialize signed gossipsub message");
@@ -997,10 +1003,14 @@ impl P2P {
             }
         };
 
-        let gossip_message: GossipMessage = match signed_message.deserialize_message() {
-            Ok(msg) => msg,
-            Err(e) => {
-                error!(%propagation_source, ?e, "Failed to deserialize inner gossipsub message");
+        // Allowlist validation (only for BYOS)
+        #[cfg(feature = "byos")]
+        {
+            if !signed_gossipsub_message.message.public_key.verify(
+                &serde_json::to_vec(&signed_gossipsub_message.message).unwrap(),
+                &signed_gossipsub_message.signature,
+            ) {
+                warn!(%propagation_source, "Invalid signature for gossipsub message");
                 self.swarm
                     .behaviour_mut()
                     .gossipsub
@@ -1010,43 +1020,11 @@ impl P2P {
                         MessageAcceptance::Reject,
                     );
                 return Ok(());
-            }
-        };
-
-        let is_signature_valid =
-            match signed_message.verify_signature(&gossip_message.app_public_key) {
-                Ok(valid) => valid,
-                Err(e) => {
-                    error!(%propagation_source, ?e, "Error verifying gossipsub message signature");
-                    self.swarm
-                        .behaviour_mut()
-                        .gossipsub
-                        .report_message_validation_result(
-                            &message_id,
-                            &propagation_source,
-                            MessageAcceptance::Reject,
-                        );
-                    return Ok(());
-                }
             };
-
-        if !is_signature_valid {
-            warn!(%propagation_source, "Invalid signature for gossipsub message");
-            self.swarm
-                .behaviour_mut()
-                .gossipsub
-                .report_message_validation_result(
-                    &message_id,
-                    &propagation_source,
-                    MessageAcceptance::Reject,
-                );
-            return Ok(());
-        }
-
-        // Allowlist validation (only for BYOS)
-        #[cfg(feature = "byos")]
-        {
-            if !self.allowlist.contains(&gossip_message.app_public_key) {
+            if !self
+                .allowlist
+                .contains(&signed_gossipsub_message.message.public_key)
+            {
                 warn!(%propagation_source, "Gossipsub message from peer not in allowlist");
                 self.swarm
                     .behaviour_mut()
@@ -1070,7 +1048,7 @@ impl P2P {
                 .unwrap_or(DEFAULT_GOSSIP_APP_SCORE);
 
             let updated_score = self.validator.validate_msg(
-                &MessageType::Gossipsub(gossip_message.message.clone()),
+                &MessageType::Gossipsub(signed_gossipsub_message.message.message.clone()),
                 old_app_score,
             );
 
@@ -1085,7 +1063,7 @@ impl P2P {
             } = self.get_all_scores(&propagation_source);
 
             if let Some(penalty) = self.validator.get_penalty(
-                &MessageType::Gossipsub(gossip_message.message.clone()),
+                &MessageType::Gossipsub(signed_gossipsub_message.message.message.clone()),
                 gossipsub_internal_score,
                 gossipsub_app_score,
                 #[cfg(feature = "request-response")]
@@ -1107,7 +1085,9 @@ impl P2P {
 
         // Send event to gossip_events channel with the actual message data
         self.gossip_events
-            .send(GossipEvent::ReceivedMessage(gossip_message.message))
+            .send(GossipEvent::ReceivedMessage(
+                signed_gossipsub_message.message.message.clone(),
+            ))
             .map_err(|e| ProtocolError::GossipEventsChannelClosed(e.into()))?;
 
         Ok(())
@@ -1307,7 +1287,7 @@ impl P2P {
         debug!("Publishing message");
         trace!(?cmd.data, "Publishing message");
 
-        let app_public_key = {
+        let public_key = {
             #[cfg(feature = "byos")]
             {
                 self.config.app_public_key.clone()
@@ -1318,10 +1298,9 @@ impl P2P {
             }
         };
 
-        let signed_gossip_message: SignedMessage = match SignedMessage::new_signed_gossip(
-            app_public_key,
-            cmd.data,
-            self.signer.as_ref(),
+        let signed_gossip_message = match SignedGossipsubMessage::new(
+            GossipMessage::new(public_key.clone(), cmd.data),
+            &self.signer,
         ) {
             Ok(signed_msg) => signed_msg,
             Err(e) => {
@@ -1407,16 +1386,17 @@ impl P2P {
             }
         };
 
+        let request_message = RequestMessage::new(app_public_key, cmd.data);
+
         // Create and serialize signed message
-        let signed_request_message =
-            match SignedMessage::new_signed_request(app_public_key, cmd.data, self.signer.as_ref())
-            {
-                Ok(signed_msg) => signed_msg,
-                Err(e) => {
-                    error!(?e, "Failed to create signed request message");
-                    return Ok(());
-                }
-            };
+        let signed_request_message = match SignedRequestMessage::new(request_message, &self.signer)
+        {
+            Ok(signed_msg) => signed_msg,
+            Err(e) => {
+                error!(?e, "Failed to create signed request message");
+                return Ok(());
+            }
+        };
 
         let signed_request_message_data = match serde_json::to_vec(&signed_request_message) {
             Ok(data) => data,
@@ -1515,7 +1495,7 @@ impl P2P {
                     return Ok(());
                 }
 
-                let signed_message = match SignedMessage::from_json_bytes(&request) {
+                let signed_message: SignedRequestMessage = match serde_json::from_slice(&request) {
                     Ok(signed_msg) => signed_msg,
                     Err(e) => {
                         error!(%peer_id, ?e, "Failed to deserialize signed request message");
@@ -1523,15 +1503,9 @@ impl P2P {
                     }
                 };
 
-                let request: RequestMessage = match signed_message.deserialize_message() {
-                    Ok(request) => request,
-                    Err(e) => {
-                        error!(%peer_id, ?e, "Failed to deserialize request message");
-                        return Ok(());
-                    }
-                };
+                let request: RequestMessage = signed_message.message.clone();
 
-                let is_valid = match signed_message.verify_signature(&request.app_public_key) {
+                let is_valid = match signed_message.verify() {
                     Ok(is_valid) => is_valid,
                     Err(e) => {
                         error!(%peer_id, ?e, "Failed to verify signature for request message");
@@ -1601,7 +1575,7 @@ impl P2P {
 
                 let _ = match resp {
                     Ok(Ok(response)) => {
-                        let signed_response_message: SignedMessage = {
+                        let signed_response_message: SignedResponseMessage = {
                             let app_public_key = {
                                 #[cfg(feature = "byos")]
                                 {
@@ -1612,10 +1586,9 @@ impl P2P {
                                     self.config.transport_keypair.public()
                                 }
                             };
-                            let signed_message = SignedMessage::new_signed_response(
-                                app_public_key,
-                                response,
-                                self.signer.as_ref(),
+                            let signed_message = SignedResponseMessage::new(
+                                ResponseMessage::new(app_public_key, response),
+                                &self.signer,
                             );
                             match signed_message {
                                 Ok(signed_msg) => signed_msg,
@@ -1661,31 +1634,22 @@ impl P2P {
                     return Ok(());
                 }
 
-                let signed_response_message = match SignedMessage::from_json_bytes(&response) {
-                    Ok(signed_msg) => signed_msg,
-                    Err(e) => {
-                        error!(%peer_id, ?e, "Failed to deserialize signed response message");
-                        return Ok(());
-                    }
-                };
-
-                let response: ResponseMessage = match signed_response_message.deserialize_message()
-                {
-                    Ok(response) => response,
-                    Err(e) => {
-                        error!(%peer_id, ?e, "Failed to deserialize response message");
-                        return Ok(());
-                    }
-                };
-
-                let is_valid =
-                    match signed_response_message.verify_signature(&response.app_public_key) {
-                        Ok(is_valid) => is_valid,
+                let signed_response_message: SignedResponseMessage =
+                    match serde_json::from_slice(&response) {
+                        Ok(signed_msg) => signed_msg,
                         Err(e) => {
-                            error!(%peer_id, ?e, "Failed to verify signature for response message");
+                            error!(%peer_id, ?e, "Failed to deserialize signed response message");
                             return Ok(());
                         }
                     };
+
+                let is_valid = match signed_response_message.verify() {
+                    Ok(is_valid) => is_valid,
+                    Err(e) => {
+                        error!(%peer_id, ?e, "Failed to verify signature for response message");
+                        return Ok(());
+                    }
+                };
 
                 if !is_valid {
                     warn!(%peer_id, "Invalid signature for response message");
@@ -1694,6 +1658,7 @@ impl P2P {
 
                 #[cfg(not(feature = "byos"))]
                 {
+                    let response: ResponseMessage = signed_response_message.message.clone();
                     let old_app_score = self
                         .score_manager
                         .get_req_resp_score(&peer_id)
@@ -1728,7 +1693,8 @@ impl P2P {
                     }
                 }
 
-                let event = ReqRespEvent::ReceivedResponse(response.message.clone());
+                let event =
+                    ReqRespEvent::ReceivedResponse(signed_response_message.message.message.clone());
                 let send_result = timeout(reqresp_timeout, self.req_resp_events.send(event)).await;
                 match send_result {
                     Ok(Ok(())) => {}
