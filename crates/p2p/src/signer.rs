@@ -8,6 +8,7 @@ use std::{fmt::Debug, sync::Arc};
 
 #[cfg(not(feature = "byos"))]
 use libp2p::identity::Keypair;
+use libp2p::identity::PublicKey;
 
 /// Trait for signing setup messages with application private keys.
 ///
@@ -31,7 +32,7 @@ pub struct TransportKeypairSigner {
 #[cfg(not(feature = "byos"))]
 impl TransportKeypairSigner {
     /// Creates a new TransportKeypairSigner with the given transport keypair.
-    pub fn new(keypair: Keypair) -> Self {
+    pub const fn new(keypair: Keypair) -> Self {
         Self { keypair }
     }
 }

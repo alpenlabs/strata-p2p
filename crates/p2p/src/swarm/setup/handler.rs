@@ -34,6 +34,7 @@ use crate::{
 ///
 /// This handler manages the lifecycle of setup substreams for a single connection,
 /// coordinating both inbound and outbound handshake processes.
+#[expect(clippy::type_complexity)]
 #[derive(Debug)]
 pub struct SetupHandler {
     outbound_substream:

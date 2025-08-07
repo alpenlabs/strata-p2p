@@ -1,16 +1,24 @@
 //! Test QUIC and TCP connectivity on IPv4 and IPv6.
 
-use std::{sync::Arc, time::Duration};
+#[cfg(feature = "byos")]
+use std::sync::Arc;
+use std::time::Duration;
 
 use libp2p::{Multiaddr, identity::Keypair};
 use tokio::{join, spawn, sync::oneshot, time};
 use tokio_util::sync::CancellationToken;
 use tracing::info;
 
+#[cfg(feature = "byos")]
+use crate::tests::common::MockApplicationSigner;
+#[cfg(all(
+    any(feature = "gossipsub", feature = "request-response"),
+    not(feature = "byos")
+))]
+use crate::validator::DefaultP2PValidator;
 use crate::{
     commands::{Command, QueryP2PStateCommand},
-    tests::common::{MockApplicationSigner, User, init_tracing},
-    validator::DefaultP2PValidator,
+    tests::common::{User, init_tracing},
 };
 
 /// Test QUIC and TCP connectivity on IPv4 and IPv6.
@@ -28,9 +36,11 @@ async fn test_quic_and_tcp_connectivity_ipv4_ipv6() {
     let cancel = CancellationToken::new();
 
     let user_a = User::new(
+        #[cfg(feature = "byos")]
         keypair_a.clone(),
         keypair_a.clone(),
         vec![],
+        #[cfg(feature = "byos")]
         vec![keypair_b.public()],
         vec![
             tcp4_base.clone(),
@@ -39,19 +49,31 @@ async fn test_quic_and_tcp_connectivity_ipv4_ipv6() {
             quic6_base.clone(),
         ],
         cancel.clone(),
+        #[cfg(feature = "byos")]
         Arc::new(MockApplicationSigner::new(keypair_a.clone())),
+        #[cfg(all(
+            any(feature = "gossipsub", feature = "request-response"),
+            not(feature = "byos")
+        ))]
         Box::new(DefaultP2PValidator),
     )
     .expect("Failed to create listening node A");
 
     let user_b = User::new(
+        #[cfg(feature = "byos")]
         keypair_b.clone(),
         keypair_b.clone(),
         vec![],
+        #[cfg(feature = "byos")]
         vec![keypair_a.public()],
         vec![],
         cancel.clone(),
+        #[cfg(feature = "byos")]
         Arc::new(MockApplicationSigner::new(keypair_b.clone())),
+        #[cfg(all(
+            any(feature = "gossipsub", feature = "request-response"),
+            not(feature = "byos")
+        ))]
         Box::new(DefaultP2PValidator),
     )
     .expect("Failed to create connecting node B");
@@ -82,7 +104,10 @@ async fn test_quic_and_tcp_connectivity_ipv4_ipv6() {
         info!(%addr, "Testing connection");
 
         let connect_cmd = Command::ConnectToPeer {
+            #[cfg(feature = "byos")]
             app_public_key: keypair_a.public(),
+            #[cfg(not(feature = "byos"))]
+            transport_id: keypair_a.public().to_peer_id(),
             addresses: vec![addr.clone()],
         };
         command_b.send_command(connect_cmd).await;
@@ -91,7 +116,10 @@ async fn test_quic_and_tcp_connectivity_ipv4_ipv6() {
 
         let (tx, rx) = oneshot::channel();
         let is_connected_query = QueryP2PStateCommand::IsConnected {
+            #[cfg(feature = "byos")]
             app_public_key: keypair_a.public(),
+            #[cfg(not(feature = "byos"))]
+            transport_id: keypair_a.public().to_peer_id(),
             response_sender: tx,
         };
         command_b
@@ -103,7 +131,10 @@ async fn test_quic_and_tcp_connectivity_ipv4_ipv6() {
 
         command_b
             .send_command(Command::DisconnectFromPeer {
+                #[cfg(feature = "byos")]
                 target_app_public_key: keypair_a.public(),
+                #[cfg(not(feature = "byos"))]
+                target_transport_id: keypair_a.public().to_peer_id(),
             })
             .await;
         info!(%addr, "Disconnect requested");
@@ -111,7 +142,10 @@ async fn test_quic_and_tcp_connectivity_ipv4_ipv6() {
         time::sleep(Duration::from_millis(200)).await;
         let (tx, rx) = oneshot::channel();
         let is_connected_query = QueryP2PStateCommand::IsConnected {
+            #[cfg(feature = "byos")]
             app_public_key: keypair_a.public(),
+            #[cfg(not(feature = "byos"))]
+            transport_id: keypair_a.public().to_peer_id(),
             response_sender: tx,
         };
         command_b
@@ -144,25 +178,39 @@ async fn test_tcp_fallback_on_quic_failure() {
     let cancel = CancellationToken::new();
 
     let user_a = User::new(
+        #[cfg(feature = "byos")]
         keypair_a.clone(),
         keypair_a.clone(),
         vec![],
+        #[cfg(feature = "byos")]
         vec![keypair_b.public()],
         vec![tcp4_addr.clone(), quic4_addr.clone()],
         cancel.clone(),
+        #[cfg(feature = "byos")]
         Arc::new(MockApplicationSigner::new(keypair_a.clone())),
+        #[cfg(all(
+            any(feature = "gossipsub", feature = "request-response"),
+            not(feature = "byos")
+        ))]
         Box::new(DefaultP2PValidator),
     )
     .expect("Failed to create listening node");
 
     let user_b = User::new(
+        #[cfg(feature = "byos")]
         keypair_b.clone(),
         keypair_b.clone(),
         vec![],
+        #[cfg(feature = "byos")]
         vec![keypair_a.public()],
         vec![],
         cancel.clone(),
+        #[cfg(feature = "byos")]
         Arc::new(MockApplicationSigner::new(keypair_b.clone())),
+        #[cfg(all(
+            any(feature = "gossipsub", feature = "request-response"),
+            not(feature = "byos")
+        ))]
         Box::new(DefaultP2PValidator),
     )
     .expect("Failed to create connecting node");
@@ -195,7 +243,10 @@ async fn test_tcp_fallback_on_quic_failure() {
     let mixed_addresses = vec![invalid_quic_addr.clone(), actual_tcp_addr.clone()];
 
     let connect_cmd = Command::ConnectToPeer {
+        #[cfg(feature = "byos")]
         app_public_key: keypair_a.public(),
+        #[cfg(not(feature = "byos"))]
+        transport_id: keypair_a.public().to_peer_id(),
         addresses: mixed_addresses,
     };
     command_b.send_command(connect_cmd).await;
@@ -204,7 +255,10 @@ async fn test_tcp_fallback_on_quic_failure() {
 
     let (tx, rx) = oneshot::channel();
     let is_connected_query = QueryP2PStateCommand::IsConnected {
+        #[cfg(feature = "byos")]
         app_public_key: keypair_a.public(),
+        #[cfg(not(feature = "byos"))]
+        transport_id: keypair_a.public().to_peer_id(),
         response_sender: tx,
     };
     command_b

@@ -12,10 +12,10 @@ use std::{
 
 #[cfg(any(feature = "gossipsub", feature = "request-response"))]
 use futures::{FutureExt, Sink, Stream};
-#[cfg(feature = "byos")]
-use libp2p::identity::PublicKey;
 #[cfg(not(feature = "byos"))]
 use libp2p::PeerId;
+#[cfg(feature = "byos")]
+use libp2p::identity::PublicKey;
 #[cfg(feature = "gossipsub")]
 use thiserror::Error;
 #[cfg(feature = "gossipsub")]
@@ -167,7 +167,7 @@ impl CommandHandle {
         let (sender, receiver) = oneshot::channel();
 
         let cmd = Command::QueryP2PState(QueryP2PStateCommand::IsConnected {
-            transport_id: transport_id.clone(),
+            transport_id: *transport_id,
             response_sender: sender,
         });
 

@@ -2,6 +2,8 @@
 
 #[cfg(not(feature = "byos"))]
 use std::num::NonZeroU8;
+#[cfg(any(feature = "gossipsub", feature = "request-response", feature = "byos"))]
+use std::sync::Arc;
 #[cfg(all(
     any(feature = "gossipsub", feature = "request-response"),
     not(feature = "byos")
@@ -9,7 +11,6 @@ use std::num::NonZeroU8;
 use std::time::SystemTime;
 use std::{
     collections::HashSet,
-    sync::Arc,
     time::{Duration, Instant},
 };
 
@@ -66,10 +67,13 @@ use {
     tokio::sync::oneshot,
 };
 
+use crate::commands::{Command, QueryP2PStateCommand};
 #[cfg(all(feature = "gossipsub", not(feature = "byos")))]
 use crate::score_manager::DEFAULT_GOSSIP_APP_SCORE;
 #[cfg(all(feature = "request-response", not(feature = "byos")))]
 use crate::score_manager::DEFAULT_REQ_RESP_APP_SCORE;
+#[cfg(any(feature = "gossipsub", feature = "request-response", feature = "byos"))]
+use crate::signer::ApplicationSigner;
 #[cfg(all(
     any(feature = "gossipsub", feature = "request-response"),
     not(feature = "byos")
@@ -77,10 +81,6 @@ use crate::score_manager::DEFAULT_REQ_RESP_APP_SCORE;
 use crate::signer::TransportKeypairSigner;
 #[cfg(feature = "byos")]
 use crate::swarm::{dial_manager::DialManager, setup::events::SetupBehaviourEvent};
-use crate::{
-    commands::{Command, QueryP2PStateCommand},
-    signer::ApplicationSigner,
-};
 #[cfg(all(
     any(feature = "gossipsub", feature = "request-response"),
     not(feature = "byos")
@@ -99,6 +99,7 @@ pub mod dial_manager;
 pub mod errors;
 pub mod handle;
 pub mod message;
+#[cfg(feature = "byos")]
 pub mod setup;
 
 use libp2p::tcp;
@@ -411,7 +412,7 @@ impl P2P {
             any(feature = "gossipsub", feature = "request-response"),
             not(feature = "byos")
         ))]
-        let validator = validator.unwrap_or_else(|| Box::new(DefaultP2PValidator::default()));
+        let validator = validator.unwrap_or_else(|| Box::new(DefaultP2PValidator));
 
         let p2p = P2P {
             swarm,
@@ -788,9 +789,8 @@ impl P2P {
                 let until = SystemTime::now() + opt_time_amount.unwrap_or(DEFAULT_BAN_PERIOD);
                 match self.peer_penalty_storage.ban_peer(peer_id, until) {
                     Ok(()) => {
+                        let _ = self.swarm.disconnect_peer_id(*peer_id);
                         info!(?peer_id, ?until, "Peer banned");
-
-                        let _ = self.swarm.disconnect_peer_id(peer_id.clone());
                     }
                     Err(e) => error!(?peer_id, ?e, "Failed to ban peer"),
                 }
@@ -858,11 +858,24 @@ impl P2P {
     ) -> P2PResult<()> {
         match event {
             SwarmEvent::ConnectionEstablished {
-                #[cfg(any(feature = "gossipsub", feature = "request-response", feature = "byos"))]
+                #[cfg(all(
+                    any(feature = "gossipsub", feature = "request-response"),
+                    not(feature = "byos")
+                ))]
                 peer_id,
+                #[cfg(not(all(
+                    any(feature = "gossipsub", feature = "request-response"),
+                    not(feature = "byos")
+                )))]
+                    peer_id: _,
                 #[cfg(feature = "byos")]
                 connection_id,
-                ..
+                #[cfg(not(feature = "byos"))]
+                    connection_id: _,
+                endpoint: _,
+                num_established: _,
+                concurrent_dial_errors: _,
+                established_in: _,
             } => {
                 #[cfg(feature = "byos")]
                 {
@@ -872,7 +885,7 @@ impl P2P {
                     {
                         self.dial_manager.remove_queue(&app_public_key);
                         self.dial_manager.remove_connid(&connection_id);
-                        info!(peer_id = %peer_id, "connected to peer");
+                        info!(app_public_key = ?app_public_key, "connected to peer");
                     }
                 }
                 #[cfg(all(
@@ -883,11 +896,9 @@ impl P2P {
                     if !self.peer_penalty_storage.is_banned(&peer_id) {
                         info!(peer_id = %peer_id, "connected to peer");
                     } else {
-                        if self.peer_penalty_storage.is_banned(&peer_id) {
-                            info!(%peer_id, "Connected to banned peer. Disconnecting.");
-                            let _ = self.swarm.disconnect_peer_id(peer_id);
-                            return Ok(());
-                        }
+                        info!(%peer_id, "Connected to banned peer. Disconnecting.");
+                        let _ = self.swarm.disconnect_peer_id(peer_id);
+                        return Ok(());
                     }
                 }
                 Ok(())
@@ -895,8 +906,10 @@ impl P2P {
             SwarmEvent::OutgoingConnectionError {
                 #[cfg(feature = "byos")]
                 connection_id,
+                #[cfg(not(feature = "byos"))]
+                    connection_id: _,
                 error,
-                ..
+                peer_id: _,
             } => {
                 #[cfg(feature = "byos")]
                 {
@@ -1373,6 +1386,13 @@ impl P2P {
             }
         };
 
+        #[cfg(feature = "byos")]
+        if target_peer_id.is_none() {
+            error!(
+                "Logic error: Request response is attempted on a peer we haven't done Setup yet."
+            );
+        }
+
         trace!(?cmd.data, "Got request message");
 
         let app_public_key = {
@@ -1407,22 +1427,14 @@ impl P2P {
         };
 
         // Send request if peer is available and connected
-        match target_peer_id {
-            Some(peer_id) => {
-                if self.swarm.is_connected(&peer_id) {
-                    self.swarm
-                        .behaviour_mut()
-                        .request_response
-                        .send_request(&peer_id, signed_request_message_data);
-                } else {
-                    debug!(%peer_id, "Peer not connected, cannot send request");
-                }
-            }
-            None => {
-                #[cfg(feature = "byos")]
-                error!(
-                    "Logic error: Request response is attempted on a peer we haven't done Setup yet."
-                );
+        if let Some(peer_id) = target_peer_id {
+            if self.swarm.is_connected(&peer_id) {
+                self.swarm
+                    .behaviour_mut()
+                    .request_response
+                    .send_request(&peer_id, signed_request_message_data);
+            } else {
+                debug!(%peer_id, "Peer not connected, cannot send request");
             }
         }
 
@@ -1457,11 +1469,6 @@ impl P2P {
                 connection_id: _,
             } => {
                 error!(%peer, %error, %request_id, "Inbound failure");
-                // dial the peer
-                let _ = self.swarm.dial(peer).inspect_err(|err| {
-                    error!(%peer, %error, %request_id, "Inbound failure");
-                    error!(%err, "Failed to connect to peer '{peer}'");
-                });
             }
             RequestResponseEvent::ResponseSent {
                 peer, request_id, ..
@@ -1776,6 +1783,7 @@ macro_rules! finish_swarm {
                     &$cfg.gossipsub_score_params,
                     #[cfg(feature = "gossipsub")]
                     &$cfg.gossipsub_score_thresholds,
+                    #[cfg(feature = "byos")]
                     $signer.clone(),
                 )
                 .map_err(|e| e.into())
@@ -1790,7 +1798,7 @@ macro_rules! finish_swarm {
 /// `/memory/{n}` addresses.
 pub fn with_inmemory_transport(
     config: &P2PConfig,
-    signer: Arc<dyn ApplicationSigner>,
+    #[cfg(feature = "byos")] signer: Arc<dyn ApplicationSigner>,
 ) -> P2PResult<Swarm<Behaviour>> {
     let builder = init_swarm!(config);
     let swarm = finish_swarm!(
@@ -1802,6 +1810,7 @@ pub fn with_inmemory_transport(
                 .map(|(p, c), _| (p, StreamMuxerBox::new(c)))
         }),
         config,
+        #[cfg(feature = "byos")]
         signer
     );
 
@@ -1812,7 +1821,7 @@ pub fn with_inmemory_transport(
 /// TCP only otherwise.
 pub fn with_default_transport(
     config: &P2PConfig,
-    signer: Arc<dyn ApplicationSigner>,
+    #[cfg(feature = "byos")] signer: Arc<dyn ApplicationSigner>,
 ) -> P2PResult<Swarm<Behaviour>> {
     let builder = init_swarm!(config);
     #[cfg(feature = "quic")]
@@ -1834,6 +1843,7 @@ pub fn with_default_transport(
                 &config.gossipsub_score_params,
                 #[cfg(feature = "gossipsub")]
                 &config.gossipsub_score_thresholds,
+                #[cfg(feature = "byos")]
                 signer.clone(),
             )
             .map_err(|e| e.into())
@@ -1849,6 +1859,7 @@ pub fn with_default_transport(
             yamux::Config::default,
         ),
         config,
+        #[cfg(feature = "byos")]
         signer
     );
     Ok(swarm)

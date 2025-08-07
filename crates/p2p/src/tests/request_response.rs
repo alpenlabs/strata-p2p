@@ -23,11 +23,18 @@ async fn test_reqresp_basic() -> anyhow::Result<()> {
 
     let req_msg = b"request from node1".to_vec();
     let resp_msg = b"response from node2".to_vec();
-    let peer_public_key = user_handles[1].app_keypair.public();
+    #[cfg(feature = "byos")]
+    let peer_app_public_key = user_handles[1].app_keypair.public();
+    #[cfg(not(feature = "byos"))]
+    let peer_id = user_handles[1].peer_id;
+
     user_handles[0]
         .reqresp
         .send(RequestResponseCommand {
-            target_app_public_key: peer_public_key,
+            #[cfg(feature = "byos")]
+            target_app_public_key: peer_app_public_key,
+            #[cfg(not(feature = "byos"))]
+            target_transport_id: peer_id,
             data: req_msg.clone(),
         })
         .await
