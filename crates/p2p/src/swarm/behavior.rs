@@ -7,8 +7,6 @@
 
 #[cfg(feature = "gossipsub")]
 use std::collections::HashSet;
-#[cfg(feature = "kad")]
-use std::num::NonZero;
 #[cfg(feature = "byos")]
 use std::sync::Arc;
 
@@ -171,12 +169,6 @@ fn create_kademlia_behaviour(
     // feature="byos" , then filter based on transport id at handling
     // FromSwarm::ConnectionEstablished
     kad_cfg.set_kbucket_inserts(kad::BucketInserts::OnConnected);
-
-    // TODO(Arniiiii): make it configurable
-    kad_cfg.set_replication_factor(NonZero::new(5).unwrap());
-
-    // maybe should be increased and give logic of quorum manually
-    kad_cfg.set_caching(kad::Caching::Enabled { max_peers: 1 });
 
     let store = kad::store::MemoryStore::new(transport_keypair.public().to_peer_id());
 
