@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 
 [features]
-default = ["request-response", "gossipsub", "quic", "byos"]
+default = ["request-response", "gossipsub", "quic"]
 quic = ["libp2p/quic"]
 request-response = ["libp2p/request-response", "serde_json"]
 gossipsub = ["libp2p/gossipsub", "serde_json"]
@@ -27,6 +27,7 @@ libp2p = { workspace = true, features = [
   "identify",
   "serde",
 ] }
+serde.workspace = true
 serde_json = { workspace = true, optional = true }
 thiserror.workspace = true
 tokio = { workspace = true, features = ["macros", "time"] }

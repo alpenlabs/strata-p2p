@@ -245,7 +245,6 @@ impl SignedMessage {
 /// Now serialized/deserialized using JSON instead of custom binary format.
 #[cfg(feature = "byos")]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[cfg(feature = "byos")]
 pub(crate) struct SetupMessage {
     /// Protocol version.
     pub version: ProtocolVersion,

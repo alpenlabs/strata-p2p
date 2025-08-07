@@ -69,8 +69,6 @@ use crate::score_manager::DEFAULT_REQ_RESP_APP_SCORE;
     not(feature = "byos")
 ))]
 use crate::signer::TransportKeypairSigner;
-#[cfg(feature = "gossipsub")]
-use crate::swarm::message::GossipMessage;
 #[cfg(any(feature = "gossipsub", feature = "request-response"))]
 use crate::swarm::message::SignedMessage;
 #[cfg(feature = "byos")]
@@ -409,7 +407,7 @@ impl P2P {
             any(feature = "gossipsub", feature = "request-response"),
             not(feature = "byos")
         ))]
-        let validator = validator.unwrap_or_else(|| Box::new(DefaultP2PValidator::default()));
+        let validator = validator.unwrap_or_else(|| Box::new(DefaultP2PValidator));
 
         let p2p = P2P {
             swarm,
@@ -885,11 +883,9 @@ impl P2P {
                     if !self.peer_penalty_storage.is_banned(&peer_id) {
                         info!(peer_id = %peer_id, "connected to peer");
                     } else {
-                        if self.peer_penalty_storage.is_banned(&peer_id) {
-                            info!(%peer_id, "Connected to banned peer. Disconnecting.");
-                            let _ = self.swarm.disconnect_peer_id(peer_id);
-                            return Ok(());
-                        }
+                        info!(%peer_id, "Connected to banned peer. Disconnecting.");
+                        let _ = self.swarm.disconnect_peer_id(peer_id);
+                        return Ok(());
                     }
                 }
                 Ok(())

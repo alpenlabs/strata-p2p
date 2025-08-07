@@ -158,7 +158,7 @@ impl PenaltyPeerStorage {
         peer_id: &PeerId,
         until: SystemTime,
     ) -> Result<(), &'static str> {
-        let penalty = self.penalties.entry(peer_id.clone()).or_insert_with(|| {
+        let penalty = self.penalties.entry(*peer_id).or_insert_with(|| {
             PenaltyInfo::new(
                 None,
                 None,
@@ -184,7 +184,7 @@ impl PenaltyPeerStorage {
         peer_id: &PeerId,
         until: SystemTime,
     ) -> Result<(), &'static str> {
-        let penalty = self.penalties.entry(peer_id.clone()).or_insert_with(|| {
+        let penalty = self.penalties.entry(*peer_id).or_insert_with(|| {
             PenaltyInfo::new(
                 #[cfg(feature = "gossipsub")]
                 None,
