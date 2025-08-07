@@ -28,6 +28,8 @@ use libp2p::{
     identify::{Behaviour as Identify, Config},
     swarm::NetworkBehaviour,
 };
+#[cfg(feature = "kad")]
+use libp2p::{kad, kad::store::MemoryStore};
 
 #[cfg(feature = "gossipsub")]
 use super::MAX_TRANSMIT_SIZE;
@@ -37,6 +39,8 @@ use super::TOPIC;
 use super::codec_raw;
 #[cfg(feature = "byos")]
 use crate::signer::ApplicationSigner;
+#[cfg(feature = "kad")]
+use crate::swarm::KadProtocol;
 use crate::swarm::Keypair;
 #[cfg(feature = "byos")]
 use crate::swarm::{PublicKey, setup::behavior::SetupBehaviour};
@@ -66,6 +70,10 @@ pub struct Behaviour {
     /// Gossipsub - pub/sub model for messages distribution.
     #[cfg(feature = "gossipsub")]
     pub gossipsub: Gossipsub<IdentityTransform, WhitelistSubscriptionFilter>,
+
+    /// Kademlia DHT
+    #[cfg(feature = "kad")]
+    pub kademlia: kad::Behaviour<kad::store::MemoryStore>,
 }
 
 /// Creates a new [`Gossipsub`] given a [`Keypair`] and scoring parameters.
@@ -137,6 +145,42 @@ fn create_gossipsub(
     }
 }
 
+/// Here we create kademlia behaviour.
+#[cfg(feature = "kad")]
+fn create_kademlia_behaviour(
+    transport_keypair: &Keypair,
+    kad_protocol_name: &Option<KadProtocol>,
+) -> libp2p::kad::Behaviour<MemoryStore> {
+    use crate::swarm::KadProtocol;
+
+    let mut kad_cfg = kad::Config::new(
+        kad_protocol_name
+            .as_ref()
+            .unwrap_or(&KadProtocol::V1)
+            .clone()
+            .into(),
+    );
+
+    // it is expected that there's going to be manual validation of records
+    kad_cfg.set_record_filtering(kad::StoreInserts::FilterBoth);
+
+    // it is expected that there's going to be automatic filtering of peers based on their real
+    // app_pk if feature="byos" when we received `SetupBehaviourEvent::AppKeyReceived` and if not
+    // feature="byos" , then filter based on transport id at handling
+    // FromSwarm::ConnectionEstablished
+    kad_cfg.set_kbucket_inserts(kad::BucketInserts::OnConnected);
+
+    let store = kad::store::MemoryStore::new(transport_keypair.public().to_peer_id());
+
+    let mut kademlia_behaviour =
+        kad::Behaviour::with_config(transport_keypair.public().to_peer_id(), store, kad_cfg);
+
+    // Enable server mode for DHT
+    kademlia_behaviour.set_mode(Some(kad::Mode::Server));
+
+    kademlia_behaviour
+}
+
 impl Behaviour {
     /// Creates a new [`Behaviour`] with all configured sub-behaviors for P2P networking.
     ///
@@ -173,6 +217,7 @@ impl Behaviour {
         #[cfg(feature = "gossipsub")] gossipsub_score_params: &Option<PeerScoreParams>,
         #[cfg(feature = "gossipsub")] gossipsub_score_thresholds: &Option<PeerScoreThresholds>,
         #[cfg(feature = "byos")] signer: Arc<dyn ApplicationSigner>,
+        #[cfg(feature = "kad")] kad_protocol_name: &Option<KadProtocol>,
     ) -> Result<Self, &'static str> {
         #[cfg(feature = "gossipsub")]
         let gossipsub = create_gossipsub(
@@ -180,6 +225,9 @@ impl Behaviour {
             gossipsub_score_params,
             gossipsub_score_thresholds,
         )?;
+
+        #[cfg(feature = "kad")]
+        let kademlia_behaviour = create_kademlia_behaviour(transport_keypair, kad_protocol_name);
 
         Ok(Self {
             identify: Identify::new(Config::new(
@@ -193,6 +241,8 @@ impl Behaviour {
                 [(StreamProtocol::new(protocol_name), ProtocolSupport::Full)],
                 RequestResponseConfig::default(),
             ),
+            #[cfg(feature = "kad")]
+            kademlia: kademlia_behaviour,
             #[cfg(feature = "byos")]
             setup: SetupBehaviour::new(
                 app_public_key.clone(),

@@ -74,7 +74,7 @@ pub(crate) struct User {
     pub(crate) command: CommandHandle,
     #[cfg(feature = "byos")]
     pub(crate) app_keypair: Keypair,
-    #[cfg(any(feature = "gossipsub", feature = "byos"))]
+    #[cfg(any(feature = "gossipsub", feature = "byos", feature = "kad"))]
     pub(crate) transport_keypair: Keypair,
 }
 
@@ -123,6 +123,8 @@ impl User {
             req_resp_event_buffer_size: None,
             #[cfg(feature = "gossipsub")]
             gossip_command_buffer_size: None,
+            #[cfg(feature = "kad")]
+            kad_protocol_name: None, // this will take default one.
         };
 
         // Determine transport type based on the first listening address
@@ -171,10 +173,7 @@ impl User {
             None,
             #[cfg(all(feature = "byos", feature = "gossipsub"))]
             signer,
-            #[cfg(all(
-                any(feature = "gossipsub", feature = "request-response"),
-                not(feature = "byos")
-            ))]
+            #[cfg(all(feature = "gossipsub", not(feature = "byos")))]
             Some(validator),
         )?;
         #[cfg(feature = "gossipsub")]
@@ -190,7 +189,7 @@ impl User {
             command,
             #[cfg(feature = "byos")]
             app_keypair,
-            #[cfg(any(feature = "gossipsub", feature = "byos"))]
+            #[cfg(any(feature = "gossipsub", feature = "byos", feature = "kad"))]
             transport_keypair,
         })
     }
@@ -262,6 +261,7 @@ impl Setup {
                 other_app_pk,
                 vec![addr.clone()],
                 cancel.child_token(),
+                #[cfg(feature = "byos")]
                 Arc::new(MockApplicationSigner {
                     app_keypair: app_keypair.clone(),
                 }),
@@ -302,7 +302,7 @@ impl Setup {
 
     /// Spawn `n` users that are connected "all-to-all" with a new user's public key
     /// pre-included in their allowlist.
-    #[cfg(all(feature = "byos", feature = "gossipsub"))]
+    #[cfg(all(feature = "byos", any(feature = "gossipsub", feature = "kad")))]
     pub(crate) async fn all_to_all_with_new_user_allowlist(
         n: usize,
         new_user_app_public_key: &PublicKey,
@@ -346,6 +346,7 @@ impl Setup {
                 allowlist,
                 vec![addr.clone()],
                 cancel.child_token(),
+                #[cfg(feature = "byos")]
                 Arc::new(MockApplicationSigner {
                     app_keypair: app_keypair.clone(),
                 }),

@@ -4,12 +4,12 @@ version.workspace = true
 edition.workspace = true
 
 [features]
+default = ["quic", "request-response", "gossipsub"]
+kad = ["libp2p/kad"]
 byos = ["dep:asynchronous-codec", "serde_json", "serde"]
-default = ["request-response", "gossipsub", "quic", "byos"]
 gossipsub = ["libp2p/gossipsub", "serde_json", "serde"]
 quic = ["libp2p/quic"]
 request-response = ["libp2p/request-response", "serde_json", "serde"]
-
 
 [lints]
 workspace = true

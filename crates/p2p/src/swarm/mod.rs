@@ -22,6 +22,8 @@ use futures::StreamExt as _;
 #[cfg(not(all(feature = "gossipsub", feature = "request-response")))]
 use futures::future::pending;
 use handle::CommandHandle;
+#[cfg(feature = "kad")]
+use libp2p::StreamProtocol;
 #[cfg(feature = "byos")]
 use libp2p::identity::PublicKey;
 use libp2p::{
@@ -32,6 +34,8 @@ use libp2p::{
     swarm::{NetworkBehaviour, SwarmEvent, dial_opts::DialOpts},
     yamux,
 };
+#[cfg(feature = "request-response")]
+use tokio::sync::oneshot;
 use tokio::{sync::mpsc, time::timeout};
 use tokio_util::sync::CancellationToken;
 #[cfg(any(feature = "gossipsub", feature = "request-response"))]
@@ -64,7 +68,6 @@ use {
     errors::SwarmError,
     handle::ReqRespHandle,
     libp2p::request_response::{self, Event as RequestResponseEvent},
-    tokio::sync::oneshot,
 };
 
 use crate::commands::{Command, QueryP2PStateCommand};
@@ -92,6 +95,25 @@ use crate::{
         PenaltyType, Validator,
     },
 };
+
+/// DHT Kamdelia protocol versions.
+#[cfg(feature = "kad")]
+#[non_exhaustive]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum KadProtocol {
+    /// First version of DHT protocol.
+    #[default]
+    V1,
+}
+
+#[cfg(feature = "kad")]
+impl From<KadProtocol> for StreamProtocol {
+    fn from(protocol: KadProtocol) -> Self {
+        match protocol {
+            KadProtocol::V1 => StreamProtocol::new("/kad/strata/0.0.1"),
+        }
+    }
+}
 
 pub mod behavior;
 mod codec_raw;
@@ -233,6 +255,10 @@ pub struct P2PConfig {
     /// The default is [`DEFAULT_GOSSIP_COMMAND_BUFFER_SIZE`].
     #[cfg(feature = "gossipsub")]
     pub gossip_command_buffer_size: Option<usize>,
+
+    /// Kademlia protocol name
+    #[cfg(feature = "kad")]
+    pub kad_protocol_name: Option<KadProtocol>,
 }
 
 /// Implementation of P2P protocol data exchange.
@@ -588,6 +614,8 @@ impl P2P {
                     SwarmEvent::ConnectionEstablished {
                         peer_id, endpoint, ..
                     } => {
+                        // TODO(Arniiiii): do filtering if not byos
+                        // or rewrite this function entirely
                         let ConnectedPoint::Dialer { address, .. } = endpoint else {
                             continue;
                         };
@@ -955,7 +983,6 @@ impl P2P {
             _ => Ok(()),
         }
     }
-
     /// Handles a [`GossipsubEvent`] from the swarm.
     #[cfg(feature = "gossipsub")]
     async fn handle_gossip_event(&mut self, event: GossipsubEvent) -> P2PResult<()> {
@@ -1783,6 +1810,8 @@ macro_rules! finish_swarm {
                     &$cfg.gossipsub_score_thresholds,
                     #[cfg(feature = "byos")]
                     $signer.clone(),
+                    #[cfg(feature = "kad")]
+                    &$cfg.kad_protocol_name,
                 )
                 .map_err(|e| e.into())
             })
@@ -1843,6 +1872,8 @@ pub fn with_default_transport(
                 &config.gossipsub_score_thresholds,
                 #[cfg(feature = "byos")]
                 signer.clone(),
+                #[cfg(feature = "kad")]
+                &config.kad_protocol_name,
             )
             .map_err(|e| e.into())
         })
