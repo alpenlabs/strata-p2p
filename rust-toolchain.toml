@@ -9,5 +9,5 @@ components = [
   "rust-docs",
   "rust-src",
   "rust-std",
-  "miri" # for unsafe code testing
+  "miri",          # for unsafe code testing
 ]

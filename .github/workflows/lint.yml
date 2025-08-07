@@ -48,7 +48,31 @@ jobs:
         with:
           cache-on-failure: true
 
-      - run: cargo clippy --workspace --lib --locked --examples --tests --benches --all-features --all-targets
+      - run: | 
+          cargo clippy --workspace --lib --locked --examples --tests --benches --all-targets --no-default-features 
+          cargo clippy --workspace --lib --locked --examples --tests --benches --all-targets --no-default-features --features "quic"
+          cargo clippy --workspace --lib --locked --examples --tests --benches --all-targets --no-default-features --features "byos"
+          cargo clippy --workspace --lib --locked --examples --tests --benches --all-targets --no-default-features --features "request-response"
+          cargo clippy --workspace --lib --locked --examples --tests --benches --all-targets --no-default-features --features "gossipsub"
+          cargo clippy --workspace --lib --locked --examples --tests --benches --all-targets --no-default-features --features "quic byos" 
+          cargo clippy --workspace --lib --locked --examples --tests --benches --all-targets --no-default-features --features "quic request-response" 
+          cargo clippy --workspace --lib --locked --examples --tests --benches --all-targets --no-default-features --features "quic gossipsub" 
+          cargo clippy --workspace --lib --locked --examples --tests --benches --all-targets --no-default-features --features "byos request-response" 
+          cargo clippy --workspace --lib --locked --examples --tests --benches --all-targets --no-default-features --features "byos gossipsub" 
+          cargo clippy --workspace --lib --locked --examples --tests --benches --all-targets --no-default-features --features "request-response gossipsub" 
+          cargo clippy --workspace --lib --locked --examples --tests --benches --all-targets --no-default-features --features "quic byos request-response" 
+          cargo clippy --workspace --lib --locked --examples --tests --benches --all-targets --no-default-features --features "quic byos gossipsub" 
+          cargo clippy --workspace --lib --locked --examples --tests --benches --all-targets --no-default-features --features "quic request-response gossipsub" 
+          cargo clippy --workspace --lib --locked --examples --tests --benches --all-targets --no-default-features --features "byos request-response gossipsub" 
+          cargo clippy --workspace --lib --locked --examples --tests --benches --all-targets --no-default-features --features "quic byos request-response gossipsub" 
+          cargo clippy --workspace --lib --locked --examples --tests --benches --all-targets --no-default-features --features "kad" 
+          cargo clippy --workspace --lib --locked --examples --tests --benches --all-targets --no-default-features --features "kad quic" 
+          cargo clippy --workspace --lib --locked --examples --tests --benches --all-targets --no-default-features --features "kad request-response" 
+          cargo clippy --workspace --lib --locked --examples --tests --benches --all-targets --no-default-features --features "kad gossipsub" 
+          cargo clippy --workspace --lib --locked --examples --tests --benches --all-targets --no-default-features --features "kad quic request-response" 
+          cargo clippy --workspace --lib --locked --examples --tests --benches --all-targets --no-default-features --features "kad quic gossipsub" 
+          cargo clippy --workspace --lib --locked --examples --tests --benches --all-targets --no-default-features --features "kad request-response gossipsub" 
+          cargo clippy --workspace --lib --locked --examples --tests --benches --all-targets --no-default-features --features "kad quic request-response gossipsub" 
         env:
           RUSTFLAGS: -D warnings
 
