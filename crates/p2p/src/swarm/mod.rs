@@ -34,6 +34,8 @@ use libp2p::{
     swarm::{NetworkBehaviour, SwarmEvent, dial_opts::DialOpts},
     yamux,
 };
+#[cfg(feature = "kad")]
+use serde::{Deserialize, Serialize};
 #[cfg(feature = "request-response")]
 use tokio::sync::oneshot;
 use tokio::{sync::mpsc, time::timeout};
