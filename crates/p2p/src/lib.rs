@@ -1,5 +1,8 @@
 //! Strata P2P implementation.
 
+#[cfg(all(feature = "kad", feature = "byos"))]
+compile_error!("Enabling both \"kad\" any \"byos\" features is restricted.");
+
 pub mod commands;
 pub mod events;
 pub mod swarm;
