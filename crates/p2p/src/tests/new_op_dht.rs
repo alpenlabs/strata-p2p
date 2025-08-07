@@ -1,12 +1,9 @@
-#[cfg(any(feature = "gossipsub", feature = "request-response", feature = "byos"))]
+#[cfg(feature = "byos")]
 use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::bail;
-use libp2p::{
-    Multiaddr, build_multiaddr,
-    identity::{Keypair, PublicKey},
-};
+use libp2p::{Multiaddr, build_multiaddr, identity::Keypair};
 use tokio::{
     sync::oneshot::{self, channel},
     time::{sleep, timeout},
@@ -14,11 +11,16 @@ use tokio::{
 use tracing::{debug, info};
 
 use super::common::Setup;
-#[cfg(not(feature = "byos"))]
+#[cfg(feature = "byos")]
+use crate::tests::common::MockApplicationSigner;
+#[cfg(all(
+    any(feature = "gossipsub", feature = "request-response"),
+    not(feature = "byos")
+))]
 use crate::validator::DefaultP2PValidator;
 use crate::{
     commands::{Command, QueryP2PStateCommand},
-    tests::common::{MockApplicationSigner, User, init_tracing},
+    tests::common::{User, init_tracing},
 };
 
 /// Test in which a new user connects to one old user, than after sometime is connected to all
@@ -29,6 +31,7 @@ async fn dht_new_user() -> anyhow::Result<()> {
     const USERS_NUM: usize = 9;
 
     // Generate a keypair for the new user
+    #[cfg(feature = "byos")]
     let new_user_app_keypair = Keypair::generate_ed25519();
 
     info!(
@@ -47,7 +50,7 @@ async fn dht_new_user() -> anyhow::Result<()> {
 
     #[cfg(not(feature = "byos"))]
     let Setup {
-        mut user_handles,
+        user_handles,
         cancel,
         tasks,
     } = Setup::all_to_all(USERS_NUM).await?;
@@ -75,6 +78,7 @@ async fn dht_new_user() -> anyhow::Result<()> {
     let new_user_transport_keypair = Keypair::generate_ed25519();
 
     // Create allowlist for new user (all existing users)
+    #[cfg(feature = "byos")]
     let new_user_allowlist = user_handles
         .iter()
         .map(|handle| handle.app_keypair.public())
@@ -89,10 +93,13 @@ async fn dht_new_user() -> anyhow::Result<()> {
         new_user_allowlist, // Allow all existing users
         vec![local_addr.clone()],
         cancel.child_token(),
-        #[cfg(any(feature = "gossipsub", feature = "request-response", feature = "byos"))]
+        #[cfg(feature = "byos")]
         Arc::new(MockApplicationSigner::new(new_user_app_keypair.clone())),
-        #[cfg(not(feature = "byos"))]
-        Box::pin(DefaultP2PValidator),
+        #[cfg(all(
+            any(feature = "gossipsub", feature = "request-response"),
+            not(feature = "byos")
+        ))]
+        Box::new(DefaultP2PValidator),
     )?;
 
     // Run the new user in a separate task - this call will handle connections
@@ -110,22 +117,27 @@ async fn dht_new_user() -> anyhow::Result<()> {
     info!(
         addr = %connect_addr.clone(),
         old_peer = %user_handles[0].peer_id,
-        new_peer = %new_user.app_keypair.public().to_peer_id(),
+        new_peer = %new_user.transport_keypair.public().to_peer_id(),
         "Old user connecting to new user"
     );
+
+    #[cfg(feature = "byos")]
     let app_public_key = user_handles[0].app_keypair.public();
     user_handles[0]
         .command
         .send_command(Command::ConnectToPeer {
+            #[cfg(feature = "byos")]
             app_public_key,
+            #[cfg(not(feature = "byos"))]
+            transport_id: user_handles[0].peer_id,
             addresses: vec![local_addr.clone()],
         })
         .await;
 
     // Give time for the new users to establish connections
-    sleep(Duration::from_secs(10)).await;
+    sleep(Duration::from_secs(5)).await;
 
-    let (tx, rx) = oneshot::channel::<Vec<PublicKey>>();
+    let (tx, rx) = oneshot::channel();
 
     info!(
         "Sending command Command::QueryP2PState(QueryP2PStateCommand::GetConnectedPeers) to last old user"
@@ -149,7 +161,7 @@ async fn dht_new_user() -> anyhow::Result<()> {
         Err(e) => bail!("error {e}"),
     };
 
-    let (tx, rx) = oneshot::channel::<Vec<PublicKey>>();
+    let (tx, rx) = oneshot::channel();
 
     info!(
         "Sending command Command::QueryP2PState(QueryP2PStateCommand::GetConnectedPeers) to the new user"

@@ -97,9 +97,6 @@ async fn gossip_new_user() -> anyhow::Result<()> {
         Box::new(DefaultP2PValidator),
     )?;
 
-    // Wait for existing users to fully initialize
-    sleep(Duration::from_millis(5_000)).await;
-
     // Run the new user in a separate task - this call will handle connections
     tasks.spawn(async move {
         // This will attempt to establish the connections to other users
@@ -112,7 +109,7 @@ async fn gossip_new_user() -> anyhow::Result<()> {
     });
 
     // Wait for existing users to fully initialize
-    sleep(Duration::from_millis(5_000)).await;
+    sleep(Duration::from_secs(3)).await;
 
     // Connect the old users to the new one
     for (index, addr) in connect_addrs.iter().enumerate() {
@@ -140,7 +137,7 @@ async fn gossip_new_user() -> anyhow::Result<()> {
     }
 
     // Give time for the new user to establish connections
-    sleep(Duration::from_secs(5)).await;
+    sleep(Duration::from_secs(1)).await;
 
     let message_from_inside = b"Hello my friends!".to_vec();
     let message_from_outsider = b"Hi, I'm new here.".to_vec();
