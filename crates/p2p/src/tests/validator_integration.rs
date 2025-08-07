@@ -138,12 +138,17 @@ async fn test_reqresp_mute_penalty() -> anyhow::Result<()> {
 
     // Split user_handles to avoid borrow checker issues
     let (user0, user1) = user_handles.split_at_mut(1);
+    #[cfg(feature = "byos")]
     let target_public_key = user1[0].app_keypair.public().clone();
+    #[cfg(not(feature = "byos"))]
+    let target_transport_id = user1[0].peer_id;
 
     user0[0]
         .reqresp
         .send(RequestResponseCommand {
+            #[cfg(feature = "byos")]
             target_app_public_key: target_public_key.clone(),
+            target_transport_id,
             data: "normal request".into(),
         })
         .await?;
@@ -155,7 +160,9 @@ async fn test_reqresp_mute_penalty() -> anyhow::Result<()> {
     user0[0]
         .reqresp
         .send(RequestResponseCommand {
+            #[cfg(feature = "byos")]
             target_app_public_key: target_public_key.clone(),
+            target_transport_id,
             data: "mute reqresp".into(),
         })
         .await?;
@@ -164,7 +171,10 @@ async fn test_reqresp_mute_penalty() -> anyhow::Result<()> {
     user0[0]
         .reqresp
         .send(RequestResponseCommand {
+            #[cfg(feature = "byos")]
             target_app_public_key: target_public_key.clone(),
+            #[cfg(not(feature = "byos"))]
+            target_transport_id,
             data: "this should be muted".into(),
         })
         .await?;
@@ -188,7 +198,10 @@ async fn test_reqresp_mute_penalty() -> anyhow::Result<()> {
     user0[0]
         .reqresp
         .send(RequestResponseCommand {
-            target_app_public_key: target_public_key,
+            #[cfg(feature = "byos")]
+            target_app_public_key: target_public_key.clone(),
+            #[cfg(not(feature = "byos"))]
+            target_transport_id,
             data: "after mute expired".into(),
         })
         .await?;
@@ -221,7 +234,10 @@ async fn test_gossipsub_ban_penalty() -> anyhow::Result<()> {
 
     let (tx, rx) = oneshot::channel();
     let is_connected_query = QueryP2PStateCommand::IsConnected {
+        #[cfg(feature = "byos")]
         app_public_key: user_handles[1].app_keypair.public(),
+        #[cfg(not(feature = "byos"))]
+        transport_id: user_handles[1].peer_id,
         response_sender: tx,
     };
 
@@ -245,7 +261,10 @@ async fn test_gossipsub_ban_penalty() -> anyhow::Result<()> {
 
     let (tx, rx) = oneshot::channel();
     let is_connected_query = QueryP2PStateCommand::IsConnected {
+        #[cfg(feature = "byos")]
         app_public_key: user_handles[1].app_keypair.public(),
+        #[cfg(not(feature = "byos"))]
+        transport_id: user_handles[1].peer_id,
         response_sender: tx,
     };
 
@@ -274,7 +293,10 @@ async fn test_gossipsub_ban_penalty() -> anyhow::Result<()> {
     user_handles[0]
         .command
         .send_command(Command::ConnectToPeer {
+            #[cfg(feature = "byos")]
             app_public_key: user_handles[1].app_keypair.public(),
+            #[cfg(not(feature = "byos"))]
+            transport_id: user_handles[1].peer_id,
             addresses: listening_addresses,
         })
         .await;
@@ -285,7 +307,10 @@ async fn test_gossipsub_ban_penalty() -> anyhow::Result<()> {
     user_handles[0]
         .command
         .send_command(Command::QueryP2PState(QueryP2PStateCommand::IsConnected {
+            #[cfg(feature = "byos")]
             app_public_key: user_handles[1].app_keypair.public(),
+            #[cfg(not(feature = "byos"))]
+            transport_id: user_handles[1].peer_id,
             response_sender: tx,
         }))
         .await;
@@ -315,7 +340,10 @@ async fn test_reqresp_ban_penalty() -> anyhow::Result<()> {
 
     let (tx, rx) = oneshot::channel();
     let is_connected_query = QueryP2PStateCommand::IsConnected {
+        #[cfg(feature = "byos")]
         app_public_key: user_handles[1].app_keypair.public(),
+        #[cfg(not(feature = "byos"))]
+        transport_id: user_handles[1].peer_id,
         response_sender: tx,
     };
 
@@ -329,26 +357,36 @@ async fn test_reqresp_ban_penalty() -> anyhow::Result<()> {
 
     // Split user_handles to avoid borrow checker issues
     let (user0, user1) = user_handles.split_at_mut(1);
+    #[cfg(feature = "byos")]
     let target_public_key = user1[0].app_keypair.public().clone();
+    #[cfg(not(feature = "byos"))]
+    let target_transport_id = user1[0].peer_id;
 
     user0[0]
         .reqresp
         .send(RequestResponseCommand {
-            target_app_public_key: target_public_key,
+            #[cfg(feature = "byos")]
+            target_app_public_key: target_public_key.clone(),
+            #[cfg(not(feature = "byos"))]
+            target_transport_id,
             data: "ban me".into(),
         })
         .await
         .expect("Failed to send ban message");
 
-    let _ = sleep(Duration::from_millis(100)).await;
+    let _ = sleep(Duration::from_millis(500)).await;
 
     let (tx, rx) = oneshot::channel();
     let is_connected_query = QueryP2PStateCommand::IsConnected {
+        #[cfg(feature = "byos")]
         app_public_key: user1[0].app_keypair.public(),
+        #[cfg(not(feature = "byos"))]
+        transport_id: user1[0].peer_id,
         response_sender: tx,
     };
 
     user0[0].command.send_command(is_connected_query).await;
+
     let is_connected = rx.await.expect("Failed to check connection status");
     info!(?is_connected, "connection status");
     assert!(!is_connected);
@@ -370,7 +408,10 @@ async fn test_reqresp_ban_penalty() -> anyhow::Result<()> {
     user0[0]
         .command
         .send_command(Command::ConnectToPeer {
+            #[cfg(feature = "byos")]
             app_public_key: user1[0].app_keypair.public(),
+            #[cfg(not(feature = "byos"))]
+            transport_id: user1[0].peer_id,
             addresses: listening_addresses,
         })
         .await;
@@ -381,7 +422,10 @@ async fn test_reqresp_ban_penalty() -> anyhow::Result<()> {
     user0[0]
         .command
         .send_command(Command::QueryP2PState(QueryP2PStateCommand::IsConnected {
+            #[cfg(feature = "byos")]
             app_public_key: user1[0].app_keypair.public(),
+            #[cfg(not(feature = "byos"))]
+            transport_id: user1[0].peer_id,
             response_sender: tx,
         }))
         .await;
@@ -521,12 +565,18 @@ async fn test_reqresp_mute_both_penalty() -> anyhow::Result<()> {
     sleep(Duration::from_millis(500)).await;
 
     let (user0, user1) = user_handles.split_at_mut(1);
+    #[cfg(feature = "byos")]
     let target_public_key = user1[0].app_keypair.public().clone();
+    #[cfg(not(feature = "byos"))]
+    let target_transport_id = user1[0].peer_id;
 
     user0[0]
         .reqresp
         .send(RequestResponseCommand {
+            #[cfg(feature = "byos")]
             target_app_public_key: target_public_key.clone(),
+            #[cfg(not(feature = "byos"))]
+            target_transport_id,
             data: "normal request".into(),
         })
         .await?;
@@ -539,7 +589,10 @@ async fn test_reqresp_mute_both_penalty() -> anyhow::Result<()> {
     user0[0]
         .reqresp
         .send(RequestResponseCommand {
+            #[cfg(feature = "byos")]
             target_app_public_key: target_public_key.clone(),
+            #[cfg(not(feature = "byos"))]
+            target_transport_id,
             data: "mute both".into(),
         })
         .await?;
@@ -549,7 +602,10 @@ async fn test_reqresp_mute_both_penalty() -> anyhow::Result<()> {
     user0[0]
         .reqresp
         .send(RequestResponseCommand {
+            #[cfg(feature = "byos")]
             target_app_public_key: target_public_key.clone(),
+            #[cfg(not(feature = "byos"))]
+            target_transport_id,
             data: "this should be muted reqresp".into(),
         })
         .await?;
@@ -572,7 +628,10 @@ async fn test_reqresp_mute_both_penalty() -> anyhow::Result<()> {
     user0[0]
         .reqresp
         .send(RequestResponseCommand {
-            target_app_public_key: target_public_key,
+            #[cfg(feature = "byos")]
+            target_app_public_key: target_public_key.clone(),
+            #[cfg(not(feature = "byos"))]
+            target_transport_id,
             data: "after mute expired".into(),
         })
         .await?;

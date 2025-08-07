@@ -243,8 +243,8 @@ impl SignedMessage {
 
 /// Setup message structure for the handshake protocol.
 /// Now serialized/deserialized using JSON instead of custom binary format.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg(feature = "byos")]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub(crate) struct SetupMessage {
     /// Protocol version.
     pub version: ProtocolVersion,

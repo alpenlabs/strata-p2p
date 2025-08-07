@@ -1,10 +1,10 @@
 //! Commands for P2P implementation from operator implementation.
 
 use libp2p::Multiaddr;
-#[cfg(feature = "byos")]
-use libp2p::identity::PublicKey;
 #[cfg(not(feature = "byos"))]
 use libp2p::PeerId;
+#[cfg(feature = "byos")]
+use libp2p::identity::PublicKey;
 use tokio::sync::oneshot;
 
 /// Commands that users can send to the P2P node.
@@ -15,7 +15,7 @@ pub enum Command {
         #[cfg(feature = "byos")]
         /// Application public key to associate with the dial sequence.
         app_public_key: PublicKey,
-        
+
         #[cfg(not(feature = "byos"))]
         /// Transport peer ID to associate with the dial sequence.
         transport_id: PeerId,
@@ -29,7 +29,7 @@ pub enum Command {
         #[cfg(feature = "byos")]
         /// Libp2p [`PublicKey`] of target peer.
         target_app_public_key: PublicKey,
-        
+
         #[cfg(not(feature = "byos"))]
         /// Libp2p [`PeerId`] of target peer.
         target_transport_id: PeerId,
@@ -56,7 +56,7 @@ pub struct RequestResponseCommand {
     #[cfg(feature = "byos")]
     /// Libp2p [`PublicKey`] of target peer.
     pub target_app_public_key: PublicKey,
-    
+
     #[cfg(not(feature = "byos"))]
     /// Libp2p [`PeerId`] of target peer.
     pub target_transport_id: PeerId,
@@ -75,7 +75,7 @@ pub enum QueryP2PStateCommand {
         #[cfg(feature = "byos")]
         /// App public key to check.
         app_public_key: PublicKey,
-        
+
         #[cfg(not(feature = "byos"))]
         /// Transport peer ID to check.
         transport_id: PeerId,
@@ -89,7 +89,7 @@ pub enum QueryP2PStateCommand {
         #[cfg(feature = "byos")]
         /// Channel to send the response back.
         response_sender: oneshot::Sender<Vec<PublicKey>>,
-        
+
         #[cfg(not(feature = "byos"))]
         /// Channel to send the response back.
         response_sender: oneshot::Sender<Vec<PeerId>>,

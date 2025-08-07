@@ -1,7 +1,6 @@
 use std::time::Duration;
 
 use anyhow::bail;
-use libp2p::identity::PublicKey;
 use tokio::{sync::oneshot, time::sleep};
 
 use super::common::Setup;
@@ -23,10 +22,17 @@ async fn test_is_connected() -> anyhow::Result<()> {
     let _ = sleep(Duration::from_secs(1)).await;
 
     // Verify user 0 is connected to user 1
+    #[cfg(feature = "byos")]
     let user1_app_pk = user_handles[1].app_keypair.public();
     let is_connected = user_handles[0]
         .command
-        .is_connected(&user1_app_pk, None)
+        .is_connected(
+            #[cfg(feature = "byos")]
+            &user1_app_pk,
+            #[cfg(not(feature = "byos"))]
+            &user_handles[1].peer_id,
+            None,
+        )
         .await;
     assert!(is_connected);
 
@@ -36,7 +42,10 @@ async fn test_is_connected() -> anyhow::Result<()> {
     user_handles[0]
         .command
         .send_command(Command::from(QueryP2PStateCommand::IsConnected {
+            #[cfg(feature = "byos")]
             app_public_key: user1_app_pk,
+            #[cfg(not(feature = "byos"))]
+            transport_id: user_handles[1].peer_id,
             response_sender: tx,
         }))
         .await;
@@ -45,9 +54,14 @@ async fn test_is_connected() -> anyhow::Result<()> {
 
     // Also test the get_connected_peers API
     let connected_peers = user_handles[0].command.get_connected_peers(None).await;
-    assert!(connected_peers.contains(&user_handles[1].app_keypair.public()));
+    assert!(connected_peers.contains(
+        #[cfg(feature = "byos")]
+        &user_handles[1].app_keypair.public(),
+        #[cfg(not(feature = "byos"))]
+        &user_handles[1].peer_id,
+    ));
 
-    let (tx, rx) = oneshot::channel::<Vec<PublicKey>>();
+    let (tx, rx) = oneshot::channel();
     // Also test the get_connected_peers API manually
     user_handles[0]
         .command
@@ -56,7 +70,12 @@ async fn test_is_connected() -> anyhow::Result<()> {
         }))
         .await;
     let connected_peers = rx.await.unwrap();
-    assert!(connected_peers.contains(&user_handles[1].app_keypair.public()));
+    assert!(connected_peers.contains(
+        #[cfg(feature = "byos")]
+        &user_handles[1].app_keypair.public(),
+        #[cfg(not(feature = "byos"))]
+        &user_handles[1].peer_id,
+    ));
 
     // Cleanup
     cancel.cancel();
@@ -77,7 +96,7 @@ async fn test_manually_get_all_peers() -> anyhow::Result<()> {
         tasks,
     } = Setup::all_to_all(USERS_NUM).await?;
 
-    let (tx, rx) = oneshot::channel::<Vec<PublicKey>>();
+    let (tx, rx) = oneshot::channel();
 
     let _ = sleep(Duration::from_secs(2)).await;
 
