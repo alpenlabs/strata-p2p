@@ -34,8 +34,6 @@ use libp2p::{
     swarm::{NetworkBehaviour, SwarmEvent, dial_opts::DialOpts},
     yamux,
 };
-#[cfg(feature = "kad")]
-use serde::{Deserialize, Serialize};
 #[cfg(feature = "request-response")]
 use tokio::sync::oneshot;
 use tokio::{sync::mpsc, time::timeout};
@@ -101,7 +99,7 @@ use crate::{
 /// DHT Kamdelia protocol versions.
 #[cfg(feature = "kad")]
 #[non_exhaustive]
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum KadProtocol {
     /// First version of DHT protocol.
     #[default]
