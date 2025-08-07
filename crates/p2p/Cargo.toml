@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 
 [features]
-default = ["byos", "quic", "request-response", "gossipsub"]
+default = ["quic", "request-response", "gossipsub"]
 kad = ["libp2p/kad"]
 byos = ["dep:asynchronous-codec", "serde_json", "serde"]
 gossipsub = ["libp2p/gossipsub", "serde_json", "serde"]
