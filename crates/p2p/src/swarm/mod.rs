@@ -13,9 +13,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use behavior::Behaviour;
-#[cfg(any(feature = "gossipsub", feature = "request-response", feature = "byos"))]
-use behavior::BehaviourEvent;
+use behavior::{Behaviour, BehaviourEvent};
 #[cfg(feature = "byos")]
 use cynosure::site_c::queue::Queue;
 use errors::{P2PResult, ProtocolError};
@@ -843,28 +841,22 @@ impl P2P {
             SwarmEvent::Behaviour(event) => self.handle_behaviour_event(event).await,
             SwarmEvent::ConnectionEstablished { .. }
             | SwarmEvent::OutgoingConnectionError { .. } => {
-                #[cfg(feature = "byos")]
-                {
-                    self.handle_connection_event(event).await
-                }
-                #[cfg(not(feature = "byos"))]
-                {
-                    Ok(())
-                }
+                self.handle_connection_event(event).await
             }
             _ => Ok(()),
         }
     }
 
     /// Handles connection-related events (both successful and failed connections).
-    #[cfg(feature = "byos")]
     async fn handle_connection_event(
         &mut self,
         event: SwarmEvent<BehaviourEvent>,
     ) -> P2PResult<()> {
         match event {
             SwarmEvent::ConnectionEstablished {
+                #[cfg(any(feature = "gossipsub", feature = "request-response", feature = "byos"))]
                 peer_id,
+                #[cfg(feature = "byos")]
                 connection_id,
                 ..
             } => {
@@ -879,13 +871,25 @@ impl P2P {
                         info!(peer_id = %peer_id, "connected to peer");
                     }
                 }
-                #[cfg(not(feature = "byos"))]
+                #[cfg(all(
+                    any(feature = "gossipsub", feature = "request-response"),
+                    not(feature = "byos")
+                ))]
                 {
-                    info!(peer_id = %peer_id, "connected to peer");
+                    if !self.peer_penalty_storage.is_banned(&peer_id) {
+                        info!(peer_id = %peer_id, "connected to peer");
+                    } else {
+                        if self.peer_penalty_storage.is_banned(&peer_id) {
+                            info!(%peer_id, "Connected to banned peer. Disconnecting.");
+                            let _ = self.swarm.disconnect_peer_id(peer_id);
+                            return Ok(());
+                        }
+                    }
                 }
                 Ok(())
             }
             SwarmEvent::OutgoingConnectionError {
+                #[cfg(feature = "byos")]
                 connection_id,
                 error,
                 ..
