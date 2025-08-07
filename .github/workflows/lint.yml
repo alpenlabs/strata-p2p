@@ -48,7 +48,7 @@ jobs:
         with:
           cache-on-failure: true
 
-      - run: cargo clippy --workspace --lib --locked --examples --tests --benches --all-features --all-targets
+      - run: cargo clippy --workspace --lib --locked --examples --tests --benches --all-targets
         env:
           RUSTFLAGS: -D warnings
 

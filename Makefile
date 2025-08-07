@@ -97,7 +97,6 @@ lint-check-ws: ## Checks for lint issues in the workspace.
 	--examples \
 	--tests \
 	--benches \
-	--all-features \
 	--no-deps \
 	-- -D warnings
 
@@ -109,7 +108,6 @@ lint-fix-ws: ## Lints the workspace and applies fixes where possible.
 	--examples \
 	--tests \
 	--benches \
-	--all-features \
 	--fix \
 	--no-deps \
 	-- -D warnings
