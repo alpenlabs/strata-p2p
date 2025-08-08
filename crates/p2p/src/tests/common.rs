@@ -110,6 +110,12 @@ impl User {
             connection_check_interval: None,
             listening_addrs,
             connect_to,
+            protocol_name: None,
+            #[cfg(feature = "gossipsub")]
+            gossipsub_topic: None,
+            #[cfg(feature = "gossipsub")]
+            gossipsub_max_transmit_size: None,
+            envelope_max_age: None,
             #[cfg(feature = "request-response")]
             channel_timeout: None,
             #[cfg(feature = "gossipsub")]

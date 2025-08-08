@@ -21,7 +21,8 @@ use libp2p::{
     PeerId,
     gossipsub::{
         self, Behaviour as Gossipsub, IdentityTransform, MessageAuthenticity, PeerScoreParams,
-        PeerScoreThresholds, TopicScoreParams, ValidationMode, WhitelistSubscriptionFilter,
+        PeerScoreThresholds, Sha256Topic, TopicScoreParams, ValidationMode,
+        WhitelistSubscriptionFilter,
     },
 };
 use libp2p::{
@@ -31,10 +32,6 @@ use libp2p::{
 #[cfg(feature = "kad")]
 use libp2p::{kad, kad::store::MemoryStore};
 
-#[cfg(feature = "gossipsub")]
-use super::MAX_TRANSMIT_SIZE;
-#[cfg(feature = "gossipsub")]
-use super::TOPIC;
 #[cfg(feature = "request-response")]
 use super::codec_raw;
 #[cfg(feature = "byos")]
@@ -87,7 +84,7 @@ pub struct Behaviour {
 /// - **Message Authentication**: Uses author-based authentication with the peer's public key
 /// - **Max Transmission Size**: Limited to 512 KB (524,288 bytes) to prevent large message attacks
 /// - **`IDONTWANT` on Publish**: Enabled to reduce duplicate message forwarding overhead
-/// - **Topic Subscription Filter**: Whitelisted to only allow subscription to the "bitvm2" topic
+/// - **Topic Subscription Filter**: Whitelisted to only allow subscription to the configured topic
 /// - **Peer Scoring**: Configurable peer scoring system to maintain network quality
 /// - **Default Scoring**: If no custom scoring params provided, uses default params with the target
 ///   topic
@@ -104,16 +101,18 @@ pub struct Behaviour {
 #[cfg(feature = "gossipsub")]
 fn create_gossipsub(
     keypair: &Keypair,
+    topic: &Sha256Topic,
     gossipsub_score_params: &Option<PeerScoreParams>,
     gossipsub_score_thresholds: &Option<PeerScoreThresholds>,
+    max_transmit_size: usize,
 ) -> Result<Gossipsub<IdentityTransform, WhitelistSubscriptionFilter>, &'static str> {
     let mut filter = HashSet::new();
-    filter.insert(TOPIC.hash()); // Target topic for subscription.
+    filter.insert(topic.hash()); // Target topic for subscription.
 
     let peer_score_params = gossipsub_score_params.clone().unwrap_or_else(|| {
         let mut params = PeerScoreParams::default();
         params.topics.insert(
-            TOPIC.hash(),
+            topic.hash(),
             TopicScoreParams {
                 ..Default::default()
             },
@@ -128,7 +127,7 @@ fn create_gossipsub(
         gossipsub::ConfigBuilder::default()
             .validation_mode(ValidationMode::Permissive)
             .validate_messages()
-            .max_transmit_size(MAX_TRANSMIT_SIZE)
+            .max_transmit_size(max_transmit_size)
             .idontwant_on_publish(true)
             .build()
             .expect("gossipsub config at this stage must be valid"),
@@ -151,8 +150,6 @@ fn create_kademlia_behaviour(
     transport_keypair: &Keypair,
     kad_protocol_name: &Option<KadProtocol>,
 ) -> libp2p::kad::Behaviour<MemoryStore> {
-    use crate::swarm::KadProtocol;
-
     let mut kad_cfg = kad::Config::new(
         kad_protocol_name
             .as_ref()
@@ -194,14 +191,15 @@ impl Behaviour {
     /// - **Gossipsub**: Pub/sub message distribution with the following features:
     ///   - [Permissive](ValidationMode::Permissive) message validation with author-based
     ///     authentication
-    ///   - 512 KB max transmission size to prevent large message attacks
+    ///   - Configurable max transmission size (default 512 KB) to prevent large message attacks
     ///   - `IDONTWANT` on publish to reduce duplicate forwarding overhead
-    ///   - Whitelisted subscription filter for "bitvm2" topic only
+    ///   - Whitelisted subscription filter for the configured topic only
     ///   - Configurable peer scoring system for network quality
     ///
     /// # Arguments
     ///
-    /// * `protocol_name` - Protocol identifier used for request-response and identify protocols
+    /// * `protocol_name` - Protocol identifier used for request-response and identify protocols;
+    ///   typically provided via P2PConfig
     /// * `transport_keypair` - Transport keypair for network identity and message authentication
     /// * `app_public_key` - Application-level public key for setup behavior
     /// * `gossipsub_score_params` - Optional peer scoring parameters for gossipsub
@@ -210,20 +208,31 @@ impl Behaviour {
     /// # Returns
     ///
     /// Returns a configured [`Behaviour`] instance or an error string if configuration fails.
+    #[cfg_attr(
+        all(feature = "byos", feature = "gossipsub"),
+        expect(
+            clippy::too_many_arguments,
+            reason = "This is a composite behaviour with multiple sub-behaviours"
+        )
+    )]
     pub fn new(
         protocol_name: &'static str,
         transport_keypair: &Keypair,
         #[cfg(feature = "byos")] app_public_key: &PublicKey,
+        #[cfg(feature = "gossipsub")] topic: &Sha256Topic,
         #[cfg(feature = "gossipsub")] gossipsub_score_params: &Option<PeerScoreParams>,
         #[cfg(feature = "gossipsub")] gossipsub_score_thresholds: &Option<PeerScoreThresholds>,
+        #[cfg(feature = "gossipsub")] gossipsub_max_transmit_size: usize,
         #[cfg(feature = "byos")] signer: Arc<dyn ApplicationSigner>,
         #[cfg(feature = "kad")] kad_protocol_name: &Option<KadProtocol>,
     ) -> Result<Self, &'static str> {
         #[cfg(feature = "gossipsub")]
         let gossipsub = create_gossipsub(
             transport_keypair,
+            topic,
             gossipsub_score_params,
             gossipsub_score_thresholds,
+            gossipsub_max_transmit_size,
         )?;
 
         #[cfg(feature = "kad")]
