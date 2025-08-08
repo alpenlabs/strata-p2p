@@ -31,11 +31,14 @@ use tracing::warn;
 
 #[cfg(feature = "request-response")]
 use crate::commands::RequestResponseCommand;
-use crate::commands::{Command, QueryP2PStateCommand};
 #[cfg(feature = "request-response")]
 use crate::events::ReqRespEvent;
 #[cfg(feature = "gossipsub")]
 use crate::{commands::GossipCommand, events::GossipEvent};
+use crate::{
+    commands::{Command, QueryP2PStateCommand},
+    swarm::default_handle_timeout,
+};
 
 /// The receiver lagged too far behind. Attempting to receive again will
 /// return the oldest message still retained by the channel.
@@ -142,7 +145,7 @@ impl CommandHandle {
             response_sender: sender,
         });
 
-        let duration = timeout_duration.unwrap_or(Duration::from_secs(1));
+        let duration = timeout_duration.unwrap_or(default_handle_timeout());
         let cmd_sender = self.commands.clone();
 
         if cmd_sender.send(cmd).await.is_err() {
@@ -171,7 +174,7 @@ impl CommandHandle {
             response_sender: sender,
         });
 
-        let duration = timeout_duration.unwrap_or(Duration::from_secs(1));
+        let duration = timeout_duration.unwrap_or(default_handle_timeout());
         let cmd_sender = self.commands.clone();
 
         if cmd_sender.send(cmd).await.is_err() {
@@ -195,8 +198,7 @@ impl CommandHandle {
             response_sender: sender,
         });
 
-        // TODO: make this configurable.
-        let duration = timeout_duration.unwrap_or(Duration::from_secs(1));
+        let duration = timeout_duration.unwrap_or(default_handle_timeout());
         let cmd_sender = self.commands.clone();
 
         if cmd_sender.send(cmd).await.is_err() {
@@ -221,7 +223,7 @@ impl CommandHandle {
         });
 
         // TODO: make this configurable.
-        let duration = timeout_duration.unwrap_or(Duration::from_secs(1));
+        let duration = timeout_duration.unwrap_or(default_handle_timeout());
         let cmd_sender = self.commands.clone();
 
         if cmd_sender.send(cmd).await.is_err() {

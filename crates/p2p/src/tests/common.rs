@@ -116,6 +116,7 @@ impl User {
             #[cfg(feature = "gossipsub")]
             gossipsub_max_transmit_size: None,
             envelope_max_age: None,
+            max_clock_skew: None,
             #[cfg(feature = "request-response")]
             channel_timeout: None,
             #[cfg(feature = "gossipsub")]
@@ -125,8 +126,13 @@ impl User {
             #[cfg(feature = "gossipsub")]
             gossip_event_buffer_size: None,
             command_buffer_size: None,
+            handle_default_timeout: None,
             #[cfg(feature = "request-response")]
             req_resp_event_buffer_size: None,
+            #[cfg(feature = "request-response")]
+            request_max_bytes: None,
+            #[cfg(feature = "request-response")]
+            response_max_bytes: None,
             #[cfg(feature = "gossipsub")]
             gossip_command_buffer_size: None,
             #[cfg(feature = "kad")]
