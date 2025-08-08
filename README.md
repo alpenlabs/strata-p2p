@@ -19,6 +19,8 @@ or with an application‑provided signer (BYOS).
 - BYOS mode (bring your own signer) with an explicit handshake that exchanges application public keys and enforces an application‑key allowlist.
 - Request/response framing uses raw bytes at the transport layer; the content is the signed JSON envelope.
 - Optional Kademlia DHT (cannot be combined with BYOS for now).
+- Configurable identifiers: protocol_name for identify/request-response (default `"/strata"`), and gossipsub_topic (default `"strata"`).
+- Tunables: `envelope_max_age` (drop stale envelopes; default 300s) and `gossipsub_max_transmit_size` (default 512 KiB).
 
 ## Feature flags
 
@@ -40,7 +42,8 @@ Non‑BYOS uses the transport keypair to sign messages transparently. Typical st
    - Set `transport_keypair`.
    - Provide one or more `listening_addrs` (e.g., `/ip4/127.0.0.1/udp/0/quic-v1` or `/ip4/127.0.0.1/tcp/0`).
    - Optionally set `connect_to` peers (multiaddrs).
-   - Optional timeouts/buffer sizes.
+   - Optional timeouts, buffer sizes, and limits (`envelope_max_age`, `gossipsub_max_transmit_size`).
+   - Optional identifiers: override `protocol_name` (default `"/strata"`) and `gossipsub_topic` (default `"strata"`).
 
 1. Construct a swarm with either the in‑memory or default transport helper (in‑memory if your listening address is `/memory/*`).
 1. Build the `P2P` instance.
@@ -59,6 +62,7 @@ Non‑BYOS uses the transport keypair to sign messages transparently. Typical st
 Notes:
 
 - QUIC is preferred automatically if present in the address list; the dialer will fall back to TCP if QUIC fails (when both are provided).
+- Envelopes older than envelope_max_age are dropped (default 300s). Gossip messages larger than `gossipsub_max_transmit_size` are rejected (default 512 KiB).
 - Use `CommandHandle::is_connected` / `get_connected_peers` / `QueryP2PState::GetMyListeningAddresses` for runtime state.
 
 ## Quickstart (BYOS)
@@ -74,8 +78,9 @@ BYOS lets your app control signing with its own keys and enforces an application
    - Set `app_public_key` (the public half of your app signing key).
    - Set `transport_keypair` (libp2p Ed25519).
    - Provide `listening_addrs` and optional `connect_to`.
+   - Optional identifiers and limits: override `protocol_name` (default `"/strata"`) and `gossipsub_topic` (default `"strata"`); tune `envelope_max_age` and `gossipsub_max_transmit_size`.
 
-1. Supply an application allowlist (Vec of application public keys) and your signer when calling `P2P::from_config`.
+1. Supply an application allowlist (`Vec` of application public keys) and your signer when calling `P2P::from_config`.
 1. Start `p2p.listen()`; the setup handshake will exchange/verify application public keys and enforce the allowlist before allowing traffic.
 1. Use gossip/request‑response handles as in non‑BYOS; the library will sign/verify envelopes using your signer and the peer’s app public key.
 

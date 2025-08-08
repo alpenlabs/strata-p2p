@@ -4,11 +4,8 @@
 use std::num::NonZeroU8;
 #[cfg(any(feature = "gossipsub", feature = "request-response", feature = "byos"))]
 use std::sync::Arc;
-#[cfg(all(
-    any(feature = "gossipsub", feature = "request-response"),
-    not(feature = "byos")
-))]
-use std::time::SystemTime;
+#[cfg(any(feature = "gossipsub", feature = "request-response"))]
+use std::time::{SystemTime, UNIX_EPOCH};
 use std::{
     collections::HashSet,
     time::{Duration, Instant},
@@ -53,7 +50,6 @@ use {
         Event as GossipsubEvent, Message, MessageAcceptance, MessageId, PeerScoreParams,
         PeerScoreThresholds, PublishError, Sha256Topic,
     },
-    std::sync::LazyLock,
     tokio::sync::broadcast,
 };
 #[cfg(feature = "request-response")]
@@ -82,6 +78,8 @@ use crate::signer::ApplicationSigner;
     not(feature = "byos")
 ))]
 use crate::signer::TransportKeypairSigner;
+#[cfg(feature = "gossipsub")]
+use crate::swarm::message::{ProtocolId, gossipsub::GossipSubProtocolVersion};
 #[cfg(feature = "byos")]
 use crate::swarm::{dial_manager::DialManager, setup::events::SetupBehaviourEvent};
 #[cfg(all(
@@ -126,18 +124,12 @@ pub mod setup;
 
 use libp2p::tcp;
 
-/// Global topic name for gossipsub messages.
-// TODO: make this configurable later
-#[cfg(feature = "gossipsub")]
-static TOPIC: LazyLock<Sha256Topic> = LazyLock::new(|| Sha256Topic::new("bitvm2"));
-
 /// Global MAX_TRANSMIT_SIZE for gossipsub messages.
 #[cfg(feature = "gossipsub")]
-const MAX_TRANSMIT_SIZE: usize = 512 * 1024;
+pub const MAX_TRANSMIT_SIZE: usize = 512 * 1_024;
 
 /// Global name of the protocol
-// TODO: make this configurable later
-const PROTOCOL_NAME: &str = "/strata-bitvm2";
+pub const PROTOCOL_NAME: &str = "/strata";
 
 /// Global default retry count for connection attempts.
 pub const DEFAULT_MAX_RETRIES: usize = 3;
@@ -153,6 +145,9 @@ pub const DEFAULT_CONNECTION_CHECK_INTERVAL: Duration = Duration::from_millis(50
 
 /// Global default timeout for channel operations (e.g., sending/receiving on channels).
 pub const DEFAULT_CHANNEL_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Default maximum age for signed envelopes (gossip and req/resp) before being dropped.
+pub const DEFAULT_ENVELOPE_MAX_AGE: Duration = Duration::from_secs(300);
 
 /// Default buffer size for gossip event broadcast channels.
 #[cfg(feature = "gossipsub")]
@@ -209,9 +204,26 @@ pub struct P2PConfig {
     /// Initial list of nodes to connect to at startup.
     pub connect_to: Vec<Multiaddr>,
 
+    /// Protocol name used for identify and request-response.
+    ///
+    /// If [`None`], defaults to [`PROTOCOL_NAME`].
+    pub protocol_name: Option<String>,
+
     /// Timeout for channel operations (e.g., sending/receiving on channels).
     #[cfg(feature = "request-response")]
     pub channel_timeout: Option<Duration>,
+
+    /// Gossipsub topic name.
+    ///
+    /// If [`None`], defaults to "strata".
+    #[cfg(feature = "gossipsub")]
+    pub gossipsub_topic: Option<String>,
+
+    /// Max transmission size for gossipsub messages in bytes.
+    ///
+    /// If [`None`], defaults to [`MAX_TRANSMIT_SIZE`].
+    #[cfg(feature = "gossipsub")]
+    pub gossipsub_max_transmit_size: Option<usize>,
 
     /// Gossipsub peer scoring parameters.
     ///
@@ -256,6 +268,11 @@ pub struct P2PConfig {
     #[cfg(feature = "gossipsub")]
     pub gossip_command_buffer_size: Option<usize>,
 
+    /// Maximum allowed age for signed envelopes (gossip and req/resp).
+    ///
+    /// If [`None`], defaults to [`DEFAULT_ENVELOPE_MAX_AGE`].
+    pub envelope_max_age: Option<Duration>,
+
     /// Kademlia protocol name
     #[cfg(feature = "kad")]
     pub kad_protocol_name: Option<KadProtocol>,
@@ -270,6 +287,10 @@ pub struct P2P {
     /// Event channel for the gossip.
     #[cfg(feature = "gossipsub")]
     gossip_events: broadcast::Sender<GossipEvent>,
+
+    /// Gossipsub topic configured for this node.
+    #[cfg(feature = "gossipsub")]
+    topic: Sha256Topic,
 
     /// Event channel for request/response.
     #[cfg(feature = "request-response")]
@@ -434,6 +455,15 @@ impl P2P {
             (gossip_events_tx, gossip_cmds_tx, gossip_cmds_rx)
         };
 
+        #[cfg(feature = "gossipsub")]
+        let topic = {
+            let name = cfg
+                .gossipsub_topic
+                .clone()
+                .unwrap_or_else(|| "strata".to_string());
+            Sha256Topic::new(&name)
+        };
+
         #[cfg(all(
             any(feature = "gossipsub", feature = "request-response"),
             not(feature = "byos")
@@ -452,6 +482,8 @@ impl P2P {
             gossip_commands: gossip_cmds_rx,
             #[cfg(feature = "gossipsub")]
             gossip_commands_sender: gossip_cmds_tx.clone(),
+            #[cfg(feature = "gossipsub")]
+            topic,
             commands: cmds_rx,
             commands_sender: cmds_tx.clone(),
             cancellation_token: cancel,
@@ -555,36 +587,36 @@ impl P2P {
         {
             let mut num_retries = 0;
             loop {
-                debug!(topic=%TOPIC.to_string(), %num_retries, %max_retry_count, "attempting to subscribe to topic");
+                debug!(topic=%self.topic.to_string(), %num_retries, %max_retry_count, "attempting to subscribe to topic");
                 match timeout(general_timeout, async {
-                    self.swarm.behaviour_mut().gossipsub.subscribe(&TOPIC)
+                    self.swarm.behaviour_mut().gossipsub.subscribe(&self.topic)
                 })
                 .await
                 {
                     Ok(Ok(_)) => {
-                        info!(topic=%TOPIC.to_string(), %num_retries, %max_retry_count, "subscribed to topic successfully");
+                        info!(topic=%self.topic.to_string(), %num_retries, %max_retry_count, "subscribed to topic successfully");
                         break;
                     }
                     Ok(Err(err)) => {
-                        error!(topic=%TOPIC.to_string(), %err, %num_retries, %max_retry_count, "failed to subscribe to topic, retrying...");
+                        error!(topic=%self.topic.to_string(), %err, %num_retries, %max_retry_count, "failed to subscribe to topic, retrying...");
                     }
                     Err(_) => {
-                        error!(topic=%TOPIC.to_string(), %num_retries, %max_retry_count, "failed to subscribe to topic, retrying...");
+                        error!(topic=%self.topic.to_string(), %num_retries, %max_retry_count, "failed to subscribe to topic, retrying...");
                     }
                 }
 
                 num_retries += 1;
 
                 if num_retries > max_retry_count {
-                    error!(topic=%TOPIC.to_string(), %num_retries, %max_retry_count, "failed to subscribe to topic after max retries");
+                    error!(topic=%self.topic.to_string(), %num_retries, %max_retry_count, "failed to subscribe to topic after max retries");
                     break;
                 }
 
                 // Add a small delay between retries
                 tokio::time::sleep(connection_check_interval).await;
-                debug!(topic=%TOPIC.to_string(), %num_retries, %max_retry_count, "attempting to subscribe to topic again");
+                debug!(topic=%self.topic.to_string(), %num_retries, %max_retry_count, "attempting to subscribe to topic again");
             }
-            debug!(topic=%TOPIC.to_string(), %num_retries, %max_retry_count, "finished trying to subscribe to topic");
+            debug!(topic=%self.topic.to_string(), %num_retries, %max_retry_count, "finished trying to subscribe to topic");
         }
 
         #[cfg(feature = "gossipsub")]
@@ -1076,6 +1108,56 @@ impl P2P {
             }
         }
 
+        // Enforce max envelope age
+        let max_age = self
+            .config
+            .envelope_max_age
+            .unwrap_or(DEFAULT_ENVELOPE_MAX_AGE);
+        let now_secs = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        let age =
+            Duration::from_secs(now_secs.saturating_sub(signed_gossipsub_message.message.date));
+        if age > max_age {
+            warn!(%propagation_source, ?age, "Dropping stale gossipsub message");
+            self.swarm
+                .behaviour_mut()
+                .gossipsub
+                .report_message_validation_result(
+                    &message_id,
+                    &propagation_source,
+                    MessageAcceptance::Reject,
+                );
+            return Ok(());
+        }
+
+        // Validate protocol and version for gossipsub envelope
+        if signed_gossipsub_message.message.protocol != ProtocolId::Gossip {
+            warn!(%propagation_source, "Gossipsub message with wrong protocol");
+            self.swarm
+                .behaviour_mut()
+                .gossipsub
+                .report_message_validation_result(
+                    &message_id,
+                    &propagation_source,
+                    MessageAcceptance::Reject,
+                );
+            return Ok(());
+        }
+        if signed_gossipsub_message.message.version != GossipSubProtocolVersion::V2 {
+            warn!(%propagation_source, "Unsupported gossipsub protocol version");
+            self.swarm
+                .behaviour_mut()
+                .gossipsub
+                .report_message_validation_result(
+                    &message_id,
+                    &propagation_source,
+                    MessageAcceptance::Reject,
+                );
+            return Ok(());
+        }
+
         info!(%propagation_source, "Verified signed gossipsub message");
 
         #[cfg(not(feature = "byos"))]
@@ -1359,7 +1441,7 @@ impl P2P {
             .swarm
             .behaviour_mut()
             .gossipsub
-            .publish(TOPIC.hash(), signed_message_data)
+            .publish(self.topic.hash(), signed_message_data)
             .inspect_err(|err| match err {
                 PublishError::Duplicate => {
                     warn!(%err, "Failed to publish msg through gossipsub, message already exists");
@@ -1550,6 +1632,18 @@ impl P2P {
                     return Ok(());
                 }
 
+                // Validate protocol and version for request envelope
+                if request.protocol != crate::swarm::message::ProtocolId::RequestResponse {
+                    warn!(%peer_id, "Request message with wrong protocol");
+                    return Ok(());
+                }
+                if request.version
+                    != crate::swarm::message::request_response::RequestResponseProtocolVersion::V2
+                {
+                    warn!(%peer_id, "Unsupported request-response protocol version");
+                    return Ok(());
+                }
+
                 #[cfg(not(feature = "byos"))]
                 {
                     let old_app_score = self
@@ -1586,6 +1680,21 @@ impl P2P {
                     }
                 }
 
+                // Enforce max envelope age for requests
+                let max_age = self
+                    .config
+                    .envelope_max_age
+                    .unwrap_or(DEFAULT_ENVELOPE_MAX_AGE);
+                let now_secs = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs();
+                let age = Duration::from_secs(now_secs.saturating_sub(request.date));
+                if age > max_age {
+                    warn!(%peer_id, ?age, "Dropping stale request message");
+                    return Ok(());
+                }
+
                 let (tx, rx) = oneshot::channel();
 
                 let event = ReqRespEvent::ReceivedRequest(request.message.clone(), tx);
@@ -1613,6 +1722,7 @@ impl P2P {
                                 {
                                     self.config.app_public_key.clone()
                                 }
+
                                 #[cfg(not(feature = "byos"))]
                                 {
                                     self.config.transport_keypair.public()
@@ -1688,6 +1798,20 @@ impl P2P {
                     return Ok(());
                 }
 
+                // Validate protocol and version for response envelope
+                if signed_response_message.message.protocol
+                    != crate::swarm::message::ProtocolId::RequestResponse
+                {
+                    warn!(%peer_id, "Response message with wrong protocol");
+                    return Ok(());
+                }
+                if signed_response_message.message.version
+                    != crate::swarm::message::request_response::RequestResponseProtocolVersion::V2
+                {
+                    warn!(%peer_id, "Unsupported request-response protocol version");
+                    return Ok(());
+                }
+
                 #[cfg(not(feature = "byos"))]
                 {
                     let response: ResponseMessage = signed_response_message.message.clone();
@@ -1723,6 +1847,23 @@ impl P2P {
                         self.apply_penalty(&peer_id, penalty).await;
                         return Ok(());
                     }
+                }
+
+                // Enforce max envelope age for responses
+                let max_age = self
+                    .config
+                    .envelope_max_age
+                    .unwrap_or(DEFAULT_ENVELOPE_MAX_AGE);
+                let now_secs = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs();
+                let age = Duration::from_secs(
+                    now_secs.saturating_sub(signed_response_message.message.date),
+                );
+                if age > max_age {
+                    warn!(%peer_id, ?age, "Dropping stale response message");
+                    return Ok(());
                 }
 
                 let event =
@@ -1799,15 +1940,36 @@ macro_rules! finish_swarm {
         $builder
             .map_err(|e| ProtocolError::TransportInitialization(e.into()))?
             .with_behaviour(|_| {
+                #[cfg(feature = "gossipsub")]
+                let topic = {
+                    let name = $cfg
+                        .gossipsub_topic
+                        .clone()
+                        .unwrap_or_else(|| "strata".to_string());
+                    Sha256Topic::new(&name)
+                };
+
+                let protocol_name: &'static str = match $cfg.protocol_name.as_ref() {
+                    Some(name) => {
+                        let leaked: &'static mut str = Box::leak(name.clone().into_boxed_str());
+                        leaked
+                    }
+                    None => PROTOCOL_NAME,
+                };
                 Behaviour::new(
-                    PROTOCOL_NAME,
+                    protocol_name,
                     &$cfg.transport_keypair,
                     #[cfg(feature = "byos")]
                     &$cfg.app_public_key,
                     #[cfg(feature = "gossipsub")]
+                    &topic,
+                    #[cfg(feature = "gossipsub")]
                     &$cfg.gossipsub_score_params,
                     #[cfg(feature = "gossipsub")]
                     &$cfg.gossipsub_score_thresholds,
+                    #[cfg(feature = "gossipsub")]
+                    $cfg.gossipsub_max_transmit_size
+                        .unwrap_or(MAX_TRANSMIT_SIZE),
                     #[cfg(feature = "byos")]
                     $signer.clone(),
                     #[cfg(feature = "kad")]
@@ -1861,15 +2023,37 @@ pub fn with_default_transport(
         .unwrap()
         .with_quic()
         .with_behaviour(|_| {
+            #[cfg(feature = "gossipsub")]
+            let topic = {
+                let name = config
+                    .gossipsub_topic
+                    .clone()
+                    .unwrap_or_else(|| "strata".to_string());
+                Sha256Topic::new(&name)
+            };
+
+            let protocol_name: &'static str = match config.protocol_name.as_ref() {
+                Some(name) => {
+                    let leaked: &'static mut str = Box::leak(name.clone().into_boxed_str());
+                    leaked
+                }
+                None => PROTOCOL_NAME,
+            };
             Behaviour::new(
-                PROTOCOL_NAME,
+                protocol_name,
                 &config.transport_keypair,
                 #[cfg(feature = "byos")]
                 &config.app_public_key,
                 #[cfg(feature = "gossipsub")]
+                &topic,
+                #[cfg(feature = "gossipsub")]
                 &config.gossipsub_score_params,
                 #[cfg(feature = "gossipsub")]
                 &config.gossipsub_score_thresholds,
+                #[cfg(feature = "gossipsub")]
+                config
+                    .gossipsub_max_transmit_size
+                    .unwrap_or(MAX_TRANSMIT_SIZE),
                 #[cfg(feature = "byos")]
                 signer.clone(),
                 #[cfg(feature = "kad")]
