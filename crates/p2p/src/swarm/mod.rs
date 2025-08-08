@@ -78,6 +78,8 @@ use crate::signer::ApplicationSigner;
     not(feature = "byos")
 ))]
 use crate::signer::TransportKeypairSigner;
+#[cfg(feature = "request-response")]
+use crate::swarm::codec_raw::{set_request_max_bytes, set_response_max_bytes};
 #[cfg(feature = "gossipsub")]
 use crate::swarm::message::{ProtocolId, gossipsub::GossipSubProtocolVersion};
 #[cfg(feature = "byos")]
@@ -145,6 +147,25 @@ pub const DEFAULT_CONNECTION_CHECK_INTERVAL: Duration = Duration::from_millis(50
 
 /// Global default timeout for channel operations (e.g., sending/receiving on channels).
 pub const DEFAULT_CHANNEL_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Default timeout used by [`CommandHandle`].
+pub const DEFAULT_HANDLE_TIMEOUT: Duration = Duration::from_secs(1);
+
+/// Global, runtime-configurable default handle timeout (milliseconds).
+static HANDLE_DEFAULT_TIMEOUT_MS: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(1_000);
+
+/// Update the global CommandHandle default timeout.
+pub fn set_handle_default_timeout(duration: Duration) {
+    let ms = duration.as_millis() as u64;
+    HANDLE_DEFAULT_TIMEOUT_MS.store(ms, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Read the global CommandHandle default timeout.
+pub fn default_handle_timeout() -> Duration {
+    let ms = HANDLE_DEFAULT_TIMEOUT_MS.load(std::sync::atomic::Ordering::Relaxed);
+    Duration::from_millis(ms)
+}
 
 /// Default maximum age for signed envelopes (gossip and req/resp) before being dropped.
 pub const DEFAULT_ENVELOPE_MAX_AGE: Duration = Duration::from_secs(300);
@@ -254,12 +275,29 @@ pub struct P2PConfig {
     /// The default is [`DEFAULT_COMMAND_BUFFER_SIZE`].
     pub command_buffer_size: Option<usize>,
 
+    /// Default timeout for [`CommandHandle]` queries.
+    ///
+    /// If [`None`], defaults to [`DEFAULT_HANDLE_TIMEOUT`].
+    pub handle_default_timeout: Option<Duration>,
+
     /// Buffer size for request-response event channels.
     ///
     /// If [`None`], the default buffer size will be used.
     /// The default is [`DEFAULT_REQ_RESP_EVENT_BUFFER_SIZE`].
     #[cfg(feature = "request-response")]
     pub req_resp_event_buffer_size: Option<usize>,
+
+    /// Maximum request size (bytes) for request-response codec.
+    ///
+    /// If [`None`], defaults to 1 MiB.
+    #[cfg(feature = "request-response")]
+    pub request_max_bytes: Option<u64>,
+
+    /// Maximum response size (bytes) for request-response codec.
+    ///
+    /// If [`None`], defaults to 10 MiB.
+    #[cfg(feature = "request-response")]
+    pub response_max_bytes: Option<u64>,
 
     /// Buffer size for gossip command channels.
     ///
@@ -272,6 +310,13 @@ pub struct P2PConfig {
     ///
     /// If [`None`], defaults to [`DEFAULT_ENVELOPE_MAX_AGE`].
     pub envelope_max_age: Option<Duration>,
+
+    /// Maximum allowed positive clock skew for incoming envelopes.
+    ///
+    /// Incoming envelopes with timestamps more than this duration in the future
+    /// relative to local system time will be rejected. If None, defaults to 0s
+    /// (no tolerance for future timestamps).
+    pub max_clock_skew: Option<Duration>,
 
     /// Kademlia protocol name
     #[cfg(feature = "kad")]
@@ -387,6 +432,10 @@ impl P2P {
         ))]
         validator: Option<Box<dyn Validator>>,
     ) -> P2PResult<P2PFromConfig> {
+        // Apply configurable default handle timeout for CommandHandle APIs
+        if let Some(dur) = cfg.handle_default_timeout {
+            set_handle_default_timeout(dur);
+        }
         for addr in &cfg.listening_addrs {
             swarm
                 .listen_on(addr.clone())
@@ -1956,6 +2005,17 @@ macro_rules! finish_swarm {
                     }
                     None => PROTOCOL_NAME,
                 };
+
+                #[cfg(feature = "request-response")]
+                {
+                    if let Some(max) = $cfg.request_max_bytes {
+                        set_request_max_bytes(max as u64);
+                    }
+                    if let Some(max) = $cfg.response_max_bytes {
+                        set_response_max_bytes(max as u64);
+                    }
+                }
+
                 Behaviour::new(
                     protocol_name,
                     &$cfg.transport_keypair,
@@ -2039,6 +2099,17 @@ pub fn with_default_transport(
                 }
                 None => PROTOCOL_NAME,
             };
+
+            #[cfg(feature = "request-response")]
+            {
+                if let Some(max) = config.request_max_bytes {
+                    set_request_max_bytes(max);
+                }
+                if let Some(max) = config.response_max_bytes {
+                    set_response_max_bytes(max);
+                }
+            }
+
             Behaviour::new(
                 protocol_name,
                 &config.transport_keypair,

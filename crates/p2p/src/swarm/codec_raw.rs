@@ -8,21 +8,32 @@
 
 #![cfg(feature = "request-response")]
 
-use std::{io, marker::PhantomData, pin::Pin};
+use std::{
+    io,
+    marker::PhantomData,
+    pin::Pin,
+    sync::atomic::{AtomicU64, Ordering},
+};
 
 use futures::prelude::*;
-use libp2p::swarm::StreamProtocol;
+use libp2p::{request_response, swarm::StreamProtocol};
 
-/// Max request size in bytes.
-// TODO(Arniiiii): make this configurable
-// NOTE(Velnbur): commit f096394 in rust-libp2p repo made this one
-// configurable recently, so we may want to configure it too.
-#[cfg(feature = "request-response")]
-const REQUEST_SIZE_MAXIMUM: u64 = 1024 * 1024;
+/// Max request size in bytes (configurable via setter, defaults to 1 MiB).
+static REQUEST_SIZE_MAXIMUM: AtomicU64 = AtomicU64::new(1_024 * 1_024);
 
-/// Max response size in bytes.
+/// Max response size in bytes (configurable via setter, defaults to 10 MiB).
+static RESPONSE_SIZE_MAXIMUM: AtomicU64 = AtomicU64::new(10 * 1_024 * 1_024);
+
+/// Update the maximum request size in bytes used by the request-response codec.
+pub(crate) fn set_request_max_bytes(max: u64) {
+    REQUEST_SIZE_MAXIMUM.store(max, Ordering::Relaxed);
+}
+
+/// Update the maximum response size in bytes used by the request-response codec.
 #[cfg(feature = "request-response")]
-const RESPONSE_SIZE_MAXIMUM: u64 = 10 * 1024 * 1024;
+pub(crate) fn set_response_max_bytes(max: u64) {
+    RESPONSE_SIZE_MAXIMUM.store(max, Ordering::Relaxed);
+}
 
 /// A [`Codec`] defines the request and response types
 /// for a request-response [`Behaviour`](super::Behaviour) protocol or
@@ -55,7 +66,7 @@ impl Clone for Codec {
 // in a spectacular way because Rust has some problems with implicit lifetimes in
 // such contexts.
 #[cfg(feature = "request-response")]
-impl libp2p::request_response::Codec for Codec {
+impl request_response::Codec for Codec {
     type Protocol = StreamProtocol;
     type Request = Vec<u8>;
     type Response = Vec<u8>;
@@ -76,7 +87,9 @@ impl libp2p::request_response::Codec for Codec {
         Box::pin(async move {
             let mut vec = Vec::new();
 
-            io.take(REQUEST_SIZE_MAXIMUM).read_to_end(&mut vec).await?;
+            io.take(REQUEST_SIZE_MAXIMUM.load(Ordering::Relaxed))
+                .read_to_end(&mut vec)
+                .await?;
 
             Ok(vec)
         })
@@ -98,7 +111,9 @@ impl libp2p::request_response::Codec for Codec {
         Box::pin(async move {
             let mut vec = Vec::new();
 
-            io.take(RESPONSE_SIZE_MAXIMUM).read_to_end(&mut vec).await?;
+            io.take(RESPONSE_SIZE_MAXIMUM.load(Ordering::Relaxed))
+                .read_to_end(&mut vec)
+                .await?;
 
             Ok(vec)
         })
