@@ -7,7 +7,9 @@ use std::{sync::Once, time::Duration};
 use futures::future::join_all;
 #[cfg(feature = "byos")]
 use libp2p::identity::PublicKey;
-use libp2p::{Multiaddr, PeerId, build_multiaddr, identity::Keypair};
+use libp2p::{
+    Multiaddr, PeerId, build_multiaddr, connection_limits::ConnectionLimits, identity::Keypair,
+};
 use rand::Rng;
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use tracing::debug;
@@ -137,6 +139,7 @@ impl User {
             gossip_command_buffer_size: None,
             #[cfg(feature = "kad")]
             kad_protocol_name: None, // this will take default one.
+            conn_limits: ConnectionLimits::default().with_max_established(Some(u32::MAX)),
         };
 
         // Determine transport type based on the first listening address

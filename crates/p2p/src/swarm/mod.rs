@@ -25,6 +25,7 @@ use libp2p::StreamProtocol;
 use libp2p::identity::PublicKey;
 use libp2p::{
     Multiaddr, PeerId, Swarm, SwarmBuilder, Transport,
+    connection_limits::ConnectionLimits,
     core::{ConnectedPoint, muxing::StreamMuxerBox, transport::MemoryTransport},
     identity::Keypair,
     noise,
@@ -321,6 +322,9 @@ pub struct P2PConfig {
     /// Kademlia protocol name
     #[cfg(feature = "kad")]
     pub kad_protocol_name: Option<KadProtocol>,
+
+    /// Limits on amount of connections.
+    pub conn_limits: ConnectionLimits,
 }
 
 /// Implementation of P2P protocol data exchange.
@@ -2034,6 +2038,7 @@ macro_rules! finish_swarm {
                     $signer.clone(),
                     #[cfg(feature = "kad")]
                     &$cfg.kad_protocol_name,
+                    $cfg.conn_limits.clone(),
                 )
                 .map_err(|e| e.into())
             })
@@ -2129,6 +2134,7 @@ pub fn with_default_transport(
                 signer.clone(),
                 #[cfg(feature = "kad")]
                 &config.kad_protocol_name,
+                config.conn_limits.clone(),
             )
             .map_err(|e| e.into())
         })

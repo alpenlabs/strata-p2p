@@ -26,6 +26,7 @@ use libp2p::{
     },
 };
 use libp2p::{
+    connection_limits::{Behaviour as ConnectionLimitsBehaviour, ConnectionLimits},
     identify::{Behaviour as Identify, Config},
     swarm::NetworkBehaviour,
 };
@@ -71,6 +72,8 @@ pub struct Behaviour {
     /// Kademlia DHT
     #[cfg(feature = "kad")]
     pub kademlia: kad::Behaviour<kad::store::MemoryStore>,
+
+    pub conn_limits: ConnectionLimitsBehaviour,
 }
 
 /// Creates a new [`Gossipsub`] given a [`Keypair`] and scoring parameters.
@@ -208,12 +211,9 @@ impl Behaviour {
     /// # Returns
     ///
     /// Returns a configured [`Behaviour`] instance or an error string if configuration fails.
-    #[cfg_attr(
-        all(feature = "byos", feature = "gossipsub"),
-        expect(
-            clippy::too_many_arguments,
-            reason = "This is a composite behaviour with multiple sub-behaviours"
-        )
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "This is a composite behaviour with multiple sub-behaviours"
     )]
     pub fn new(
         protocol_name: &'static str,
@@ -225,6 +225,7 @@ impl Behaviour {
         #[cfg(feature = "gossipsub")] gossipsub_max_transmit_size: usize,
         #[cfg(feature = "byos")] signer: Arc<dyn ApplicationSigner>,
         #[cfg(feature = "kad")] kad_protocol_name: &Option<KadProtocol>,
+        connection_limits: ConnectionLimits,
     ) -> Result<Self, &'static str> {
         #[cfg(feature = "gossipsub")]
         let gossipsub = create_gossipsub(
@@ -258,6 +259,7 @@ impl Behaviour {
                 transport_keypair.public().to_peer_id(),
                 signer,
             ),
+            conn_limits: ConnectionLimitsBehaviour::new(connection_limits),
         })
     }
 }
