@@ -3,7 +3,7 @@
 use libp2p::identity::PublicKey;
 
 pub(crate) mod pubkey_serializer {
-    use serde::{self, Deserializer, Serializer, de};
+    use serde::{self, Deserializer, Serializer, de, ser::SerializeSeq};
 
     use super::PublicKey;
 
@@ -11,7 +11,12 @@ pub(crate) mod pubkey_serializer {
     where
         S: Serializer,
     {
-        serializer.serialize_bytes(&data.encode_protobuf())
+        let bytes = data.encode_protobuf();
+        let mut seq = serializer.serialize_seq(Some(bytes.len()))?;
+        for byte in &bytes {
+            seq.serialize_element(byte)?;
+        }
+        seq.end()
     }
 
     pub(crate) fn deserialize<'de, D>(deserializer: D) -> Result<PublicKey, D::Error>
@@ -25,13 +30,17 @@ pub(crate) mod pubkey_serializer {
 }
 
 pub(crate) mod signature_serializer {
-    use serde::{self, Deserializer, Serializer, de};
+    use serde::{self, Deserializer, Serializer, de, ser::SerializeSeq};
 
     pub(crate) fn serialize<S>(data: &[u8; 64], serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
-        serializer.serialize_bytes(data)
+        let mut seq = serializer.serialize_seq(Some(64))?;
+        for byte in data {
+            seq.serialize_element(byte)?;
+        }
+        seq.end()
     }
 
     pub(crate) fn deserialize<'de, D>(deserializer: D) -> Result<[u8; 64], D::Error>

@@ -15,6 +15,7 @@ use behavior::{Behaviour, BehaviourEvent};
 #[cfg(feature = "byos")]
 use cynosure::site_c::queue::Queue;
 use errors::{P2PResult, ProtocolError};
+use flexbuffers;
 use futures::StreamExt as _;
 #[cfg(not(all(feature = "gossipsub", feature = "request-response")))]
 use futures::future::pending;
@@ -1106,7 +1107,7 @@ impl P2P {
             return Ok(());
         }
 
-        let signed_gossipsub_message: SignedGossipsubMessage = match serde_json::from_slice(
+        let signed_gossipsub_message: SignedGossipsubMessage = match flexbuffers::from_slice(
             &message.data,
         ) {
             Ok(signed_msg) => signed_msg,
@@ -1478,7 +1479,7 @@ impl P2P {
             }
         };
 
-        let signed_message_data = match serde_json::to_vec(&signed_gossip_message) {
+        let signed_message_data = match flexbuffers::to_vec(&signed_gossip_message) {
             Ok(data) => data,
             Err(e) => {
                 error!(?e, "Failed to serialize signed gossipsub message");
@@ -1574,7 +1575,7 @@ impl P2P {
                 }
             };
 
-        let signed_request_message_data = match serde_json::to_vec(&signed_request_message) {
+        let signed_request_message_data = match flexbuffers::to_vec(&signed_request_message) {
             Ok(data) => data,
             Err(e) => {
                 error!(?e, "Failed to serialize signed request message");
@@ -1658,7 +1659,7 @@ impl P2P {
                     return Ok(());
                 }
 
-                let signed_message: SignedRequestMessage = match serde_json::from_slice(&request) {
+                let signed_message: SignedRequestMessage = match flexbuffers::from_slice(&request) {
                     Ok(signed_msg) => signed_msg,
                     Err(e) => {
                         error!(%peer_id, ?e, "Failed to deserialize signed request message");
@@ -1790,8 +1791,15 @@ impl P2P {
                             }
                         };
                         let signed_response_message_data =
-                            match serde_json::to_vec(&signed_response_message) {
-                                Ok(data) => data,
+                            match flexbuffers::to_vec(&signed_response_message) {
+                                Ok(data) => {
+                                    trace!(data_len = data.len(), "Serialized response message");
+                                    if data.is_empty() {
+                                        error!("Serialized response message is empty");
+                                        return Ok(());
+                                    }
+                                    data
+                                }
                                 Err(e) => {
                                     error!(?e, "Failed to serialize signed response message");
                                     return Ok(());
@@ -1825,14 +1833,23 @@ impl P2P {
                     return Ok(());
                 }
 
-                let signed_response_message: SignedResponseMessage =
-                    match serde_json::from_slice(&response) {
-                        Ok(signed_msg) => signed_msg,
-                        Err(e) => {
-                            error!(%peer_id, ?e, "Failed to deserialize signed response message");
-                            return Ok(());
-                        }
-                    };
+                if response.is_empty() {
+                    warn!(%peer_id, "Received empty response, skipping deserialization");
+                    return Ok(());
+                }
+
+                let signed_response_message: SignedResponseMessage = match flexbuffers::from_slice(
+                    &response,
+                ) {
+                    Ok(signed_msg) => {
+                        trace!(%peer_id, response_len = response.len(), "Deserialized response message");
+                        signed_msg
+                    }
+                    Err(e) => {
+                        error!(%peer_id, response_len = response.len(), ?e, "Failed to deserialize signed response message");
+                        return Ok(());
+                    }
+                };
 
                 let is_valid = match signed_response_message.verify() {
                     Ok(is_valid) => is_valid,
