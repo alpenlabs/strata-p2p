@@ -78,7 +78,7 @@ pub struct Behaviour {
     pub conn_limits: ConnectionLimitsBehaviour,
 
     #[cfg(feature = "mem-conn-limits-abs")]
-    pub mem_conn_limits: MemConnLimitsBehavior,
+    pub mem_conn_limits_abs: MemConnLimitsBehavior,
 }
 
 /// Creates a new [`Gossipsub`] given a [`Keypair`] and scoring parameters.
@@ -267,7 +267,7 @@ impl Behaviour {
             ),
             conn_limits: ConnectionLimitsBehaviour::new(connection_limits),
             #[cfg(feature = "mem-conn-limits-abs")]
-            mem_conn_limits: MemConnLimitsBehavior::with_max_bytes(max_allowed_bytes),
+            mem_conn_limits_abs: MemConnLimitsBehavior::with_max_bytes(max_allowed_bytes),
         })
     }
 }
