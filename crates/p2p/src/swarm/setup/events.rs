@@ -6,16 +6,17 @@
 
 #![cfg(feature = "byos")]
 
-use libp2p::{identity::PublicKey, PeerId};
+use libp2p::{PeerId, identity::PublicKey};
 
 use crate::swarm::errors::SetupError;
 
 /// Events emitted during the setup phase of peer connections.
 ///
 /// These events are essentially wrappers around [`SetupHandlerEvent`] that just add transport_id
-/// aka peer_id. These events handled in behaviour's `on_connection_handler_event`, then are taken by swarm in
-/// `poll()` so they are going to next event from swarm, so that logic around knowing the
-/// SetupBehaviour (get remote's peer application public key) can be implemented in `crates/p2p/src/swarm/mod.rs`.
+/// aka peer_id. These events handled in behaviour's `on_connection_handler_event`, then are taken
+/// by swarm in `poll()` so they are going to next event from swarm, so that logic around knowing
+/// the SetupBehaviour (get remote's peer application public key) can be implemented in
+/// `crates/p2p/src/swarm/mod.rs`.
 #[derive(Debug)]
 pub enum SetupBehaviourEvent {
     /// Indicates that an application public key has been received from a peer.
