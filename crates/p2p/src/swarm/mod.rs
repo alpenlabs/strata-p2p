@@ -325,6 +325,10 @@ pub struct P2PConfig {
 
     /// Limits on amount of connections.
     pub conn_limits: ConnectionLimits,
+
+    /// After this amount of RAM used by the process, new connections will be denied.
+    #[cfg(feature = "mem-conn-limits-abs")]
+    pub max_allowed_ram_used: usize,
 }
 
 /// Implementation of P2P protocol data exchange.
@@ -2039,6 +2043,8 @@ macro_rules! finish_swarm {
                     #[cfg(feature = "kad")]
                     &$cfg.kad_protocol_name,
                     $cfg.conn_limits.clone(),
+                    #[cfg(feature = "mem-conn-limits-abs")]
+                    $cfg.max_allowed_ram_used,
                 )
                 .map_err(|e| e.into())
             })
@@ -2135,6 +2141,8 @@ pub fn with_default_transport(
                 #[cfg(feature = "kad")]
                 &config.kad_protocol_name,
                 config.conn_limits.clone(),
+                #[cfg(feature = "mem-conn-limits-abs")]
+                config.max_allowed_ram_used,
             )
             .map_err(|e| e.into())
         })

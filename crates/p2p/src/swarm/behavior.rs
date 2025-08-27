@@ -12,6 +12,8 @@ use std::sync::Arc;
 
 #[cfg(feature = "request-response")]
 use libp2p::StreamProtocol;
+#[cfg(feature = "mem-conn-limits-abs")]
+use libp2p::memory_connection_limits::Behaviour as MemConnLimitsBehavior;
 #[cfg(feature = "request-response")]
 use libp2p::request_response::{
     Behaviour as RequestResponse, Config as RequestResponseConfig, ProtocolSupport,
@@ -74,6 +76,9 @@ pub struct Behaviour {
     pub kademlia: kad::Behaviour<kad::store::MemoryStore>,
 
     pub conn_limits: ConnectionLimitsBehaviour,
+
+    #[cfg(feature = "mem-conn-limits-abs")]
+    pub mem_conn_limits: MemConnLimitsBehavior,
 }
 
 /// Creates a new [`Gossipsub`] given a [`Keypair`] and scoring parameters.
@@ -226,6 +231,7 @@ impl Behaviour {
         #[cfg(feature = "byos")] signer: Arc<dyn ApplicationSigner>,
         #[cfg(feature = "kad")] kad_protocol_name: &Option<KadProtocol>,
         connection_limits: ConnectionLimits,
+        #[cfg(feature = "mem-conn-limits-abs")] max_allowed_bytes: usize,
     ) -> Result<Self, &'static str> {
         #[cfg(feature = "gossipsub")]
         let gossipsub = create_gossipsub(
@@ -260,6 +266,8 @@ impl Behaviour {
                 signer,
             ),
             conn_limits: ConnectionLimitsBehaviour::new(connection_limits),
+            #[cfg(feature = "mem-conn-limits-abs")]
+            mem_conn_limits: MemConnLimitsBehavior::with_max_bytes(max_allowed_bytes),
         })
     }
 }

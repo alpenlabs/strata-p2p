@@ -92,6 +92,62 @@ jobs:
           # BYOS all (no kad)
           - name: byos | all (gossipsub + request-response + quic)
             features: "byos gossipsub request-response quic"
+          # Non-BYOS single + mem-conn-limits-abs
+          - name: non-byos | base + mem-conn-limits-abs
+            features: "mem-conn-limits-abs "
+          - name: non-byos | gossipsub + mem-conn-limits-abs
+            features: "mem-conn-limits-abs gossipsub"
+          - name: non-byos | request-response + mem-conn-limits-abs
+            features: "mem-conn-limits-abs request-response"
+          - name: non-byos | quic + mem-conn-limits-abs
+            features: "mem-conn-limits-abs quic"
+          - name: non-byos | kad + mem-conn-limits-abs
+            features: "mem-conn-limits-abs kad"
+          # Non-BYOS dual + mem-conn-limits-abs
+          - name: non-byos | gossipsub + request-response + mem-conn-limits-abs
+            features: "mem-conn-limits-abs gossipsub request-response"
+          - name: non-byos | gossipsub + quic + mem-conn-limits-abs
+            features: "mem-conn-limits-abs gossipsub quic"
+          - name: non-byos | gossipsub + kad + mem-conn-limits-abs
+            features: "mem-conn-limits-abs gossipsub kad"
+          - name: non-byos | request-response + quic + mem-conn-limits-abs
+            features: "mem-conn-limits-abs request-response quic"
+          - name: non-byos | request-response + kad + mem-conn-limits-abs
+            features: "mem-conn-limits-abs request-response kad"
+          - name: non-byos | quic + kad + mem-conn-limits-abs
+            features: "mem-conn-limits-abs quic kad"
+          # Non-BYOS triple + mem-conn-limits-abs
+          - name: non-byos | gossipsub + request-response + quic + mem-conn-limits-abs
+            features: "mem-conn-limits-abs gossipsub request-response quic"
+          - name: non-byos | gossipsub + request-response + kad + mem-conn-limits-abs
+            features: "mem-conn-limits-abs gossipsub request-response kad"
+          - name: non-byos | gossipsub + quic + kad + mem-conn-limits-abs
+            features: "mem-conn-limits-abs gossipsub quic kad"
+          - name: non-byos | request-response + quic + kad + mem-conn-limits-abs
+            features: "mem-conn-limits-abs request-response quic kad"
+          # Non-BYOS all + mem-conn-limits-abs
+          - name: non-byos | all (gossipsub + request-response + quic + kad) + mem-conn-limits-abs
+            features: "mem-conn-limits-abs gossipsub request-response quic kad"
+          # BYOS single (no kad) + mem-conn-limits-abs
+          - name: byos | base + mem-conn-limits-abs
+            features: "mem-conn-limits-abs byos"
+          - name: byos | gossipsub + mem-conn-limits-abs
+            features: "mem-conn-limits-abs byos gossipsub"
+          - name: byos | request-response + mem-conn-limits-abs
+            features: "mem-conn-limits-abs byos request-response"
+          - name: byos | quic + mem-conn-limits-abs
+            features: "mem-conn-limits-abs byos quic"
+          # BYOS dual
+          # gossipsub + request-response + mem-conn-limits-abs
+          - name: byos | gossipsub + request-response + mem-conn-limits-abs
+            features: "mem-conn-limits-abs byos gossipsub request-response"
+          - name: byos | gossipsub + quic + mem-conn-limits-abs
+            features: "mem-conn-limits-abs byos gossipsub quic"
+          - name: byos | request-response + quic + mem-conn-limits-abs
+            features: "mem-conn-limits-abs byos request-response quic"
+          # BYOS all (no kad) + mem-conn-limits-abs
+          - name: byos | all (gossipsub + request-response + quic) + mem-conn-limits-abs
+            features: "mem-conn-limits-abs byos gossipsub request-response quic"
     steps:
       - name: checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4

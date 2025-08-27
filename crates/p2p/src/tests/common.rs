@@ -140,6 +140,8 @@ impl User {
             #[cfg(feature = "kad")]
             kad_protocol_name: None, // this will take default one.
             conn_limits: ConnectionLimits::default().with_max_established(Some(u32::MAX)),
+            #[cfg(feature = "mem-conn-limits-abs")]
+            max_allowed_ram_used: 16 * 1024 * 1024 * 1024, // 16 GiB
         };
 
         // Determine transport type based on the first listening address
