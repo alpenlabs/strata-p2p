@@ -1961,6 +1961,14 @@ impl P2P {
                     warn!(%peer_id, ?e, "Failed to disconnect peer after SetupBehaviour's handshake failure");
                 }
             }
+            SetupBehaviourEvent::NegotiationFailed {
+                transport_id: peer_id,
+            } => {
+                warn!(%peer_id, "Protocol negotiation failed: it seems remote peer does not support the protocol, disconnecting peer.");
+                if let Err(e) = self.swarm.disconnect_peer_id(peer_id) {
+                    warn!(%peer_id, ?e, "Failed to disconnect peer after protocol negotiation failure");
+                }
+            }
         }
         Ok(())
     }

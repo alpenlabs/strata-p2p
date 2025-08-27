@@ -128,6 +128,11 @@ impl NetworkBehaviour for SetupBehaviour {
                     app_public_key,
                 });
             }
+            SetupHandlerEvent::NegotiationFailed => {
+                self.events.push(SetupBehaviourEvent::NegotiationFailed {
+                    transport_id: peer_id,
+                });
+            }
             SetupHandlerEvent::ErrorDuringSetupHandshake(error) => {
                 self.events
                     .push(SetupBehaviourEvent::ErrorDuringSetupHandshake {

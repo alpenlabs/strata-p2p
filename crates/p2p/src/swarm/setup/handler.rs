@@ -134,12 +134,16 @@ impl ConnectionHandler for SetupHandler {
                     ));
             }
             ConnectionEvent::DialUpgradeError(e) => {
+                let event = match e.error {
+                    libp2p::swarm::StreamUpgradeError::NegotiationFailed => {
+                        SetupHandlerEvent::NegotiationFailed
+                    }
+                    _ => SetupHandlerEvent::ErrorDuringSetupHandshake(SetupError::OutboundError(
+                        e.error.into(),
+                    )),
+                };
                 self.pending_events
-                    .push(ConnectionHandlerEvent::NotifyBehaviour(
-                        SetupHandlerEvent::ErrorDuringSetupHandshake(SetupError::OutboundError(
-                            e.error.into(),
-                        )),
-                    ));
+                    .push(ConnectionHandlerEvent::NotifyBehaviour(event));
             }
             ConnectionEvent::ListenUpgradeError(e) => {
                 self.pending_events
