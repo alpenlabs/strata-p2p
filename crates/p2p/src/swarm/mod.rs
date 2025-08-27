@@ -15,6 +15,7 @@ use behavior::{Behaviour, BehaviourEvent};
 #[cfg(feature = "byos")]
 use cynosure::site_c::queue::Queue;
 use errors::{P2PResult, ProtocolError};
+#[cfg(any(feature = "gossipsub", feature = "request-response"))]
 use flexbuffers;
 use futures::StreamExt as _;
 #[cfg(not(all(feature = "gossipsub", feature = "request-response")))]

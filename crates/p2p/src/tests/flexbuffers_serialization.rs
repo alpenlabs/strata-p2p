@@ -1,21 +1,20 @@
 //! Tests for flexbuffers serialization and deserialization of SignedMessages.
 
-use flexbuffers;
 use libp2p::identity::Keypair;
 use tracing::info;
 
-use crate::{
-    swarm::message::{
-        ProtocolId,
-        gossipsub::{GossipMessage, GossipSubProtocolVersion, SignedGossipsubMessage},
-        request_response::{
-            RequestMessage, RequestResponseProtocolVersion, ResponseMessage, SignedRequestMessage,
-            SignedResponseMessage,
-        },
-    },
-    tests::common::init_tracing,
+#[cfg(feature = "gossipsub")]
+use crate::swarm::message::gossipsub::{
+    GossipMessage, GossipSubProtocolVersion, SignedGossipsubMessage,
 };
+#[cfg(feature = "request-response")]
+use crate::swarm::message::request_response::{
+    RequestMessage, RequestResponseProtocolVersion, ResponseMessage, SignedRequestMessage,
+    SignedResponseMessage,
+};
+use crate::{swarm::message::ProtocolId, tests::common::init_tracing};
 
+#[cfg(feature = "gossipsub")]
 #[tokio::test]
 async fn test_signed_gossipsub_message_serialization() {
     init_tracing();
@@ -67,6 +66,7 @@ async fn test_signed_gossipsub_message_serialization() {
     info!("Gossipsub serialization/deserialization test passed!");
 }
 
+#[cfg(feature = "request-response")]
 #[tokio::test]
 async fn test_signed_request_message_serialization() {
     init_tracing();
@@ -118,6 +118,7 @@ async fn test_signed_request_message_serialization() {
     info!("Request serialization/deserialization test passed!");
 }
 
+#[cfg(feature = "request-response")]
 #[tokio::test]
 async fn test_signed_response_message_serialization() {
     init_tracing();
