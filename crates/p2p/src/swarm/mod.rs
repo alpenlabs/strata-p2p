@@ -1793,14 +1793,7 @@ impl P2P {
                         };
                         let signed_response_message_data =
                             match flexbuffers::to_vec(&signed_response_message) {
-                                Ok(data) => {
-                                    trace!(data_len = data.len(), "Serialized response message");
-                                    if data.is_empty() {
-                                        error!("Serialized response message is empty");
-                                        return Ok(());
-                                    }
-                                    data
-                                }
+                                Ok(data) => data,
                                 Err(e) => {
                                     error!(?e, "Failed to serialize signed response message");
                                     return Ok(());
@@ -1839,18 +1832,14 @@ impl P2P {
                     return Ok(());
                 }
 
-                let signed_response_message: SignedResponseMessage = match flexbuffers::from_slice(
-                    &response,
-                ) {
-                    Ok(signed_msg) => {
-                        trace!(%peer_id, response_len = response.len(), "Deserialized response message");
-                        signed_msg
-                    }
-                    Err(e) => {
-                        error!(%peer_id, response_len = response.len(), ?e, "Failed to deserialize signed response message");
-                        return Ok(());
-                    }
-                };
+                let signed_response_message: SignedResponseMessage =
+                    match flexbuffers::from_slice(&response) {
+                        Ok(signed_msg) => signed_msg,
+                        Err(e) => {
+                            error!(%peer_id, ?e, "Failed to deserialize signed response message");
+                            return Ok(());
+                        }
+                    };
 
                 let is_valid = match signed_response_message.verify() {
                     Ok(is_valid) => is_valid,
