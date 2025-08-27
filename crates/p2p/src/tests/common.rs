@@ -142,6 +142,8 @@ impl User {
             conn_limits: ConnectionLimits::default().with_max_established(Some(u32::MAX)),
             #[cfg(feature = "mem-conn-limits-abs")]
             max_allowed_ram_used: 16 * 1024 * 1024 * 1024, // 16 GiB
+            #[cfg(feature = "mem-conn-limits-rel")]
+            max_allowed_ram_used_percent: 0.99, // 99 %
         };
 
         // Determine transport type based on the first listening address

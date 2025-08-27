@@ -12,7 +12,7 @@ use std::sync::Arc;
 
 #[cfg(feature = "request-response")]
 use libp2p::StreamProtocol;
-#[cfg(feature = "mem-conn-limits-abs")]
+#[cfg(any(feature = "mem-conn-limits-abs", feature = "mem-conn-limits-rel"))]
 use libp2p::memory_connection_limits::Behaviour as MemConnLimitsBehavior;
 #[cfg(feature = "request-response")]
 use libp2p::request_response::{
@@ -79,6 +79,9 @@ pub struct Behaviour {
 
     #[cfg(feature = "mem-conn-limits-abs")]
     pub mem_conn_limits_abs: MemConnLimitsBehavior,
+
+    #[cfg(feature = "mem-conn-limits-rel")]
+    pub mem_conn_limits_rel: MemConnLimitsBehavior,
 }
 
 /// Creates a new [`Gossipsub`] given a [`Keypair`] and scoring parameters.
@@ -232,6 +235,7 @@ impl Behaviour {
         #[cfg(feature = "kad")] kad_protocol_name: &Option<KadProtocol>,
         connection_limits: ConnectionLimits,
         #[cfg(feature = "mem-conn-limits-abs")] max_allowed_bytes: usize,
+        #[cfg(feature = "mem-conn-limits-rel")] max_percentage: f64,
     ) -> Result<Self, &'static str> {
         #[cfg(feature = "gossipsub")]
         let gossipsub = create_gossipsub(
@@ -268,6 +272,8 @@ impl Behaviour {
             conn_limits: ConnectionLimitsBehaviour::new(connection_limits),
             #[cfg(feature = "mem-conn-limits-abs")]
             mem_conn_limits_abs: MemConnLimitsBehavior::with_max_bytes(max_allowed_bytes),
+            #[cfg(feature = "mem-conn-limits-rel")]
+            mem_conn_limits_rel: MemConnLimitsBehavior::with_max_percentage(max_percentage),
         })
     }
 }
