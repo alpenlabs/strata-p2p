@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::bail;
-use libp2p::{Multiaddr, build_multiaddr, identity::Keypair};
+use libp2p::{Multiaddr, build_multiaddr, connection_limits::ConnectionLimits, identity::Keypair};
 use tokio::{
     sync::oneshot::{self, channel},
     time::{sleep, timeout},
@@ -13,6 +13,8 @@ use tracing::{debug, info};
 use super::common::Setup;
 #[cfg(feature = "byos")]
 use crate::tests::common::MockApplicationSigner;
+#[cfg(feature = "mem-conn-limits-abs")]
+use crate::tests::common::SIXTEEN_GEBIBYTES;
 #[cfg(all(
     any(feature = "gossipsub", feature = "request-response"),
     not(feature = "byos")
@@ -100,6 +102,11 @@ async fn dht_new_user() -> anyhow::Result<()> {
             not(feature = "byos")
         ))]
         Box::new(DefaultP2PValidator),
+        ConnectionLimits::default().with_max_established(Some(u32::MAX)),
+        #[cfg(feature = "mem-conn-limits-abs")]
+        SIXTEEN_GEBIBYTES,
+        #[cfg(feature = "mem-conn-limits-rel")]
+        1.0, // 100 %
     )?;
 
     // Run the new user in a separate task - this call will handle connections
