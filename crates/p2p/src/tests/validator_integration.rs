@@ -10,13 +10,16 @@ use tokio::{
 use tracing::info;
 
 use super::common::{Setup, init_tracing};
-use crate::commands::{Command, QueryP2PStateCommand};
 #[cfg(any(feature = "gossipsub", feature = "request-response"))]
 use crate::validator::{Message, PenaltyType, Validator};
 #[cfg(feature = "gossipsub")]
 use crate::{commands::GossipCommand, events::GossipEvent};
 #[cfg(feature = "request-response")]
 use crate::{commands::RequestResponseCommand, events::ReqRespEvent};
+use crate::{
+    commands::{Command, QueryP2PStateCommand},
+    score_manager::PeerScore,
+};
 #[derive(Debug, Default, Clone)]
 struct TestValidator;
 
@@ -46,13 +49,7 @@ impl Validator for TestValidator {
     }
 
     #[allow(unused_variables)]
-    fn get_penalty(
-        &self,
-        msg: &Message,
-        #[cfg(feature = "gossipsub")] gossip_internal_score: f64,
-        #[cfg(feature = "gossipsub")] gossip_app_score: f64,
-        #[cfg(feature = "request-response")] reqresp_app_score: f64,
-    ) -> Option<PenaltyType> {
+    fn get_penalty(&self, msg: &Message, peer_score: &PeerScore) -> Option<PenaltyType> {
         match msg {
             #[cfg(feature = "gossipsub")]
             Message::Gossipsub(data) => match_penalty(data),

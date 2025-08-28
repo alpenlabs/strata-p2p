@@ -9,6 +9,8 @@ use std::{
 
 use libp2p::identity::PeerId;
 
+use crate::score_manager::PeerScore;
+
 /// Default ban period for peer misbehavior. Hardcoded to 30 days.
 pub const DEFAULT_BAN_PERIOD: Duration = Duration::from_secs(60 * 60 * 24 * 30);
 
@@ -86,13 +88,7 @@ pub trait Validator: Debug + Send + Sync + 'static {
     fn validate_msg(&self, msg: &Message, old_app_score: f64) -> f64;
 
     /// Returns the logic that is used to analyze and process message `msg`.
-    fn get_penalty(
-        &self,
-        msg: &Message,
-        #[cfg(feature = "gossipsub")] gossip_internal_score: f64,
-        #[cfg(feature = "gossipsub")] gossip_app_score: f64,
-        #[cfg(feature = "request-response")] reqresp_app_score: f64,
-    ) -> Option<PenaltyType>;
+    fn get_penalty(&self, msg: &Message, peer_score: &PeerScore) -> Option<PenaltyType>;
 }
 
 /// Default validator.
@@ -106,13 +102,7 @@ impl Validator for DefaultP2PValidator {
     }
 
     #[allow(unused_variables)]
-    fn get_penalty(
-        &self,
-        msg: &Message,
-        #[cfg(feature = "gossipsub")] gossip_internal_score: f64,
-        #[cfg(feature = "gossipsub")] gossip_app_score: f64,
-        #[cfg(feature = "request-response")] reqresp_app_score: f64,
-    ) -> Option<PenaltyType> {
+    fn get_penalty(&self, msg: &Message, peer_score: &PeerScore) -> Option<PenaltyType> {
         None
     }
 }
