@@ -16,7 +16,7 @@ use crate::swarm::errors::SetupError;
 /// aka peer_id. These events handled in behaviour's `on_connection_handler_event`, then are taken
 /// by swarm in `poll()` so they are going to next event from swarm, so that logic around knowing
 /// the SetupBehaviour (get remote's peer application public key) can be implemented in
-/// `crates/p2p/src/swarm/mod.rs`.
+/// [`swarm`].
 #[derive(Debug)]
 pub enum SetupBehaviourEvent {
     /// Indicates that an application public key has been received from a peer.
