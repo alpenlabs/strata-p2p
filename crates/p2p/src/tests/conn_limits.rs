@@ -11,7 +11,7 @@ use tokio_util::sync::CancellationToken;
 #[cfg(feature = "byos")]
 use crate::tests::common::MockApplicationSigner;
 #[cfg(feature = "mem-conn-limits-abs")]
-use crate::tests::common::SIXTEEN_GEBIBYTES;
+use crate::tests::common::SIXTEEN_GIBIBYTES;
 use crate::tests::common::{User, init_tracing};
 #[cfg(all(
     any(feature = "gossipsub", feature = "request-response"),
@@ -56,7 +56,7 @@ async fn conn_limits() -> anyhow::Result<()> {
         Box::new(DefaultP2PValidator),
         ConnectionLimits::default().with_max_established(Some(1u32)),
         #[cfg(feature = "mem-conn-limits-abs")]
-        SIXTEEN_GEBIBYTES,
+        SIXTEEN_GIBIBYTES,
         #[cfg(feature = "mem-conn-limits-rel")]
         1.0, // 100 %
     )?;
@@ -82,7 +82,7 @@ async fn conn_limits() -> anyhow::Result<()> {
         Box::new(DefaultP2PValidator),
         ConnectionLimits::default().with_max_established(Some(1u32)),
         #[cfg(feature = "mem-conn-limits-abs")]
-        SIXTEEN_GEBIBYTES,
+        SIXTEEN_GIBIBYTES,
         #[cfg(feature = "mem-conn-limits-rel")]
         1.0, // 100 %
     )?;
@@ -108,7 +108,7 @@ async fn conn_limits() -> anyhow::Result<()> {
         Box::new(DefaultP2PValidator),
         ConnectionLimits::default().with_max_established(Some(1u32)),
         #[cfg(feature = "mem-conn-limits-abs")]
-        SIXTEEN_GEBIBYTES,
+        SIXTEEN_GIBIBYTES,
         #[cfg(feature = "mem-conn-limits-rel")]
         1.0, // 100 %
     )?;

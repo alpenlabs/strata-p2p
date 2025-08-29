@@ -8,7 +8,7 @@ use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use tracing::info;
 
 #[cfg(feature = "mem-conn-limits-abs")]
-use crate::tests::common::SIXTEEN_GEBIBYTES;
+use crate::tests::common::SIXTEEN_GIBIBYTES;
 use crate::{
     commands::{Command, QueryP2PStateCommand},
     signer::ApplicationSigner,
@@ -55,7 +55,7 @@ async fn test_setup_with_invalid_signature() {
         Arc::new(MockApplicationSigner::new(app_keypair_good1.clone())),
         ConnectionLimits::default().with_max_established(Some(u32::MAX)),
         #[cfg(feature = "mem-conn-limits-abs")]
-        SIXTEEN_GEBIBYTES,
+        SIXTEEN_GIBIBYTES,
         #[cfg(feature = "mem-conn-limits-rel")]
         1.0, // 100 %
     )
@@ -71,7 +71,7 @@ async fn test_setup_with_invalid_signature() {
         Arc::new(MockApplicationSigner::new(app_keypair_good2.clone())),
         ConnectionLimits::default().with_max_established(Some(u32::MAX)),
         #[cfg(feature = "mem-conn-limits-abs")]
-        SIXTEEN_GEBIBYTES,
+        SIXTEEN_GIBIBYTES,
         #[cfg(feature = "mem-conn-limits-rel")]
         1.0, // 100 %
     )
@@ -107,7 +107,7 @@ async fn test_setup_with_invalid_signature() {
         Arc::new(BadApplicationSigner::new(app_keypair_bad.clone())),
         ConnectionLimits::default().with_max_established(Some(u32::MAX)),
         #[cfg(feature = "mem-conn-limits-abs")]
-        SIXTEEN_GEBIBYTES,
+        SIXTEEN_GIBIBYTES,
         #[cfg(feature = "mem-conn-limits-rel")]
         1.0, // 100 %
     )

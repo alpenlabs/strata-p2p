@@ -29,7 +29,7 @@ use crate::swarm::{self, P2P, P2PConfig, handle::CommandHandle};
 use crate::validator::{DefaultP2PValidator, Validator};
 
 #[cfg(feature = "mem-conn-limits-abs")]
-pub(crate) const SIXTEEN_GEBIBYTES: usize = 16 * 1024 * 1024 * 1024;
+pub(crate) const SIXTEEN_GIBIBYTES: usize = 16 * 1024 * 1024 * 1024; // https://en.wikipedia.org/wiki/Byte#Multiple-byte_units
 
 /// Only attempt to start tracing once
 ///
@@ -292,7 +292,7 @@ impl Setup {
                 }),
                 ConnectionLimits::default().with_max_established(Some(u32::MAX)),
                 #[cfg(feature = "mem-conn-limits-abs")]
-                SIXTEEN_GEBIBYTES,
+                SIXTEEN_GIBIBYTES,
                 #[cfg(feature = "mem-conn-limits-rel")]
                 1.0, // 100 %
             )?;
@@ -318,7 +318,7 @@ impl Setup {
                 Box::new(DefaultP2PValidator),
                 ConnectionLimits::default().with_max_established(Some(u32::MAX)),
                 #[cfg(feature = "mem-conn-limits-abs")]
-                SIXTEEN_GEBIBYTES,
+                SIXTEEN_GIBIBYTES,
                 #[cfg(feature = "mem-conn-limits-rel")]
                 1.0, // 100 %
             )?;
@@ -389,7 +389,7 @@ impl Setup {
                 Box::new(DefaultP2PValidator),
                 ConnectionLimits::default().with_max_established(Some(u32::MAX)),
                 #[cfg(feature = "mem-conn-limits-abs")]
-                SIXTEEN_GEBIBYTES,
+                SIXTEEN_GIBIBYTES,
                 #[cfg(feature = "mem-conn-limits-rel")]
                 1.0, // 100 %
             )?;
@@ -441,7 +441,7 @@ impl Setup {
                 Box::new(validator.clone()),
                 ConnectionLimits::default().with_max_established(Some(u32::MAX)),
                 #[cfg(feature = "mem-conn-limits-abs")]
-                SIXTEEN_GEBIBYTES,
+                SIXTEEN_GIBIBYTES,
                 #[cfg(feature = "mem-conn-limits-rel")]
                 1.0, // 100 %
             )?;
