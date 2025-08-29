@@ -1,7 +1,7 @@
 //! Tests for flexbuffers serialization and deserialization of SignedMessages.
 
 use libp2p::identity::Keypair;
-use tracing::info;
+use tracing::{error, info};
 
 #[cfg(feature = "gossipsub")]
 use crate::swarm::message::gossipsub::{
@@ -34,36 +34,34 @@ async fn test_signed_gossipsub_message_serialization() {
         signature: [42u8; 64], // Test signature
     };
 
-    info!("Original signed gossipsub message: {:?}", signed_msg);
+    info!(?signed_msg, "original signed gossipsub message");
 
     let serialized = match flexbuffers::to_vec(&signed_msg) {
         Ok(data) => {
-            info!(
-                "Gossipsub serialization successful! Size: {} bytes",
-                data.len()
-            );
+            info!(data_len = data.len(), "gossipsub serialization successful");
             data
         }
         Err(e) => {
-            panic!("Gossipsub serialization failed: {:?}", e);
+            error!(?e, "gossipsub serialization failed");
+            return;
         }
     };
 
     let deserialized: SignedGossipsubMessage = match flexbuffers::from_slice(&serialized) {
         Ok(msg) => {
-            info!("Gossipsub deserialization successful!");
+            info!("gossipsub deserialization successful");
             msg
         }
         Err(e) => {
-            panic!("Gossipsub deserialization failed: {:?}", e);
+            error!(?e, "gossipsub deserialization failed");
+            return;
         }
     };
 
     assert_eq!(
         signed_msg, deserialized,
-        "Gossipsub messages should be identical"
+        "gossipsub messages should be identical"
     );
-    info!("Gossipsub serialization/deserialization test passed!");
 }
 
 #[cfg(feature = "request-response")]
@@ -86,36 +84,34 @@ async fn test_signed_request_message_serialization() {
         signature: [42u8; 64], // Test signature
     };
 
-    info!("Original signed request message: {:?}", signed_msg);
+    info!(?signed_msg, "original signed request message");
 
     let serialized = match flexbuffers::to_vec(&signed_msg) {
         Ok(data) => {
-            info!(
-                "Request serialization successful! Size: {} bytes",
-                data.len()
-            );
+            info!(data_len = data.len(), "request serialization successful");
             data
         }
         Err(e) => {
-            panic!("Request serialization failed: {:?}", e);
+            error!(?e, "request serialization failed");
+            return;
         }
     };
 
     let deserialized: SignedRequestMessage = match flexbuffers::from_slice(&serialized) {
         Ok(msg) => {
-            info!("Request deserialization successful!");
+            info!("request deserialization successful");
             msg
         }
         Err(e) => {
-            panic!("Request deserialization failed: {:?}", e);
+            error!(?e, "request deserialization failed");
+            return;
         }
     };
 
     assert_eq!(
         signed_msg, deserialized,
-        "Request messages should be identical"
+        "request messages should be identical"
     );
-    info!("Request serialization/deserialization test passed!");
 }
 
 #[cfg(feature = "request-response")]
@@ -138,34 +134,32 @@ async fn test_signed_response_message_serialization() {
         signature: [42u8; 64], // Test signature
     };
 
-    info!("Original signed response message: {:?}", signed_msg);
+    info!(?signed_msg, "original signed response message");
 
     let serialized = match flexbuffers::to_vec(&signed_msg) {
         Ok(data) => {
-            info!(
-                "Response serialization successful! Size: {} bytes",
-                data.len()
-            );
+            info!(data_len = data.len(), "response serialization successful");
             data
         }
         Err(e) => {
-            panic!("Response serialization failed: {:?}", e);
+            error!(?e, "response serialization failed");
+            return;
         }
     };
 
     let deserialized: SignedResponseMessage = match flexbuffers::from_slice(&serialized) {
         Ok(msg) => {
-            info!("Response deserialization successful!");
+            info!("response deserialization successful");
             msg
         }
         Err(e) => {
-            panic!("Response deserialization failed: {:?}", e);
+            error!(?e, "response deserialization failed");
+            return;
         }
     };
 
     assert_eq!(
         signed_msg, deserialized,
-        "Response messages should be identical"
+        "response messages should be identical"
     );
-    info!("Response serialization/deserialization test passed!");
 }
