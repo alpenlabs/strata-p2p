@@ -58,7 +58,7 @@ impl InboundUpgrade<Stream> for InboundSetupUpgrade {
 
             match StreamExt::next(&mut framed).await {
                 Some(Ok(signed_message)) => Ok(signed_message),
-                Some(Err(e)) => Err(SetupUpgradeError::Codec(e.into())),
+                Some(Err(e)) => Err(SetupUpgradeError::Codec(e)),
                 None => Err(SetupUpgradeError::UnexpectedStreamClose),
             }
         })
@@ -122,11 +122,8 @@ impl OutboundUpgrade<Stream> for OutboundSetupUpgrade<Arc<dyn ApplicationSigner>
             framed
                 .send(signed_setup_message)
                 .await
-                .map_err(|e| SetupUpgradeError::Codec(e.into()))?;
-            framed
-                .close()
-                .await
-                .map_err(|e| SetupUpgradeError::Codec(e.into()))?;
+                .map_err(SetupUpgradeError::Codec)?;
+            framed.close().await.map_err(SetupUpgradeError::Codec)?;
             Ok(())
         })
     }

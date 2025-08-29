@@ -11,7 +11,7 @@ pub(crate) struct FlexbuffersCodec<T> {
 }
 
 impl<T> FlexbuffersCodec<T> {
-    pub(crate) fn new() -> Self {
+    pub(crate) const fn new() -> Self {
         Self {
             _marker: std::marker::PhantomData,
         }
