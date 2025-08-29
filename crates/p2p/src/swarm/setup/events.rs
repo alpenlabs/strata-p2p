@@ -34,8 +34,6 @@ pub enum SetupBehaviourEvent {
     /// This event indicates that the peers could not agree on a common
     /// version of the setup protocol or that we support Setup, but remote peer does not support
     /// Setup.
-    ///
-    /// At the moment of writing(end of Aug 2025) we just disconnect from the peer.
     NegotiationFailed {
         transport_id: PeerId,
         conn_id: ConnectionId,
