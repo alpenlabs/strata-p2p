@@ -66,6 +66,8 @@ impl InboundUpgrade<Stream> for InboundSetupUpgrade {
 }
 
 /// Outbound upgrade for initiating handshake requests.
+///
+/// This upgrade sends the setup messages to remote peers.
 #[derive(Clone, Debug)]
 pub struct OutboundSetupUpgrade<S> {
     app_public_key: PublicKey,
