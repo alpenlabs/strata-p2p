@@ -5,13 +5,15 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use futures::SinkExt;
-use libp2p::{Multiaddr, build_multiaddr, identity::Keypair};
+use libp2p::{Multiaddr, build_multiaddr, connection_limits::ConnectionLimits, identity::Keypair};
 use tokio::{sync::oneshot::channel, time::sleep};
 use tracing::{debug, info};
 
 use super::common::Setup;
 #[cfg(feature = "byos")]
 use crate::tests::common::MockApplicationSigner;
+#[cfg(feature = "mem-conn-limits-abs")]
+use crate::tests::common::SIXTEEN_GIBIBYTES;
 #[cfg(not(feature = "byos"))]
 use crate::validator::DefaultP2PValidator;
 use crate::{
@@ -95,6 +97,11 @@ async fn gossip_new_user() -> anyhow::Result<()> {
         Arc::new(MockApplicationSigner::new(new_user_app_keypair.clone())),
         #[cfg(not(feature = "byos"))]
         Box::new(DefaultP2PValidator),
+        ConnectionLimits::default().with_max_established(Some(u32::MAX)),
+        #[cfg(feature = "mem-conn-limits-abs")]
+        SIXTEEN_GIBIBYTES,
+        #[cfg(feature = "mem-conn-limits-rel")]
+        1.0, // 100 %
     )?;
 
     // Run the new user in a separate task - this call will handle connections
