@@ -222,9 +222,28 @@ impl Behaviour {
     /// # Returns
     ///
     /// Returns a configured [`Behaviour`] instance or an error string if configuration fails.
-    #[allow(
-        clippy::too_many_arguments,
-        reason = "This is a composite behaviour with multiple sub-behaviours"
+    #[cfg_attr(
+        any(
+            all(
+                feature = "gossipsub",
+                any(
+                    feature = "byos",
+                    feature = "kad",
+                    feature = "mem-conn-limits-abs",
+                    feature = "mem-conn-limits-rel"
+                )
+            ),
+            all(
+                feature = "byos",
+                feature = "kad",
+                feature = "mem-conn-limits-abs",
+                feature = "mem-conn-limits-rel"
+            )
+        ),
+        expect(
+            clippy::too_many_arguments,
+            reason = "This is a composite behaviour with multiple sub-behaviours"
+        )
     )]
     pub fn new(
         protocol_name: &'static str,
