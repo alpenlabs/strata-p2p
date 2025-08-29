@@ -1238,19 +1238,11 @@ impl P2P {
             self.score_manager
                 .update_gossipsub_app_score(&propagation_source, updated_score);
 
-            let PeerScore {
-                gossipsub_app_score,
-                gossipsub_internal_score,
-                #[cfg(feature = "request-response")]
-                req_resp_app_score,
-            } = self.get_all_scores(&propagation_source);
+            let peer_score = self.get_all_scores(&propagation_source);
 
             if let Some(penalty) = self.validator.get_penalty(
                 &MessageType::Gossipsub(signed_gossipsub_message.message.message.clone()),
-                gossipsub_internal_score,
-                gossipsub_app_score,
-                #[cfg(feature = "request-response")]
-                req_resp_app_score,
+                &peer_score,
             ) {
                 self.apply_penalty(&propagation_source, penalty).await;
                 return Ok(());
@@ -1722,22 +1714,12 @@ impl P2P {
                     self.score_manager
                         .update_req_resp_app_score(&peer_id, updated_score);
 
-                    let PeerScore {
-                        #[cfg(feature = "gossipsub")]
-                        gossipsub_internal_score,
-                        #[cfg(feature = "gossipsub")]
-                        gossipsub_app_score,
-                        req_resp_app_score,
-                    } = self.get_all_scores(&peer_id);
+                    let peer_score = self.get_all_scores(&peer_id);
 
-                    if let Some(penalty) = self.validator.get_penalty(
-                        &MessageType::Request(request.message.clone()),
-                        #[cfg(feature = "gossipsub")]
-                        gossipsub_internal_score,
-                        #[cfg(feature = "gossipsub")]
-                        gossipsub_app_score,
-                        req_resp_app_score,
-                    ) {
+                    if let Some(penalty) = self
+                        .validator
+                        .get_penalty(&MessageType::Request(request.message.clone()), &peer_score)
+                    {
                         self.apply_penalty(&peer_id, penalty).await;
                         return Ok(());
                     }
@@ -1896,21 +1878,11 @@ impl P2P {
                     self.score_manager
                         .update_req_resp_app_score(&peer_id, updated_score);
 
-                    let PeerScore {
-                        #[cfg(feature = "gossipsub")]
-                        gossipsub_internal_score,
-                        #[cfg(feature = "gossipsub")]
-                        gossipsub_app_score,
-                        req_resp_app_score,
-                    } = self.get_all_scores(&peer_id);
+                    let peer_score = self.get_all_scores(&peer_id);
 
                     if let Some(penalty) = self.validator.get_penalty(
                         &MessageType::Response(response.message.clone()),
-                        #[cfg(feature = "gossipsub")]
-                        gossipsub_internal_score,
-                        #[cfg(feature = "gossipsub")]
-                        gossipsub_app_score,
-                        req_resp_app_score,
+                        &peer_score,
                     ) {
                         self.apply_penalty(&peer_id, penalty).await;
                         return Ok(());
