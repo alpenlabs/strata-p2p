@@ -323,7 +323,7 @@ pub struct P2PConfig {
     #[cfg(feature = "kad")]
     pub kad_protocol_name: Option<KadProtocol>,
 
-    /// Limits on amount of connections.
+    /// Limits on number of concurrent connections.
     pub conn_limits: ConnectionLimits,
 
     /// After this amount of RAM used by the process, new connections will be denied.
