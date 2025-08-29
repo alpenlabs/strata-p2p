@@ -75,7 +75,7 @@ pub struct Behaviour {
     #[cfg(feature = "kad")]
     pub kademlia: kad::Behaviour<kad::store::MemoryStore>,
 
-    /// Limits amount of connection.
+    /// Limits number of concurrent connections.
     pub conn_limits: ConnectionLimitsBehaviour,
 
     /// Denies new connection when used RAM by the process is above a specified amount of bytes.
