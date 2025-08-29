@@ -46,9 +46,9 @@ pub enum SetupUpgradeError {
     #[error("Failed to create signed message: {0}")]
     SignedMessageCreation(Box<dyn error::Error + Send + Sync>),
 
-    /// JSON encoding/decoding error during message serialization.
-    #[error("JSON codec error: {0}")]
-    JsonCodec(Box<dyn error::Error + Send + Sync>),
+    /// Codec error (Flexbuffers serialization/deserialization).
+    #[error("Codec error: {0}")]
+    Codec(#[from] io::Error),
 
     /// Stream was closed unexpectedly.
     #[error("Stream closed unexpectedly")]
@@ -58,9 +58,9 @@ pub enum SetupUpgradeError {
 /// Generic errors that can occur during signed message operations.
 #[derive(Debug, Error)]
 pub enum SignedMessageError {
-    /// JSON encoding/decoding error during message serialization.
-    #[error("JSON codec error: {0}")]
-    JsonCodec(Box<dyn error::Error + Send + Sync>),
+    /// Codec error (Flexbuffers serialization/deserialization).
+    #[error("Codec error: {0}")]
+    Codec(#[from] io::Error),
 
     /// Signature verification failed.
     #[error("Signature verification failed")]

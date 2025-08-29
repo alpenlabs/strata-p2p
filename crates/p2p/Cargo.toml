@@ -6,7 +6,7 @@ edition.workspace = true
 [features]
 default = ["quic", "request-response", "gossipsub"]
 kad = ["libp2p/kad"]
-byos = ["dep:asynchronous-codec", "flexbuffers", "serde"]
+byos = ["dep:asynchronous-codec", "flexbuffers", "serde", "bytes"]
 gossipsub = ["libp2p/gossipsub", "flexbuffers", "serde"]
 quic = ["libp2p/quic"]
 request-response = ["libp2p/request-response", "flexbuffers", "serde"]
@@ -34,6 +34,7 @@ thiserror.workspace = true
 tokio = { workspace = true, features = ["macros", "time"] }
 tokio-util.workspace = true
 tracing.workspace = true
+bytes = {workspace = true, optional = true}
 
 
 [dev-dependencies]

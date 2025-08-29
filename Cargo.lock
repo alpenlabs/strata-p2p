@@ -2886,6 +2886,7 @@ version = "0.2.0"
 dependencies = [
  "anyhow",
  "asynchronous-codec",
+ "bytes",
  "cynosure",
  "flexbuffers",
  "futures",

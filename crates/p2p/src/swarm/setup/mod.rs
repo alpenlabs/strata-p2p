@@ -3,5 +3,6 @@
 
 pub mod behavior;
 pub(crate) mod events;
+pub(crate) mod flexbuffers_codec;
 pub(crate) mod handler;
 pub(crate) mod upgrade;
