@@ -116,7 +116,7 @@ impl NetworkBehaviour for SetupBehaviour {
     fn on_connection_handler_event(
         &mut self,
         peer_id: PeerId,
-        _: ConnectionId,
+        conn_id: ConnectionId,
         event: THandlerOutEvent<Self>,
     ) {
         match event {
@@ -126,17 +126,20 @@ impl NetworkBehaviour for SetupBehaviour {
                 self.events.push(SetupBehaviourEvent::AppKeyReceived {
                     transport_id: peer_id,
                     app_public_key,
+                    conn_id,
                 });
             }
             SetupHandlerEvent::NegotiationFailed => {
                 self.events.push(SetupBehaviourEvent::NegotiationFailed {
                     transport_id: peer_id,
+                    conn_id,
                 });
             }
             SetupHandlerEvent::ErrorDuringSetupHandshake(error) => {
                 self.events
                     .push(SetupBehaviourEvent::ErrorDuringSetupHandshake {
                         transport_id: peer_id,
+                        conn_id,
                         error,
                     });
             }

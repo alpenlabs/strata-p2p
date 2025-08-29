@@ -6,7 +6,7 @@
 
 #![cfg(feature = "byos")]
 
-use libp2p::{PeerId, identity::PublicKey};
+use libp2p::{PeerId, identity::PublicKey, swarm::ConnectionId};
 
 use crate::swarm::errors::SetupError;
 
@@ -26,6 +26,7 @@ pub enum SetupBehaviourEvent {
     AppKeyReceived {
         transport_id: PeerId,
         app_public_key: PublicKey,
+        conn_id: ConnectionId,
     },
 
     /// Emitted when the setup protocol negotiation fails with a remote peer.
@@ -35,7 +36,10 @@ pub enum SetupBehaviourEvent {
     /// Setup.
     ///
     /// At the moment of writing(end of Aug 2025) we just disconnect from the peer.
-    NegotiationFailed { transport_id: PeerId },
+    NegotiationFailed {
+        transport_id: PeerId,
+        conn_id: ConnectionId,
+    },
 
     /// Indicates that signature verification failed.
     ///
@@ -43,6 +47,7 @@ pub enum SetupBehaviourEvent {
     /// setup message, indicating the connection should be dropped.
     ErrorDuringSetupHandshake {
         transport_id: PeerId,
+        conn_id: ConnectionId,
         error: SetupError,
     },
 }
