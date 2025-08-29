@@ -45,6 +45,7 @@ where
         if src.is_empty() {
             return Ok(None);
         }
+
         let reader = flexbuffers::Reader::get_root(src.as_ref()).map_err(|e| {
             io::Error::new(io::ErrorKind::InvalidData, format!("Reader error: {e}"))
         })?;
@@ -54,7 +55,7 @@ where
                 format!("Deserialize error: {e}"),
             )
         })?;
-        src.clear();
+        src.clear(); // clear the buffer to avoid re-reading the same data
         Ok(Some(item))
     }
 }

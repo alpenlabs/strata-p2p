@@ -1,5 +1,9 @@
 //! Tests for flexbuffers serialization and deserialization of SignedMessages.
 
+#![cfg(all(feature = "gossipsub", feature = "byos"))]
+
+use asynchronous_codec::{Decoder, Encoder};
+use bytes::BytesMut;
 use libp2p::identity::Keypair;
 use tracing::{error, info};
 
@@ -12,7 +16,10 @@ use crate::swarm::message::request_response::{
     RequestMessage, RequestResponseProtocolVersion, ResponseMessage, SignedRequestMessage,
     SignedResponseMessage,
 };
-use crate::{swarm::message::ProtocolId, tests::common::init_tracing};
+use crate::{
+    swarm::{message::ProtocolId, setup::flexbuffers_codec::FlexbuffersCodec},
+    tests::common::init_tracing,
+};
 
 #[cfg(feature = "gossipsub")]
 #[tokio::test]
@@ -62,6 +69,40 @@ async fn test_signed_gossipsub_message_serialization() {
         signed_msg, deserialized,
         "gossipsub messages should be identical"
     );
+}
+
+#[cfg(all(feature = "gossipsub", feature = "byos"))]
+#[test]
+fn test_codec() {
+    init_tracing();
+
+    let keypair = Keypair::generate_ed25519();
+    let public_key = keypair.public();
+
+    let gossip_msg = GossipMessage {
+        version: GossipSubProtocolVersion::V2,
+        protocol: ProtocolId::Gossip,
+        message: b"test gossipsub message".to_vec(),
+        public_key: public_key.clone(),
+        date: 1234567890,
+    };
+
+    let signed_msg = SignedGossipsubMessage {
+        message: gossip_msg,
+        signature: [7u8; 64],
+    };
+
+    let mut codec: FlexbuffersCodec<SignedGossipsubMessage> = FlexbuffersCodec::new();
+    let mut buf = BytesMut::new();
+
+    codec
+        .encode(signed_msg.clone(), &mut buf)
+        .expect("encode ok");
+    assert!(!buf.is_empty());
+
+    let decoded = codec.decode(&mut buf).expect("decode ok");
+    assert_eq!(decoded, Some(signed_msg));
+    assert!(buf.is_empty());
 }
 
 #[cfg(feature = "request-response")]
