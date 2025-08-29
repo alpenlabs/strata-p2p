@@ -105,6 +105,15 @@ fn test_codec() {
     assert!(buf.is_empty());
 }
 
+#[cfg(all(feature = "gossipsub", feature = "byos"))]
+#[test]
+fn test_codec_decode_invalid_reader_error() {
+    let mut codec: FlexbuffersCodec<SignedGossipsubMessage> = FlexbuffersCodec::new();
+    let mut buf = BytesMut::from(&b"not-flexbuffers"[..]);
+    let err = codec.decode(&mut buf).unwrap_err();
+    assert_eq!(err.kind(), std::io::ErrorKind::InvalidData);
+}
+
 #[cfg(feature = "request-response")]
 #[tokio::test]
 async fn test_signed_request_message_serialization() {
