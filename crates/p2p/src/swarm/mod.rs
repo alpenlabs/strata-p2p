@@ -15,6 +15,8 @@ use behavior::{Behaviour, BehaviourEvent};
 #[cfg(feature = "byos")]
 use cynosure::site_c::queue::Queue;
 use errors::{P2PResult, ProtocolError};
+#[cfg(any(feature = "gossipsub", feature = "request-response"))]
+use flexbuffers;
 use futures::StreamExt as _;
 #[cfg(not(all(feature = "gossipsub", feature = "request-response")))]
 use futures::future::pending;
@@ -1118,7 +1120,7 @@ impl P2P {
             return Ok(());
         }
 
-        let signed_gossipsub_message: SignedGossipsubMessage = match serde_json::from_slice(
+        let signed_gossipsub_message: SignedGossipsubMessage = match flexbuffers::from_slice(
             &message.data,
         ) {
             Ok(signed_msg) => signed_msg,
@@ -1490,7 +1492,7 @@ impl P2P {
             }
         };
 
-        let signed_message_data = match serde_json::to_vec(&signed_gossip_message) {
+        let signed_message_data = match flexbuffers::to_vec(&signed_gossip_message) {
             Ok(data) => data,
             Err(e) => {
                 error!(?e, "Failed to serialize signed gossipsub message");
@@ -1586,7 +1588,7 @@ impl P2P {
                 }
             };
 
-        let signed_request_message_data = match serde_json::to_vec(&signed_request_message) {
+        let signed_request_message_data = match flexbuffers::to_vec(&signed_request_message) {
             Ok(data) => data,
             Err(e) => {
                 error!(?e, "Failed to serialize signed request message");
@@ -1670,7 +1672,7 @@ impl P2P {
                     return Ok(());
                 }
 
-                let signed_message: SignedRequestMessage = match serde_json::from_slice(&request) {
+                let signed_message: SignedRequestMessage = match flexbuffers::from_slice(&request) {
                     Ok(signed_msg) => signed_msg,
                     Err(e) => {
                         error!(%peer_id, ?e, "Failed to deserialize signed request message");
@@ -1802,7 +1804,7 @@ impl P2P {
                             }
                         };
                         let signed_response_message_data =
-                            match serde_json::to_vec(&signed_response_message) {
+                            match flexbuffers::to_vec(&signed_response_message) {
                                 Ok(data) => data,
                                 Err(e) => {
                                     error!(?e, "Failed to serialize signed response message");
@@ -1837,8 +1839,13 @@ impl P2P {
                     return Ok(());
                 }
 
+                if response.is_empty() {
+                    warn!(%peer_id, "Received empty response, skipping deserialization");
+                    return Ok(());
+                }
+
                 let signed_response_message: SignedResponseMessage =
-                    match serde_json::from_slice(&response) {
+                    match flexbuffers::from_slice(&response) {
                         Ok(signed_msg) => signed_msg,
                         Err(e) => {
                             error!(%peer_id, ?e, "Failed to deserialize signed response message");

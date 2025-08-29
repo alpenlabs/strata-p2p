@@ -24,6 +24,9 @@ pub(crate) mod quic;
 #[cfg(feature = "request-response")]
 pub(crate) mod request_response;
 
+#[cfg(any(feature = "gossipsub", feature = "request-response"))]
+pub(crate) mod flexbuffers;
+
 #[cfg(feature = "kad")]
 pub(crate) mod new_op_dht;
 

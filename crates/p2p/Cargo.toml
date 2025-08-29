@@ -6,10 +6,10 @@ edition.workspace = true
 [features]
 default = ["quic", "request-response", "gossipsub", "mem-conn-limits-abs", "mem-conn-limits-rel"]
 kad = ["libp2p/kad"]
-byos = ["dep:asynchronous-codec", "serde_json", "serde"]
-gossipsub = ["libp2p/gossipsub", "serde_json", "serde"]
+byos = ["dep:asynchronous-codec", "flexbuffers", "serde", "bytes"]
+gossipsub = ["libp2p/gossipsub", "flexbuffers", "serde"]
 quic = ["libp2p/quic"]
-request-response = ["libp2p/request-response", "serde_json", "serde"]
+request-response = ["libp2p/request-response", "flexbuffers", "serde"]
 mem-conn-limits-abs = ['libp2p/memory-connection-limits']
 mem-conn-limits-rel = ['libp2p/memory-connection-limits']
 
@@ -19,6 +19,7 @@ workspace = true
 [dependencies]
 asynchronous-codec = { workspace = true, optional = true }
 cynosure.workspace = true
+flexbuffers = { workspace = true, optional = true }
 futures.workspace = true
 libp2p = { workspace = true, features = [
   "noise",
@@ -31,11 +32,11 @@ libp2p = { workspace = true, features = [
   "serde",
 ] }
 serde = { workspace = true, optional = true }
-serde_json = { workspace = true, optional = true }
 thiserror.workspace = true
 tokio = { workspace = true, features = ["macros", "time"] }
 tokio-util.workspace = true
 tracing.workspace = true
+bytes = {workspace = true, optional = true}
 
 
 [dev-dependencies]

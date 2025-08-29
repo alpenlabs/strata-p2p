@@ -18,8 +18,8 @@ pub(crate) mod pubkey_serializer {
     where
         D: Deserializer<'de>,
     {
-        let bytes: Vec<u8> = serde::Deserialize::deserialize(deserializer)?;
-        PublicKey::try_decode_protobuf(&bytes)
+        let bytes: &[u8] = serde::Deserialize::deserialize(deserializer)?;
+        PublicKey::try_decode_protobuf(bytes)
             .map_err(|_| de::Error::custom("Failed to deserialize pubkey"))
     }
 }
@@ -38,7 +38,7 @@ pub(crate) mod signature_serializer {
     where
         D: Deserializer<'de>,
     {
-        let bytes: Vec<u8> = serde::Deserialize::deserialize(deserializer)?;
+        let bytes: &[u8] = serde::Deserialize::deserialize(deserializer)?;
         bytes
             .try_into()
             .map_err(|_| de::Error::custom("Signature must be exactly 64 bytes"))

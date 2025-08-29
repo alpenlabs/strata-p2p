@@ -8,7 +8,7 @@
 
 use std::{future::Future, iter, pin::Pin, sync::Arc};
 
-use asynchronous_codec::{Framed, JsonCodec};
+use asynchronous_codec::Framed;
 use futures::{SinkExt, StreamExt};
 use libp2p::{
     InboundUpgrade, OutboundUpgrade, PeerId, Stream, core::UpgradeInfo, identity::PublicKey,
@@ -22,6 +22,7 @@ use crate::{
             setup::{SetupMessage, SignedSetupMessage},
             signed::SignedMessage,
         },
+        setup::flexbuffers_codec::FlexbuffersCodec,
     },
 };
 
@@ -32,7 +33,6 @@ use crate::{
 pub struct InboundSetupUpgrade;
 
 impl InboundSetupUpgrade {
-    /// Creates a new inbound setup upgrade.
     pub(crate) const fn new() -> Self {
         Self
     }
@@ -54,14 +54,11 @@ impl InboundUpgrade<Stream> for InboundSetupUpgrade {
 
     fn upgrade_inbound(self, stream: Stream, _: Self::Info) -> Self::Future {
         Box::pin(async move {
-            let mut framed = Framed::new(
-                stream,
-                JsonCodec::<SignedSetupMessage, SignedSetupMessage>::new(),
-            );
+            let mut framed = Framed::new(stream, FlexbuffersCodec::<SignedSetupMessage>::new());
 
             match StreamExt::next(&mut framed).await {
                 Some(Ok(signed_message)) => Ok(signed_message),
-                Some(Err(e)) => Err(SetupUpgradeError::JsonCodec(e.into())),
+                Some(Err(e)) => Err(SetupUpgradeError::Codec(e)),
                 None => Err(SetupUpgradeError::UnexpectedStreamClose),
             }
         })
@@ -122,16 +119,13 @@ impl OutboundUpgrade<Stream> for OutboundSetupUpgrade<Arc<dyn ApplicationSigner>
 
             let mut framed = Framed::new(
                 stream,
-                JsonCodec::<SignedMessage<SetupMessage>, SignedMessage<SetupMessage>>::new(),
+                FlexbuffersCodec::<SignedMessage<SetupMessage>>::new(),
             );
             framed
                 .send(signed_setup_message)
                 .await
-                .map_err(|e| SetupUpgradeError::JsonCodec(e.into()))?;
-            framed
-                .close()
-                .await
-                .map_err(|e| SetupUpgradeError::JsonCodec(e.into()))?;
+                .map_err(SetupUpgradeError::Codec)?;
+            framed.close().await.map_err(SetupUpgradeError::Codec)?;
             Ok(())
         })
     }
