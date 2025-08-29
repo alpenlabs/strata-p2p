@@ -4,13 +4,15 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use libp2p::{Multiaddr, identity::Keypair};
+use libp2p::{Multiaddr, connection_limits::ConnectionLimits, identity::Keypair};
 use tokio::{join, spawn, sync::oneshot, time};
 use tokio_util::sync::CancellationToken;
 use tracing::info;
 
 #[cfg(feature = "byos")]
 use crate::tests::common::MockApplicationSigner;
+#[cfg(feature = "mem-conn-limits-abs")]
+use crate::tests::common::SIXTEEN_GIBIBYTES;
 #[cfg(all(
     any(feature = "gossipsub", feature = "request-response"),
     not(feature = "byos")
@@ -56,6 +58,11 @@ async fn test_quic_and_tcp_connectivity_ipv4_ipv6() {
             not(feature = "byos")
         ))]
         Box::new(DefaultP2PValidator),
+        ConnectionLimits::default().with_max_established(Some(u32::MAX)),
+        #[cfg(feature = "mem-conn-limits-abs")]
+        SIXTEEN_GIBIBYTES,
+        #[cfg(feature = "mem-conn-limits-rel")]
+        1.0, // 100 %
     )
     .expect("Failed to create listening node A");
 
@@ -75,6 +82,11 @@ async fn test_quic_and_tcp_connectivity_ipv4_ipv6() {
             not(feature = "byos")
         ))]
         Box::new(DefaultP2PValidator),
+        ConnectionLimits::default().with_max_established(Some(u32::MAX)),
+        #[cfg(feature = "mem-conn-limits-abs")]
+        SIXTEEN_GIBIBYTES,
+        #[cfg(feature = "mem-conn-limits-rel")]
+        1.0, // 100 %
     )
     .expect("Failed to create connecting node B");
 
@@ -193,6 +205,11 @@ async fn test_tcp_fallback_on_quic_failure() {
             not(feature = "byos")
         ))]
         Box::new(DefaultP2PValidator),
+        ConnectionLimits::default().with_max_established(Some(u32::MAX)),
+        #[cfg(feature = "mem-conn-limits-abs")]
+        SIXTEEN_GIBIBYTES,
+        #[cfg(feature = "mem-conn-limits-rel")]
+        1.0, // 100 %
     )
     .expect("Failed to create listening node");
 
@@ -212,6 +229,11 @@ async fn test_tcp_fallback_on_quic_failure() {
             not(feature = "byos")
         ))]
         Box::new(DefaultP2PValidator),
+        ConnectionLimits::default().with_max_established(Some(u32::MAX)),
+        #[cfg(feature = "mem-conn-limits-abs")]
+        SIXTEEN_GIBIBYTES,
+        #[cfg(feature = "mem-conn-limits-rel")]
+        1.0, // 100 %
     )
     .expect("Failed to create connecting node");
 

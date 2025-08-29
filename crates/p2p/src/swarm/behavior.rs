@@ -12,6 +12,8 @@ use std::sync::Arc;
 
 #[cfg(feature = "request-response")]
 use libp2p::StreamProtocol;
+#[cfg(any(feature = "mem-conn-limits-abs", feature = "mem-conn-limits-rel"))]
+use libp2p::memory_connection_limits::Behaviour as MemConnLimitsBehavior;
 #[cfg(feature = "request-response")]
 use libp2p::request_response::{
     Behaviour as RequestResponse, Config as RequestResponseConfig, ProtocolSupport,
@@ -26,6 +28,7 @@ use libp2p::{
     },
 };
 use libp2p::{
+    connection_limits::{Behaviour as ConnectionLimitsBehaviour, ConnectionLimits},
     identify::{Behaviour as Identify, Config},
     swarm::NetworkBehaviour,
 };
@@ -71,6 +74,17 @@ pub struct Behaviour {
     /// Kademlia DHT
     #[cfg(feature = "kad")]
     pub kademlia: kad::Behaviour<kad::store::MemoryStore>,
+
+    /// Limits number of concurrent connections.
+    pub conn_limits: ConnectionLimitsBehaviour,
+
+    /// Denies new connection when used RAM by the process is above a specified amount of bytes.
+    #[cfg(feature = "mem-conn-limits-abs")]
+    pub mem_conn_limits_abs: MemConnLimitsBehavior,
+
+    /// Denies new connection when used RAM by the process is above a specified percentage of RAM.
+    #[cfg(feature = "mem-conn-limits-rel")]
+    pub mem_conn_limits_rel: MemConnLimitsBehavior,
 }
 
 /// Creates a new [`Gossipsub`] given a [`Keypair`] and scoring parameters.
@@ -209,7 +223,23 @@ impl Behaviour {
     ///
     /// Returns a configured [`Behaviour`] instance or an error string if configuration fails.
     #[cfg_attr(
-        all(feature = "byos", feature = "gossipsub"),
+        any(
+            all(
+                feature = "gossipsub",
+                any(
+                    feature = "byos",
+                    feature = "kad",
+                    feature = "mem-conn-limits-abs",
+                    feature = "mem-conn-limits-rel"
+                )
+            ),
+            all(
+                feature = "byos",
+                feature = "kad",
+                feature = "mem-conn-limits-abs",
+                feature = "mem-conn-limits-rel"
+            )
+        ),
         expect(
             clippy::too_many_arguments,
             reason = "This is a composite behaviour with multiple sub-behaviours"
@@ -225,6 +255,9 @@ impl Behaviour {
         #[cfg(feature = "gossipsub")] gossipsub_max_transmit_size: usize,
         #[cfg(feature = "byos")] signer: Arc<dyn ApplicationSigner>,
         #[cfg(feature = "kad")] kad_protocol_name: &Option<KadProtocol>,
+        connection_limits: ConnectionLimits,
+        #[cfg(feature = "mem-conn-limits-abs")] max_allowed_bytes: usize,
+        #[cfg(feature = "mem-conn-limits-rel")] max_percentage: f64,
     ) -> Result<Self, &'static str> {
         #[cfg(feature = "gossipsub")]
         let gossipsub = create_gossipsub(
@@ -258,6 +291,11 @@ impl Behaviour {
                 transport_keypair.public().to_peer_id(),
                 signer,
             ),
+            conn_limits: ConnectionLimitsBehaviour::new(connection_limits),
+            #[cfg(feature = "mem-conn-limits-abs")]
+            mem_conn_limits_abs: MemConnLimitsBehavior::with_max_bytes(max_allowed_bytes),
+            #[cfg(feature = "mem-conn-limits-rel")]
+            mem_conn_limits_rel: MemConnLimitsBehavior::with_max_percentage(max_percentage),
         })
     }
 }

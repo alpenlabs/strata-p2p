@@ -35,63 +35,17 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          # Non-BYOS single
-          - name: non-byos | base
-            features: ""
-          - name: non-byos | gossipsub
-            features: "gossipsub"
-          - name: non-byos | request-response
-            features: "request-response"
-          - name: non-byos | quic
-            features: "quic"
-          - name: non-byos | kad
-            features: "kad"
-          # Non-BYOS dual
-          - name: non-byos | gossipsub + request-response
-            features: "gossipsub request-response"
-          - name: non-byos | gossipsub + quic
-            features: "gossipsub quic"
-          - name: non-byos | gossipsub + kad
-            features: "gossipsub kad"
-          - name: non-byos | request-response + quic
-            features: "request-response quic"
-          - name: non-byos | request-response + kad
-            features: "request-response kad"
-          - name: non-byos | quic + kad
-            features: "quic kad"
-          # Non-BYOS triple
-          - name: non-byos | gossipsub + request-response + quic
-            features: "gossipsub request-response quic"
-          - name: non-byos | gossipsub + request-response + kad
-            features: "gossipsub request-response kad"
-          - name: non-byos | gossipsub + quic + kad
-            features: "gossipsub quic kad"
-          - name: non-byos | request-response + quic + kad
-            features: "request-response quic kad"
-          # Non-BYOS all
-          - name: non-byos | all (gossipsub + request-response + quic + kad)
-            features: "gossipsub request-response quic kad"
-          # BYOS single (no kad)
-          - name: byos | base
-            features: "byos"
-          - name: byos | gossipsub
-            features: "byos gossipsub"
-          - name: byos | request-response
-            features: "byos request-response"
-          - name: byos | quic
-            features: "byos quic"
-          # BYOS dual
-          # gossipsub + request-response
-          - name: byos | gossipsub + request-response
-            features: "byos gossipsub request-response"
-          - name: byos | gossipsub + quic
-            features: "byos gossipsub quic"
-          - name: byos | request-response + quic
-            features: "byos request-response quic"
-          # BYOS all (no kad)
-          - name: byos | all (gossipsub + request-response + quic)
-            features: "byos gossipsub request-response quic"
+        feature_byos: ["byos",""]
+        feature_kad: ["kad",""]
+        feature_request-response: ["request-response",""]
+        feature_gossipsub: ["gossipsub",""]
+        feature_quic: ["quic",""]
+        feature_mem-conn-limits-abs: ["mem-conn-limits-abs",""]
+        feature_mem-conn-limits-rel: ["mem-conn-limits-rel",""]
+        exclude:
+          - feature_kad: "kad"
+            feature_byos: "byos"
+
     steps:
       - name: checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
@@ -106,24 +60,28 @@ jobs:
         with:
           cache-on-failure: true
 
+      - name: set env var for this job
+        run: |
+          printf 'FEATURES=%s' "$(printf '${{ toJson(matrix) }}' | jq -r '.[]' | xargs )" >> "${GITHUB_ENV}"
+
       - name: show config
         run: |
-          echo "Clippy combo: '${{ matrix.name }}'"
-          echo "Features:     '${{ matrix.features }}'"
+          echo "Clippy combo: '${{ toJson(matrix) }}'"
+          printf 'Features: "%s"' "${FEATURES}"
 
       - name: clippy (no features)
-        if: ${{ matrix.features == '' }}
+        if: ${{ env.FEATURES == '' }}
         env:
           RUSTFLAGS: -D warnings
         run: |
           cargo clippy --workspace --lib --locked --examples --tests --benches --all-targets --no-default-features
 
       - name: clippy (with features)
-        if: ${{ matrix.features != '' }}
+        if: ${{ env.FEATURES != '' }}
         env:
           RUSTFLAGS: -D warnings
         run: |
-          cargo clippy --workspace --lib --locked --examples --tests --benches --all-targets --no-default-features --features "${{ matrix.features }}"
+          cargo clippy --workspace --lib --locked --examples --tests --benches --all-targets --no-default-features --features "${FEATURES}"
 
   fmt:
     name: Check code formatting
