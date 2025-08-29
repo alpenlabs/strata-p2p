@@ -1942,11 +1942,11 @@ impl P2P {
             SetupBehaviourEvent::AppKeyReceived {
                 transport_id: peer_id,
                 app_public_key,
-                conn_id: _,
+                conn_id,
             } => {
                 if self.allowlist.contains(&app_public_key) {
                     info!(%peer_id, "Received app public key from peer");
-                    trace!(%peer_id, ?app_public_key, "App public key details");
+                    trace!(%peer_id, ?app_public_key, %conn_id, "App public key details");
                 } else {
                     info!(%peer_id, "Received app public key from a peer with not application public key not in allowlist. Disconnecting.");
                     let _ = self.swarm.disconnect_peer_id(peer_id);
@@ -1954,22 +1954,22 @@ impl P2P {
             }
             SetupBehaviourEvent::ErrorDuringSetupHandshake {
                 transport_id: peer_id,
-                conn_id: _,
+                conn_id,
                 error,
             } => {
-                warn!(%peer_id, ?error, "Error during SetupBehaviour's handshake, disconnecting peer");
+                warn!(%peer_id, ?error, %conn_id, "Error during SetupBehaviour's handshake, disconnecting peer");
                 // Drop the connection
                 if let Err(e) = self.swarm.disconnect_peer_id(peer_id) {
-                    warn!(%peer_id, ?e, "Failed to disconnect peer after SetupBehaviour's handshake failure");
+                    error!(%peer_id, ?e, "Failed to disconnect peer after SetupBehaviour's handshake failure");
                 }
             }
             SetupBehaviourEvent::NegotiationFailed {
                 transport_id: peer_id,
-                conn_id: _,
+                conn_id,
             } => {
-                warn!(%peer_id, "Protocol negotiation failed: it seems remote peer does not support the protocol, disconnecting peer.");
+                warn!(%peer_id, %conn_id, "Protocol negotiation failed: it seems remote peer does not support the protocol, disconnecting peer.");
                 if let Err(e) = self.swarm.disconnect_peer_id(peer_id) {
-                    warn!(%peer_id, ?e, "Failed to disconnect peer after protocol negotiation failure");
+                    error!(%peer_id, ?e, "Failed to disconnect peer after protocol negotiation failure");
                 }
             }
         }
