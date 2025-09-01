@@ -15,7 +15,6 @@ use libp2p::identity::Keypair;
 pub trait ApplicationSigner: Debug + Send + Sync + 'static {
     /// Signs the given message with the application private key that corresponds to the
     /// app_public_key.
-    ///
     // this code looks so ugly because:
     // 1. It was required to make it async
     // 2. `async fn` or `-> impl Future<...>` is not `dyn` compatible: https://doc.rust-lang.org/reference/items/traits.html#r-items.traits.dyn-compatible.associated-functions
