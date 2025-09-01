@@ -29,11 +29,11 @@ where
 {
     /// Create new [`SignedMessage`] from message and sign via signer that implements
     /// [`ApplicationSigner`]
-    pub fn new(
+    pub async fn new(
         message: M,
         signer: &dyn ApplicationSigner,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let signature = signer.sign(&flexbuffers::to_vec(&message)?)?;
+        let signature = signer.sign(&flexbuffers::to_vec(&message)?).await?;
         Ok(Self { message, signature })
     }
 }

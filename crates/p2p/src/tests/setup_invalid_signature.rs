@@ -1,6 +1,6 @@
 //! Tests for the setup phase of P2P connections where signature is invalid.
 
-use std::{sync::Arc, time::Duration};
+use std::{pin::Pin, sync::Arc, time::Duration};
 
 use libp2p::{build_multiaddr, connection_limits::ConnectionLimits, identity::Keypair};
 use tokio::{sync::oneshot, time::sleep};
@@ -25,9 +25,26 @@ impl BadApplicationSigner {
 }
 
 impl ApplicationSigner for BadApplicationSigner {
-    fn sign(&self, _message: &[u8]) -> Result<[u8; 64], Box<dyn std::error::Error + Send + Sync>> {
-        let signature = [0x02; 64];
-        Ok(signature)
+    fn sign<'life0, 'life1, 'async_trait>(
+        &'life0 self,
+        _message: &'life1 [u8],
+    ) -> Pin<
+        Box<
+            dyn Future<Output = Result<[u8; 64], Box<dyn std::error::Error + Send + Sync>>>
+                + Send
+                + Sync
+                + 'async_trait,
+        >,
+    >
+    where
+        'life0: 'async_trait,
+        'life1: 'async_trait,
+        Self: 'async_trait,
+    {
+        Box::pin(async move {
+            let signature = [0x02; 64];
+            Ok(signature)
+        })
     }
 }
 

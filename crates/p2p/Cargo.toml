@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 
 [features]
-default = ["quic", "request-response", "gossipsub", "mem-conn-limits-abs", "mem-conn-limits-rel"]
+default = ["quic", "request-response", "gossipsub", "mem-conn-limits-abs", "mem-conn-limits-rel", "byos"]
 kad = ["libp2p/kad"]
 byos = ["dep:asynchronous-codec", "flexbuffers", "serde", "bytes"]
 gossipsub = ["libp2p/gossipsub", "flexbuffers", "serde"]
