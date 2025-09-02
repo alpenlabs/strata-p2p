@@ -31,13 +31,13 @@ use crate::{
 
 /// Network behavior for managing the setup phase.
 #[derive(Debug)]
-pub struct SetupBehaviour {
+pub struct SetupBehaviour<S> {
     /// Our Application public key.
     app_public_key: PublicKey,
     /// Our transport id.
     local_transport_id: PeerId,
     /// Object that can sign with Application private key.
-    signer: Arc<dyn ApplicationSigner>,
+    signer: Arc<S>,
     /// A bimap-like solution for transport_id <-> app_public_keys.
     transport_ids: HashMap<PeerId, PublicKey>,
     app_public_keys: HashMap<PublicKey, PeerId>,
@@ -46,12 +46,8 @@ pub struct SetupBehaviour {
     events: Vec<SetupBehaviourEvent>,
 }
 
-impl SetupBehaviour {
-    pub(crate) fn new(
-        app_public_key: PublicKey,
-        transport_id: PeerId,
-        signer: Arc<dyn ApplicationSigner>,
-    ) -> Self {
+impl<S: ApplicationSigner> SetupBehaviour<S> {
+    pub(crate) fn new(app_public_key: PublicKey, transport_id: PeerId, signer: Arc<S>) -> Self {
         Self {
             app_public_key,
             local_transport_id: transport_id,
@@ -76,8 +72,8 @@ impl SetupBehaviour {
     }
 }
 
-impl NetworkBehaviour for SetupBehaviour {
-    type ConnectionHandler = SetupHandler;
+impl<S: ApplicationSigner> NetworkBehaviour for SetupBehaviour<S> {
+    type ConnectionHandler = SetupHandler<S>;
     type ToSwarm = SetupBehaviourEvent;
 
     fn handle_established_inbound_connection(

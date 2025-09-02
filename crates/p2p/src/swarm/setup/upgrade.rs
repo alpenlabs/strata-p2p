@@ -101,7 +101,7 @@ impl<S> UpgradeInfo for OutboundSetupUpgrade<S> {
     }
 }
 
-impl OutboundUpgrade<Stream> for OutboundSetupUpgrade<Arc<dyn ApplicationSigner>> {
+impl<S: ApplicationSigner> OutboundUpgrade<Stream> for OutboundSetupUpgrade<Arc<S>> {
     type Output = ();
     type Error = SetupUpgradeError;
     type Future = Pin<Box<dyn Future<Output = Result<Self::Output, Self::Error>> + Send>>;

@@ -8,6 +8,7 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::{
     collections::HashSet,
+    marker::PhantomData,
     time::{Duration, Instant},
 };
 
@@ -339,9 +340,9 @@ pub struct P2PConfig {
 
 /// Implementation of P2P protocol data exchange.
 #[expect(missing_debug_implementations)]
-pub struct P2P {
+pub struct P2P<S: ApplicationSigner> {
     /// The swarm that handles the networking.
-    swarm: Swarm<Behaviour>,
+    swarm: Swarm<Behaviour<S>>,
 
     /// Event channel for the gossip.
     #[cfg(feature = "gossipsub")]
@@ -390,7 +391,9 @@ pub struct P2P {
 
     /// Application signer for signing setup messages.
     #[cfg(any(feature = "gossipsub", feature = "request-response"))]
-    signer: Arc<dyn ApplicationSigner>,
+    signer: Arc<S>,
+
+    _phantom_signer: PhantomData<S>,
 
     /// Manages dial sequences and address queues for multiaddress connections.
     /// Only used when BYOS feature is enabled.
@@ -421,31 +424,23 @@ pub struct P2P {
 
 /// Type alias that changes based on feature flags
 #[cfg(feature = "request-response")]
-pub type P2PFromConfig = (P2P, ReqRespHandle);
+pub type P2PFromConfig<S> = (P2P<S>, ReqRespHandle);
 
 /// Type alias that changes based on feature flags
 #[cfg(not(feature = "request-response"))]
 pub type P2PFromConfig = P2P;
 
-impl P2P {
+#[cfg(feature = "byos")]
+impl<S: ApplicationSigner> P2P<S> {
     /// Creates a new P2P instance from the given configuration.
     pub fn from_config(
         cfg: P2PConfig,
         cancel: CancellationToken,
-        mut swarm: Swarm<Behaviour>,
-        #[cfg(feature = "byos")] allowlist: Vec<PublicKey>,
+        mut swarm: Swarm<Behaviour<S>>,
+        allowlist: Vec<PublicKey>,
         #[cfg(feature = "gossipsub")] channel_size: Option<usize>,
-        #[cfg(all(
-            feature = "byos",
-            any(feature = "gossipsub", feature = "request-response")
-        ))]
-        signer: Arc<dyn ApplicationSigner>,
-        #[cfg(all(
-            any(feature = "gossipsub", feature = "request-response"),
-            not(feature = "byos")
-        ))]
-        validator: Option<Box<dyn Validator>>,
-    ) -> P2PResult<P2PFromConfig> {
+        #[cfg(any(feature = "gossipsub", feature = "request-response"))] signer: Arc<S>,
+    ) -> P2PResult<P2PFromConfig<S>> {
         // Apply configurable default handle timeout for CommandHandle APIs
         if let Some(dur) = cfg.handle_default_timeout {
             set_handle_default_timeout(dur);
@@ -462,29 +457,9 @@ impl P2P {
             .unwrap_or(DEFAULT_COMMAND_BUFFER_SIZE);
         let (cmds_tx, cmds_rx) = mpsc::channel(command_buffer_size);
 
-        #[cfg(all(
-            any(feature = "gossipsub", feature = "request-response"),
-            not(feature = "byos")
-        ))]
-        let score_manager = ScoreManager::new();
-        #[cfg(all(
-            any(feature = "gossipsub", feature = "request-response"),
-            not(feature = "byos")
-        ))]
-        let peer_penalty_storage = PenaltyPeerStorage::new();
-
         // Create signer - either provided (BYOS) or transport keypair signer (non-BYOS)
         #[cfg(any(feature = "gossipsub", feature = "request-response"))]
-        let signer: Arc<dyn ApplicationSigner> = {
-            #[cfg(feature = "byos")]
-            {
-                signer
-            }
-            #[cfg(not(feature = "byos"))]
-            {
-                Arc::new(TransportKeypairSigner::new(cfg.transport_keypair.clone()))
-            }
-        };
+        let signer: Arc<S> = { signer };
 
         // Request-response setup (only when feature is enabled)
         #[cfg(feature = "request-response")]
@@ -527,12 +502,6 @@ impl P2P {
             Sha256Topic::new(&name)
         };
 
-        #[cfg(all(
-            any(feature = "gossipsub", feature = "request-response"),
-            not(feature = "byos")
-        ))]
-        let validator = validator.unwrap_or_else(|| Box::new(DefaultP2PValidator));
-
         let p2p = P2P {
             swarm,
             #[cfg(feature = "gossipsub")]
@@ -555,22 +524,126 @@ impl P2P {
             config: cfg,
             #[cfg(any(feature = "gossipsub", feature = "request-response"))]
             signer,
-            #[cfg(feature = "byos")]
+            _phantom_signer: PhantomData,
             dial_manager: DialManager::new(),
-            #[cfg(all(
-                any(feature = "gossipsub", feature = "request-response"),
-                not(feature = "byos")
-            ))]
+        };
+
+        #[cfg(feature = "request-response")]
+        return Ok((p2p, ReqRespHandle::new(req_resp_event_rx, req_resp_cmds_tx)));
+
+        #[cfg(not(feature = "request-response"))]
+        return Ok(p2p);
+    }
+}
+
+#[cfg(not(feature = "byos"))]
+impl P2P<TransportKeypairSigner> {
+    /// Creates a new P2P instance from the given configuration.
+    pub fn from_config(
+        cfg: P2PConfig,
+        cancel: CancellationToken,
+        mut swarm: Swarm<Behaviour>,
+        #[cfg(feature = "gossipsub")] channel_size: Option<usize>,
+        #[cfg(any(feature = "gossipsub", feature = "request-response"))] validator: Option<
+            Box<dyn Validator>,
+        >,
+    ) -> P2PResult<P2PFromConfig<TransportKeypairSigner>> {
+        // Apply configurable default handle timeout for CommandHandle APIs
+        if let Some(dur) = cfg.handle_default_timeout {
+            set_handle_default_timeout(dur);
+        }
+        for addr in &cfg.listening_addrs {
+            swarm
+                .listen_on(addr.clone())
+                .map_err(ProtocolError::Listen)?;
+        }
+
+        // Core components setup
+        let command_buffer_size = cfg
+            .command_buffer_size
+            .unwrap_or(DEFAULT_COMMAND_BUFFER_SIZE);
+        let (cmds_tx, cmds_rx) = mpsc::channel(command_buffer_size);
+
+        #[cfg(any(feature = "gossipsub", feature = "request-response"))]
+        let score_manager = ScoreManager::new();
+        #[cfg(any(feature = "gossipsub", feature = "request-response"))]
+        let peer_penalty_storage = PenaltyPeerStorage::new();
+
+        // Create signer - either provided (BYOS) or transport keypair signer (non-BYOS)
+        #[cfg(any(feature = "gossipsub", feature = "request-response"))]
+        let signer: Arc<TransportKeypairSigner> =
+            { Arc::new(TransportKeypairSigner::new(cfg.transport_keypair.clone())) };
+
+        // Request-response setup (only when feature is enabled)
+        #[cfg(feature = "request-response")]
+        let (req_resp_event_tx, req_resp_event_rx, req_resp_cmds_tx, req_resp_cmds_rx) = {
+            let req_resp_event_buffer_size = cfg
+                .req_resp_event_buffer_size
+                .unwrap_or(DEFAULT_REQ_RESP_EVENT_BUFFER_SIZE);
+            let (req_resp_event_tx, req_resp_event_rx) =
+                mpsc::channel::<ReqRespEvent>(req_resp_event_buffer_size);
+            let (req_resp_cmds_tx, req_resp_cmds_rx) = mpsc::channel(command_buffer_size);
+            (
+                req_resp_event_tx,
+                req_resp_event_rx,
+                req_resp_cmds_tx,
+                req_resp_cmds_rx,
+            )
+        };
+
+        // Gossipsub setup (only when feature is enabled)
+        #[cfg(feature = "gossipsub")]
+        let (gossip_events_tx, gossip_cmds_tx, gossip_cmds_rx) = {
+            let gossip_event_buffer_size = cfg
+                .gossip_event_buffer_size
+                .unwrap_or(DEFAULT_GOSSIP_EVENT_BUFFER_SIZE);
+            let channel_size = channel_size.unwrap_or(gossip_event_buffer_size);
+            let (gossip_events_tx, _gossip_events_rx) = broadcast::channel(channel_size);
+            let gossip_command_buffer_size = cfg
+                .gossip_command_buffer_size
+                .unwrap_or(DEFAULT_GOSSIP_COMMAND_BUFFER_SIZE);
+            let (gossip_cmds_tx, gossip_cmds_rx) = mpsc::channel(gossip_command_buffer_size);
+            (gossip_events_tx, gossip_cmds_tx, gossip_cmds_rx)
+        };
+
+        #[cfg(feature = "gossipsub")]
+        let topic = {
+            let name = cfg
+                .gossipsub_topic
+                .clone()
+                .unwrap_or_else(|| "strata".to_string());
+            Sha256Topic::new(&name)
+        };
+
+        #[cfg(any(feature = "gossipsub", feature = "request-response"))]
+        let validator = validator.unwrap_or_else(|| Box::new(DefaultP2PValidator));
+
+        let p2p = P2P {
+            swarm,
+            #[cfg(feature = "gossipsub")]
+            gossip_events: gossip_events_tx,
+            #[cfg(feature = "request-response")]
+            req_resp_events: req_resp_event_tx,
+            #[cfg(feature = "request-response")]
+            request_response_commands: req_resp_cmds_rx,
+            #[cfg(feature = "gossipsub")]
+            gossip_commands: gossip_cmds_rx,
+            #[cfg(feature = "gossipsub")]
+            gossip_commands_sender: gossip_cmds_tx.clone(),
+            #[cfg(feature = "gossipsub")]
+            topic,
+            commands: cmds_rx,
+            commands_sender: cmds_tx.clone(),
+            cancellation_token: cancel,
+            config: cfg,
+            #[cfg(any(feature = "gossipsub", feature = "request-response"))]
+            signer,
+            _phantom_signer: PhantomData,
+            #[cfg(any(feature = "gossipsub", feature = "request-response"))]
             score_manager,
-            #[cfg(all(
-                any(feature = "gossipsub", feature = "request-response"),
-                not(feature = "byos")
-            ))]
+            #[cfg(any(feature = "gossipsub", feature = "request-response"))]
             peer_penalty_storage,
-            #[cfg(all(
-                any(feature = "gossipsub", feature = "request-response"),
-                not(feature = "byos")
-            ))]
+            #[cfg(any(feature = "gossipsub", feature = "request-response"))]
             validator,
         };
 
@@ -580,7 +653,9 @@ impl P2P {
         #[cfg(not(feature = "request-response"))]
         return Ok(p2p);
     }
+}
 
+impl<S: ApplicationSigner> P2P<S> {
     /// Returns the [`PeerId`] of the local node.
     pub fn local_peer_id(&self) -> PeerId {
         *self.swarm.local_peer_id()
@@ -962,7 +1037,7 @@ impl P2P {
     /// Handles a [`SwarmEvent`] from the swarm.
     async fn handle_swarm_event(
         &mut self,
-        event: SwarmEvent<<Behaviour as NetworkBehaviour>::ToSwarm>,
+        event: SwarmEvent<<Behaviour<S> as NetworkBehaviour>::ToSwarm>,
     ) -> P2PResult<()> {
         match event {
             SwarmEvent::Behaviour(event) => self.handle_behaviour_event(event).await,
@@ -977,7 +1052,7 @@ impl P2P {
     /// Handles connection-related events (both successful and failed connections).
     async fn handle_connection_event(
         &mut self,
-        event: SwarmEvent<BehaviourEvent>,
+        event: SwarmEvent<BehaviourEvent<S>>,
     ) -> P2PResult<()> {
         match event {
             SwarmEvent::ConnectionEstablished {
@@ -1064,7 +1139,7 @@ impl P2P {
     /// Handles a [`BehaviourEvent`] from the swarm.
     async fn handle_behaviour_event(
         &mut self,
-        event: <Behaviour as NetworkBehaviour>::ToSwarm,
+        event: <Behaviour<S> as NetworkBehaviour>::ToSwarm,
     ) -> P2PResult<()> {
         match event {
             #[cfg(feature = "gossipsub")]
@@ -2083,10 +2158,10 @@ macro_rules! finish_swarm {
 
 /// Constructs swarm from P2P config with inmemory transport. Uses
 /// `/memory/{n}` addresses.
-pub fn with_inmemory_transport(
+pub fn with_inmemory_transport<S: ApplicationSigner>(
     config: &P2PConfig,
-    #[cfg(feature = "byos")] signer: Arc<dyn ApplicationSigner>,
-) -> P2PResult<Swarm<Behaviour>> {
+    #[cfg(feature = "byos")] signer: Arc<S>,
+) -> P2PResult<Swarm<Behaviour<S>>> {
     let builder = init_swarm!(config);
     let swarm = finish_swarm!(
         builder.with_other_transport(|our_keypair| {
@@ -2106,10 +2181,10 @@ pub fn with_inmemory_transport(
 
 /// Constructs a `Swarm<Behaviour>` from `P2PConfig` using QUIC with TCP fallback when available, or
 /// TCP only otherwise.
-pub fn with_default_transport(
+pub fn with_default_transport<S: ApplicationSigner>(
     config: &P2PConfig,
-    #[cfg(feature = "byos")] signer: Arc<dyn ApplicationSigner>,
-) -> P2PResult<Swarm<Behaviour>> {
+    #[cfg(feature = "byos")] signer: Arc<S>,
+) -> P2PResult<Swarm<Behaviour<S>>> {
     let builder = init_swarm!(config);
     #[cfg(feature = "quic")]
     let swarm = builder

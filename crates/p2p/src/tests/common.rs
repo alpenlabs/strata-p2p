@@ -1,7 +1,7 @@
 //! Helper functions for the P2P tests.
 
 #[cfg(feature = "byos")]
-use std::{pin::Pin, sync::Arc};
+use std::sync::Arc;
 use std::{sync::Once, time::Duration};
 
 use futures::future::join_all;
@@ -15,18 +15,21 @@ use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use tracing::debug;
 use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, util::SubscriberInitExt};
 
-#[cfg(feature = "byos")]
-use crate::signer::ApplicationSigner;
+#[cfg(not(feature = "byos"))]
+use crate::signer::TransportKeypairSigner;
 #[cfg(feature = "gossipsub")]
 use crate::swarm::handle::GossipHandle;
 #[cfg(feature = "request-response")]
 use crate::swarm::handle::ReqRespHandle;
-use crate::swarm::{self, P2P, P2PConfig, handle::CommandHandle};
 #[cfg(all(
     any(feature = "gossipsub", feature = "request-response"),
     not(feature = "byos")
 ))]
 use crate::validator::{DefaultP2PValidator, Validator};
+use crate::{
+    signer::ApplicationSigner,
+    swarm::{self, P2P, P2PConfig, handle::CommandHandle},
+};
 
 #[cfg(feature = "mem-conn-limits-abs")]
 pub(crate) const SIXTEEN_GIBIBYTES: usize = 16 * 1024 * 1024 * 1024; // https://en.wikipedia.org/wiki/Byte#Multiple-byte_units
@@ -62,33 +65,19 @@ impl MockApplicationSigner {
 
 #[cfg(feature = "byos")]
 impl ApplicationSigner for MockApplicationSigner {
-    fn sign<'life0, 'life1, 'async_trait>(
-        &'life0 self,
-        message: &'life1 [u8],
-    ) -> Pin<
-        Box<
-            dyn Future<Output = Result<[u8; 64], Box<dyn std::error::Error + Send + Sync>>>
-                + Send
-                + Sync
-                + 'async_trait,
-        >,
-    >
-    where
-        'life0: 'async_trait,
-        'life1: 'async_trait,
-        Self: 'async_trait,
-    {
-        Box::pin(async move {
-            // Sign with the stored keypair
-            let signature = self.app_keypair.sign(message)?;
-            let sign_array: [u8; 64] = signature.try_into().unwrap();
-            Ok(sign_array)
-        })
+    async fn sign(
+        &self,
+        message: &[u8],
+    ) -> Result<[u8; 64], Box<dyn std::error::Error + Send + Sync>> {
+        // Sign with the stored keypair
+        let signature = self.app_keypair.sign(message)?;
+        let sign_array: [u8; 64] = signature.try_into().unwrap();
+        Ok(sign_array)
     }
 }
 
-pub(crate) struct User {
-    pub(crate) p2p: P2P,
+pub(crate) struct User<S: ApplicationSigner> {
+    pub(crate) p2p: P2P<S>,
     #[cfg(feature = "gossipsub")]
     pub(crate) gossip: GossipHandle,
     #[cfg(feature = "request-response")]
@@ -100,21 +89,17 @@ pub(crate) struct User {
     pub(crate) transport_keypair: Keypair,
 }
 
-impl User {
+#[cfg(feature = "byos")]
+impl<S: ApplicationSigner> User<S> {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
-        #[cfg(feature = "byos")] app_keypair: Keypair,
+        app_keypair: Keypair,
         transport_keypair: Keypair,
         connect_to: Vec<Multiaddr>,
-        #[cfg(feature = "byos")] allowlist: Vec<PublicKey>,
+        allowlist: Vec<PublicKey>,
         listening_addrs: Vec<Multiaddr>,
         cancel: CancellationToken,
-        #[cfg(feature = "byos")] signer: Arc<dyn ApplicationSigner>,
-        #[cfg(all(
-            any(feature = "gossipsub", feature = "request-response"),
-            not(feature = "byos")
-        ))]
-        validator: Box<dyn Validator>,
+        signer: Arc<S>,
         conn_limits: ConnectionLimits,
         #[cfg(feature = "mem-conn-limits-abs")] max_allowed_ram_used: usize,
         #[cfg(feature = "mem-conn-limits-rel")] max_allowed_ram_used_percent: f64,
@@ -125,7 +110,6 @@ impl User {
         );
 
         let config = P2PConfig {
-            #[cfg(feature = "byos")]
             app_public_key: app_keypair.public(),
             transport_keypair: transport_keypair.clone(),
             idle_connection_timeout: Duration::from_secs(30),
@@ -195,28 +179,21 @@ impl User {
             config,
             cancel,
             swarm,
-            #[cfg(feature = "byos")]
             allowlist,
             #[cfg(feature = "gossipsub")]
             None,
-            #[cfg(feature = "byos")]
             signer.clone(),
-            #[cfg(not(feature = "byos"))]
-            Some(validator),
         )?;
         #[cfg(not(feature = "request-response"))]
         let p2p = P2P::from_config(
             config,
             cancel,
             swarm,
-            #[cfg(feature = "byos")]
             allowlist,
             #[cfg(feature = "gossipsub")]
             None,
-            #[cfg(all(feature = "byos", feature = "gossipsub"))]
+            #[cfg(feature = "gossipsub")]
             signer,
-            #[cfg(all(feature = "gossipsub", not(feature = "byos")))]
-            Some(validator),
         )?;
         #[cfg(feature = "gossipsub")]
         let gossip = p2p.new_gossip_handle();
@@ -229,9 +206,119 @@ impl User {
             #[cfg(feature = "request-response")]
             reqresp,
             command,
-            #[cfg(feature = "byos")]
             app_keypair,
-            #[cfg(any(feature = "gossipsub", feature = "byos", feature = "kad"))]
+            transport_keypair,
+        })
+    }
+}
+
+#[cfg(not(feature = "byos"))]
+impl User<TransportKeypairSigner> {
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn new(
+        transport_keypair: Keypair,
+        connect_to: Vec<Multiaddr>,
+        listening_addrs: Vec<Multiaddr>,
+        cancel: CancellationToken,
+        #[cfg(any(feature = "gossipsub", feature = "request-response"))] validator: Box<
+            dyn Validator,
+        >,
+        conn_limits: ConnectionLimits,
+        #[cfg(feature = "mem-conn-limits-abs")] max_allowed_ram_used: usize,
+        #[cfg(feature = "mem-conn-limits-rel")] max_allowed_ram_used_percent: f64,
+    ) -> anyhow::Result<Self> {
+        debug!(
+            ?listening_addrs,
+            "Creating new user with listening addresses"
+        );
+
+        let config = P2PConfig {
+            transport_keypair: transport_keypair.clone(),
+            idle_connection_timeout: Duration::from_secs(30),
+            max_retries: None,
+            dial_timeout: None,
+            general_timeout: None,
+            connection_check_interval: None,
+            listening_addrs,
+            connect_to,
+            protocol_name: None,
+            #[cfg(feature = "gossipsub")]
+            gossipsub_topic: None,
+            #[cfg(feature = "gossipsub")]
+            gossipsub_max_transmit_size: None,
+            envelope_max_age: None,
+            max_clock_skew: None,
+            #[cfg(feature = "request-response")]
+            channel_timeout: None,
+            #[cfg(feature = "gossipsub")]
+            gossipsub_score_params: None,
+            #[cfg(feature = "gossipsub")]
+            gossipsub_score_thresholds: None,
+            #[cfg(feature = "gossipsub")]
+            gossip_event_buffer_size: None,
+            command_buffer_size: None,
+            handle_default_timeout: None,
+            #[cfg(feature = "request-response")]
+            req_resp_event_buffer_size: None,
+            #[cfg(feature = "request-response")]
+            request_max_bytes: None,
+            #[cfg(feature = "request-response")]
+            response_max_bytes: None,
+            #[cfg(feature = "gossipsub")]
+            gossip_command_buffer_size: None,
+            #[cfg(feature = "kad")]
+            kad_protocol_name: None, // this will take default one.
+            conn_limits,
+            #[cfg(feature = "mem-conn-limits-abs")]
+            max_allowed_ram_used,
+            #[cfg(feature = "mem-conn-limits-rel")]
+            max_allowed_ram_used_percent,
+        };
+
+        // Determine transport type based on the first listening address
+        let use_inmemory = config
+            .listening_addrs
+            .first()
+            .map(|addr| addr.to_string().starts_with("/memory/"))
+            .unwrap_or(false);
+
+        let swarm = if use_inmemory {
+            swarm::with_inmemory_transport(&config)?
+        } else {
+            swarm::with_default_transport(&config)?
+        };
+
+        #[cfg(feature = "request-response")]
+        let (p2p, reqresp) = P2P::from_config(
+            config,
+            cancel,
+            swarm,
+            #[cfg(feature = "gossipsub")]
+            None,
+            Some(validator),
+        )?;
+        #[cfg(not(feature = "request-response"))]
+        let p2p = P2P::from_config(
+            config,
+            cancel,
+            swarm,
+            #[cfg(feature = "gossipsub")]
+            None,
+            #[cfg(feature = "gossipsub")]
+            signer,
+        )?;
+        #[cfg(feature = "gossipsub")]
+        let gossip = p2p.new_gossip_handle();
+        let command = p2p.new_command_handle();
+
+        Ok(Self {
+            p2p,
+            #[cfg(feature = "gossipsub")]
+            gossip,
+            #[cfg(feature = "request-response")]
+            reqresp,
+            command,
+            #[cfg(any(feature = "gossipsub", feature = "kad"))]
             transport_keypair,
         })
     }
@@ -296,7 +383,7 @@ impl Setup {
                 .collect::<Vec<_>>();
             other_app_pk.remove(idx);
 
-            let user = User::new(
+            let user = User::<MockApplicationSigner>::new(
                 app_keypair.clone(),
                 transport_keypair.clone(),
                 other_addrs,
@@ -321,12 +408,14 @@ impl Setup {
         for (idx, (transport_keypair, addr)) in
             transport_keypairs.iter().zip(&multiaddresses).enumerate()
         {
+            use crate::signer::TransportKeypairSigner;
+
             let mut other_addrs = multiaddresses.clone();
             other_addrs.remove(idx);
             let mut other_peerids = peer_ids.clone();
             other_peerids.remove(idx);
 
-            let user = User::new(
+            let user = User::<TransportKeypairSigner>::new(
                 transport_keypair.clone(),
                 other_addrs,
                 vec![addr.clone()],
@@ -390,7 +479,7 @@ impl Setup {
             #[cfg(feature = "byos")]
             allowlist.push(new_user_app_public_key.clone());
 
-            let user = User::new(
+            let user = User::<MockApplicationSigner>::new(
                 app_keypair.clone(),
                 transport_keypair.clone(),
                 other_addrs,
@@ -445,12 +534,14 @@ impl Setup {
         for (idx, (transport_keypair, addr)) in
             transport_keypairs.iter().zip(&multiaddresses).enumerate()
         {
+            use crate::signer::TransportKeypairSigner;
+
             let mut other_addrs = multiaddresses.clone();
             other_addrs.remove(idx);
             let mut other_peerids = peer_ids.clone();
             other_peerids.remove(idx);
 
-            let user = User::new(
+            let user = User::<TransportKeypairSigner>::new(
                 transport_keypair.clone(),
                 other_addrs,
                 vec![addr.clone()],
@@ -530,7 +621,9 @@ impl Setup {
     /// Waits for all users to establish connections and subscriptions, then spawns their listen
     /// tasks. Returns user handles for communication and a task tracker for managing the
     /// spawned tasks.
-    async fn start_users(mut users: Vec<User>) -> (Vec<UserHandle>, TaskTracker) {
+    async fn start_users<S: ApplicationSigner>(
+        mut users: Vec<User<S>>,
+    ) -> (Vec<UserHandle>, TaskTracker) {
         // wait until all of them established connections and subscriptions
         join_all(
             users

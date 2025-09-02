@@ -54,11 +54,11 @@ pub(crate) type RequestResponseRawBehaviour = RequestResponse<codec_raw::Codec>;
 /// implementation.
 #[expect(missing_debug_implementations)]
 #[derive(NetworkBehaviour)]
-pub struct Behaviour {
+pub struct Behaviour<S: ApplicationSigner> {
     /// Exchange application public keys before establish the connection.
     /// Only used when BYOS (Bring Your Own Signer) feature is enabled.
     #[cfg(feature = "byos")]
-    pub setup: SetupBehaviour,
+    pub setup: SetupBehaviour<S>,
 
     /// Identification of peers, address to connect to, public keys, etc.
     pub identify: Identify,
@@ -192,7 +192,8 @@ fn create_kademlia_behaviour(
     kademlia_behaviour
 }
 
-impl Behaviour {
+#[cfg(feature = "byos")]
+impl<S: ApplicationSigner> Behaviour<S> {
     /// Creates a new [`Behaviour`] with all configured sub-behaviors for P2P networking.
     ///
     /// # Implementation details
@@ -253,7 +254,7 @@ impl Behaviour {
         #[cfg(feature = "gossipsub")] gossipsub_score_params: &Option<PeerScoreParams>,
         #[cfg(feature = "gossipsub")] gossipsub_score_thresholds: &Option<PeerScoreThresholds>,
         #[cfg(feature = "gossipsub")] gossipsub_max_transmit_size: usize,
-        #[cfg(feature = "byos")] signer: Arc<dyn ApplicationSigner>,
+        #[cfg(feature = "byos")] signer: Arc<S>,
         #[cfg(feature = "kad")] kad_protocol_name: &Option<KadProtocol>,
         connection_limits: ConnectionLimits,
         #[cfg(feature = "mem-conn-limits-abs")] max_allowed_bytes: usize,
@@ -291,6 +292,107 @@ impl Behaviour {
                 transport_keypair.public().to_peer_id(),
                 signer,
             ),
+            conn_limits: ConnectionLimitsBehaviour::new(connection_limits),
+            #[cfg(feature = "mem-conn-limits-abs")]
+            mem_conn_limits_abs: MemConnLimitsBehavior::with_max_bytes(max_allowed_bytes),
+            #[cfg(feature = "mem-conn-limits-rel")]
+            mem_conn_limits_rel: MemConnLimitsBehavior::with_max_percentage(max_percentage),
+        })
+    }
+}
+
+#[cfg(not(feature = "byos"))]
+impl Behaviour<TransportKeypairSigner> {
+    /// Creates a new [`Behaviour`] with all configured sub-behaviors for P2P networking.
+    ///
+    /// # Implementation details
+    ///
+    /// This constructs a composite behavior that includes:
+    ///
+    /// - **Setup Behavior**: Exchanges application public keys before establishing connections
+    /// - **Identify Protocol**: Peer identification, address discovery, and public key exchange
+    /// - **Request-Response**: Recursive discovery protocol for lost or skipped information
+    /// - **Gossipsub**: Pub/sub message distribution with the following features:
+    ///   - [Permissive](ValidationMode::Permissive) message validation with author-based
+    ///     authentication
+    ///   - Configurable max transmission size (default 512 KB) to prevent large message attacks
+    ///   - `IDONTWANT` on publish to reduce duplicate forwarding overhead
+    ///   - Whitelisted subscription filter for the configured topic only
+    ///   - Configurable peer scoring system for network quality
+    ///
+    /// # Arguments
+    ///
+    /// * `protocol_name` - Protocol identifier used for request-response and identify protocols;
+    ///   typically provided via P2PConfig
+    /// * `transport_keypair` - Transport keypair for network identity and message authentication
+    /// * `app_public_key` - Application-level public key for setup behavior
+    /// * `gossipsub_score_params` - Optional peer scoring parameters for gossipsub
+    /// * `gossipsub_score_thresholds` - Optional peer scoring thresholds for gossipsub
+    /// * `signer` - Application signer for setup behavior authentication
+    /// # Returns
+    ///
+    /// Returns a configured [`Behaviour`] instance or an error string if configuration fails.
+    #[cfg_attr(
+        any(
+            all(
+                feature = "gossipsub",
+                any(
+                    feature = "byos",
+                    feature = "kad",
+                    feature = "mem-conn-limits-abs",
+                    feature = "mem-conn-limits-rel"
+                )
+            ),
+            all(
+                feature = "byos",
+                feature = "kad",
+                feature = "mem-conn-limits-abs",
+                feature = "mem-conn-limits-rel"
+            )
+        ),
+        expect(
+            clippy::too_many_arguments,
+            reason = "This is a composite behaviour with multiple sub-behaviours"
+        )
+    )]
+    pub fn new(
+        protocol_name: &'static str,
+        transport_keypair: &Keypair,
+        #[cfg(feature = "gossipsub")] topic: &Sha256Topic,
+        #[cfg(feature = "gossipsub")] gossipsub_score_params: &Option<PeerScoreParams>,
+        #[cfg(feature = "gossipsub")] gossipsub_score_thresholds: &Option<PeerScoreThresholds>,
+        #[cfg(feature = "gossipsub")] gossipsub_max_transmit_size: usize,
+        #[cfg(feature = "kad")] kad_protocol_name: &Option<KadProtocol>,
+        connection_limits: ConnectionLimits,
+        #[cfg(feature = "mem-conn-limits-abs")] max_allowed_bytes: usize,
+        #[cfg(feature = "mem-conn-limits-rel")] max_percentage: f64,
+    ) -> Result<Self, &'static str> {
+        #[cfg(feature = "gossipsub")]
+        let gossipsub = create_gossipsub(
+            transport_keypair,
+            topic,
+            gossipsub_score_params,
+            gossipsub_score_thresholds,
+            gossipsub_max_transmit_size,
+        )?;
+
+        #[cfg(feature = "kad")]
+        let kademlia_behaviour = create_kademlia_behaviour(transport_keypair, kad_protocol_name);
+
+        Ok(Self {
+            identify: Identify::new(Config::new(
+                protocol_name.to_string(),
+                transport_keypair.public(),
+            )),
+            #[cfg(feature = "gossipsub")]
+            gossipsub,
+            #[cfg(feature = "request-response")]
+            request_response: RequestResponseRawBehaviour::new(
+                [(StreamProtocol::new(protocol_name), ProtocolSupport::Full)],
+                RequestResponseConfig::default(),
+            ),
+            #[cfg(feature = "kad")]
+            kademlia: kademlia_behaviour,
             conn_limits: ConnectionLimitsBehaviour::new(connection_limits),
             #[cfg(feature = "mem-conn-limits-abs")]
             mem_conn_limits_abs: MemConnLimitsBehavior::with_max_bytes(max_allowed_bytes),

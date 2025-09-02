@@ -34,26 +34,19 @@ use crate::{
 ///
 /// This handler manages the lifecycle of setup substreams for a single connection,
 /// coordinating both inbound and outbound handshake processes.
-#[expect(clippy::type_complexity)]
 #[derive(Debug)]
-pub struct SetupHandler {
-    outbound_substream:
-        Option<SubstreamProtocol<OutboundSetupUpgrade<Arc<dyn ApplicationSigner>>, ()>>,
-    pending_events: Vec<
-        ConnectionHandlerEvent<
-            OutboundSetupUpgrade<Arc<dyn ApplicationSigner>>,
-            (),
-            SetupHandlerEvent,
-        >,
-    >,
+pub struct SetupHandler<S> {
+    outbound_substream: Option<SubstreamProtocol<OutboundSetupUpgrade<Arc<S>>, ()>>,
+    pending_events:
+        Vec<ConnectionHandlerEvent<OutboundSetupUpgrade<Arc<S>>, (), SetupHandlerEvent>>,
 }
 
-impl SetupHandler {
+impl<S: ApplicationSigner> SetupHandler<S> {
     pub(crate) fn new(
         app_public_key: PublicKey,
         local_transport_id: PeerId,
         remote_transport_id: PeerId,
-        signer: Arc<dyn ApplicationSigner>,
+        signer: Arc<S>,
     ) -> Self {
         let upgrade = OutboundSetupUpgrade::new(
             app_public_key,
@@ -69,11 +62,11 @@ impl SetupHandler {
     }
 }
 
-impl ConnectionHandler for SetupHandler {
+impl<S: ApplicationSigner> ConnectionHandler for SetupHandler<S> {
     type FromBehaviour = ();
     type ToBehaviour = SetupHandlerEvent;
     type InboundProtocol = InboundSetupUpgrade;
-    type OutboundProtocol = OutboundSetupUpgrade<Arc<dyn ApplicationSigner>>;
+    type OutboundProtocol = OutboundSetupUpgrade<Arc<S>>;
     type InboundOpenInfo = ();
     type OutboundOpenInfo = ();
 
