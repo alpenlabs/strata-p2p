@@ -1,5 +1,10 @@
 //! Swarm implementation for P2P.
 
+#[cfg(all(
+    any(feature = "gossipsub", feature = "request-response"),
+    not(feature = "byos")
+))]
+use std::collections::HashMap;
 #[cfg(not(feature = "byos"))]
 use std::num::NonZeroU8;
 #[cfg(any(feature = "gossipsub", feature = "request-response", feature = "byos"))]
@@ -417,6 +422,13 @@ pub struct P2P {
         not(feature = "byos")
     ))]
     validator: Box<dyn Validator>,
+
+    /// Storage for last scoring decay time.
+    #[cfg(all(
+        any(feature = "gossipsub", feature = "request-response"),
+        not(feature = "byos")
+    ))]
+    last_scoring_decay_time: HashMap<PeerId, SystemTime>,
 }
 
 /// Type alias that changes based on feature flags
@@ -533,6 +545,12 @@ impl P2P {
         ))]
         let validator = validator.unwrap_or_else(|| Box::new(DefaultP2PValidator));
 
+        #[cfg(all(
+            any(feature = "gossipsub", feature = "request-response"),
+            not(feature = "byos")
+        ))]
+        let last_scoring_decay_time = HashMap::new();
+
         let p2p = P2P {
             swarm,
             #[cfg(feature = "gossipsub")]
@@ -572,6 +590,11 @@ impl P2P {
                 not(feature = "byos")
             ))]
             validator,
+            #[cfg(all(
+                any(feature = "gossipsub", feature = "request-response"),
+                not(feature = "byos")
+            ))]
+            last_scoring_decay_time,
         };
 
         #[cfg(feature = "request-response")]
@@ -1120,6 +1143,28 @@ impl P2P {
             return Ok(());
         }
 
+        #[cfg(all(
+            any(feature = "gossipsub", feature = "request-response"),
+            not(feature = "byos")
+        ))]
+        {
+            let now = SystemTime::now();
+            let elapsed = self
+                .last_scoring_decay_time
+                .insert(propagation_source, now)
+                .and_then(|last| now.duration_since(last).ok())
+                .unwrap_or_default();
+
+            if !elapsed.is_zero() {
+                let current_score = self.get_all_scores(&propagation_source).gossipsub_app_score;
+                let new_score = self.validator.apply_decay(&current_score, &elapsed);
+
+                #[cfg(feature = "gossipsub")]
+                self.score_manager
+                    .update_gossipsub_app_score(&propagation_source, new_score);
+            }
+        }
+
         let signed_gossipsub_message: SignedGossipsubMessage = match flexbuffers::from_slice(
             &message.data,
         ) {
@@ -1369,6 +1414,14 @@ impl P2P {
                     }
                 }
 
+                Ok(())
+            }
+            Command::GetPeerScore {
+                peer_id,
+                response_sender,
+            } => {
+                let score = self.get_all_scores(&peer_id);
+                let _ = response_sender.send(score);
                 Ok(())
             }
             Command::QueryP2PState(query) => match query {
@@ -1644,6 +1697,29 @@ impl P2P {
         Ok(())
     }
 
+    #[cfg(all(
+        any(feature = "gossipsub", feature = "request-response"),
+        not(feature = "byos")
+    ))]
+    async fn decay_request_response_score(&mut self, peer_id: &PeerId) {
+        let now = SystemTime::now();
+        let elapsed = self
+            .last_scoring_decay_time
+            .insert(*peer_id, now)
+            .and_then(|last| now.duration_since(last).ok())
+            .unwrap_or_default();
+
+        if elapsed.is_zero() {
+            return;
+        }
+
+        let current_score = self.get_all_scores(peer_id).req_resp_app_score;
+        let updated_score = self.validator.apply_decay(&current_score, &elapsed);
+
+        self.score_manager
+            .update_req_resp_app_score(peer_id, updated_score);
+    }
+
     /// Handles [`MessageEvent`] from the swarm.
     #[cfg(feature = "request-response")]
     async fn handle_message_event(
@@ -1703,6 +1779,7 @@ impl P2P {
 
                 #[cfg(not(feature = "byos"))]
                 {
+                    self.decay_request_response_score(&peer_id).await;
                     let old_app_score = self
                         .score_manager
                         .get_req_resp_score(&peer_id)
@@ -1867,6 +1944,7 @@ impl P2P {
 
                 #[cfg(not(feature = "byos"))]
                 {
+                    self.decay_request_response_score(&peer_id).await;
                     let response: ResponseMessage = signed_response_message.message.clone();
                     let old_app_score = self
                         .score_manager
