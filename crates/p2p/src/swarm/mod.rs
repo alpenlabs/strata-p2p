@@ -1416,6 +1416,10 @@ impl P2P {
 
                 Ok(())
             }
+            #[cfg(all(
+                any(feature = "gossipsub", feature = "request-response"),
+                not(feature = "byos")
+            ))]
             Command::GetPeerScore {
                 peer_id,
                 response_sender,
@@ -1695,10 +1699,7 @@ impl P2P {
         Ok(())
     }
 
-    #[cfg(all(
-        any(feature = "gossipsub", feature = "request-response"),
-        not(feature = "byos")
-    ))]
+    #[cfg(all(feature = "request-response", not(feature = "byos")))]
     async fn decay_request_response_score(&mut self, peer_id: &PeerId) {
         let now = SystemTime::now();
         let elapsed = self

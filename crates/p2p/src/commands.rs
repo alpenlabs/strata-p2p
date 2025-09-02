@@ -41,7 +41,7 @@ pub enum Command {
         target_transport_id: PeerId,
     },
 
-    /// Gets `PeerScore` for a specific peer by `PeerId` (non-BYOS mode only).
+    /// Gets [`PeerScore`] for a specific peer by [`PeerId`].
     #[cfg(all(
         any(feature = "gossipsub", feature = "request-response"),
         not(feature = "byos")

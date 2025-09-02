@@ -3,9 +3,10 @@
 use std::time::Duration;
 
 use futures::SinkExt;
-#[cfg(feature = "request-response")]
-use tokio::sync::oneshot;
-use tokio::time::{sleep, timeout};
+use tokio::{
+    sync::oneshot,
+    time::{sleep, timeout},
+};
 use tracing::info;
 
 use super::common::{Setup, init_tracing};
@@ -42,6 +43,7 @@ fn match_penalty(data: &[u8]) -> Option<PenaltyType> {
 }
 
 impl Validator for TestValidator {
+    #[allow(unused_variables)]
     fn validate_msg(&self, msg: &Message, old_app_score: f64) -> f64 {
         #[cfg(feature = "request-response")]
         {
