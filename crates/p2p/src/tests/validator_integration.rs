@@ -71,7 +71,7 @@ impl Validator for TestValidator {
 
     fn apply_decay(&self, score: &f64, time_since_last_decay: &Duration) -> f64 {
         info!(?score, ?time_since_last_decay, "apply_decay");
-        score + time_since_last_decay.as_secs_f64()
+        (score + time_since_last_decay.as_secs_f64()).min(0.0)
     }
 }
 
@@ -188,7 +188,7 @@ async fn test_reqresp_decay() -> anyhow::Result<()> {
         })
         .await;
     let before = rx.await.unwrap();
-    info!(score=?before, "Score before decay queried");
+    info!(score=?before, "score before decay queried");
     assert!(
         before.req_resp_app_score < 0.0,
         "expected negative score, got {:?}",
@@ -196,18 +196,6 @@ async fn test_reqresp_decay() -> anyhow::Result<()> {
     );
 
     sleep(Duration::from_secs(2)).await;
-
-    user0[0]
-        .reqresp
-        .send(RequestResponseCommand {
-            #[cfg(feature = "byos")]
-            target_app_public_key: target_public_key.clone(),
-            #[cfg(not(feature = "byos"))]
-            target_transport_id,
-            data: "the_same".into(),
-        })
-        .await?;
-    let _ = timeout(Duration::from_secs(2), user1[0].reqresp.next_event()).await;
 
     let (tx, rx) = oneshot::channel();
     user1[0]
@@ -218,9 +206,28 @@ async fn test_reqresp_decay() -> anyhow::Result<()> {
         })
         .await;
     let after = rx.await.expect("peer score after decay");
-    info!(score=?after, "Score after decay queried");
+    info!(score=?after, "score after decay queried");
     assert!(
         after.req_resp_app_score > -3.0,
+        "expected increased score, got {:?}",
+        after
+    );
+
+    // wait 4 more seconds to see that score cannot go upper than 0
+    sleep(Duration::from_secs(4)).await;
+
+    let (tx, rx) = oneshot::channel();
+    user1[0]
+        .command
+        .send_command(Command::GetPeerScore {
+            peer_id: user0[0].peer_id,
+            response_sender: tx,
+        })
+        .await;
+    let after = rx.await.expect("peer score after decay");
+    info!(score=?after, "score after 4 seconds decay");
+    assert!(
+        after.req_resp_app_score == 0.0,
         "expected increased score, got {:?}",
         after
     );

@@ -1122,20 +1122,10 @@ impl P2P {
 
         #[cfg(not(feature = "byos"))]
         {
-            let now = SystemTime::now();
-
-            let last_time = self
-                .score_manager
-                .update_last_scoring_decay_time(propagation_source, now);
-
-            let elapsed = last_time
-                .and_then(|last| now.duration_since(last).ok())
-                .unwrap_or_default();
-
+            let elapsed = self.get_elapsed_decay_time(&propagation_source);
             if !elapsed.is_zero() {
                 let current_score = self.get_all_scores(&propagation_source).gossipsub_app_score;
                 let new_score = self.validator.apply_decay(&current_score, &elapsed);
-
                 self.score_manager
                     .update_gossipsub_app_score(&propagation_source, new_score);
             }
@@ -1400,7 +1390,30 @@ impl P2P {
                 peer_id,
                 response_sender,
             } => {
-                let score = self.get_all_scores(&peer_id);
+                let mut score = self.get_all_scores(&peer_id);
+
+                let elapsed = self.get_elapsed_decay_time(&peer_id);
+                if !elapsed.is_zero() {
+                    #[cfg(feature = "gossipsub")]
+                    {
+                        let new_score = self
+                            .validator
+                            .apply_decay(&score.gossipsub_app_score, &elapsed);
+                        self.score_manager
+                            .update_gossipsub_app_score(&peer_id, new_score);
+                        score.gossipsub_app_score = new_score;
+                    }
+                    #[cfg(feature = "request-response")]
+                    {
+                        let updated_score = self
+                            .validator
+                            .apply_decay(&score.req_resp_app_score, &elapsed);
+                        self.score_manager
+                            .update_req_resp_app_score(&peer_id, updated_score);
+                        score.req_resp_app_score = updated_score;
+                    }
+                }
+
                 let _ = response_sender.send(score);
                 Ok(())
             }
@@ -1675,27 +1688,30 @@ impl P2P {
         Ok(())
     }
 
-    #[cfg(all(feature = "request-response", not(feature = "byos")))]
-    async fn decay_request_response_score(&mut self, peer_id: &PeerId) {
+    #[cfg(all(
+        any(feature = "gossipsub", feature = "request-response"),
+        not(feature = "byos")
+    ))]
+    fn get_elapsed_decay_time(&mut self, peer_id: &PeerId) -> Duration {
         let now = SystemTime::now();
-
         let last_time = self
             .score_manager
             .update_last_scoring_decay_time(*peer_id, now);
 
-        let elapsed = last_time
+        last_time
             .and_then(|last| now.duration_since(last).ok())
-            .unwrap_or_default();
+            .unwrap_or_default()
+    }
 
-        if elapsed.is_zero() {
-            return;
+    #[cfg(all(feature = "request-response", not(feature = "byos")))]
+    async fn decay_request_response_score(&mut self, peer_id: &PeerId) {
+        let elapsed = self.get_elapsed_decay_time(peer_id);
+        if !elapsed.is_zero() {
+            let current_score = self.get_all_scores(peer_id).req_resp_app_score;
+            let updated_score = self.validator.apply_decay(&current_score, &elapsed);
+            self.score_manager
+                .update_req_resp_app_score(peer_id, updated_score);
         }
-
-        let current_score = self.get_all_scores(peer_id).req_resp_app_score;
-        let updated_score = self.validator.apply_decay(&current_score, &elapsed);
-
-        self.score_manager
-            .update_req_resp_app_score(peer_id, updated_score);
     }
 
     /// Handles [`MessageEvent`] from the swarm.
