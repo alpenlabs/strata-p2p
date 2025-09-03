@@ -119,7 +119,7 @@ impl Validator for DefaultP2PValidator {
         let delta_seconds = time_since_last_decay.as_secs_f64();
         let decay_increment = DEFAULT_DECAY_RATE_PER_SEC * delta_seconds;
 
-        (score + decay_increment).min(0)
+        (score + decay_increment).min(0.0)
     }
 }
 
