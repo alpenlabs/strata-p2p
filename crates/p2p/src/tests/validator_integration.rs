@@ -46,10 +46,10 @@ impl Validator for TestValidator {
     #[allow(unused_variables)]
     fn validate_msg(&self, msg: &Message, old_app_score: f64) -> f64 {
         #[cfg(feature = "request-response")]
-        if let Message::Request(data) = msg {
-            if data.as_slice() == b"make_negative" {
-                return old_app_score - 5.0;
-            }
+        if let Message::Request(data) = msg
+            && data.as_slice() == b"make_negative"
+        {
+            return old_app_score - 5.0;
         }
         0.0
     }
