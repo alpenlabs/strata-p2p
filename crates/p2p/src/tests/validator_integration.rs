@@ -46,14 +46,9 @@ impl Validator for TestValidator {
     #[allow(unused_variables)]
     fn validate_msg(&self, msg: &Message, old_app_score: f64) -> f64 {
         #[cfg(feature = "request-response")]
-        {
-            if let Message::Request(data) = msg {
-                if data.as_slice() == b"make_negative" {
-                    return old_app_score - 5.0;
-                }
-                if data.as_slice() == b"the_same" {
-                    return old_app_score;
-                }
+        if let Message::Request(data) = msg {
+            if data.as_slice() == b"make_negative" {
+                return old_app_score - 5.0;
             }
         }
         0.0
@@ -213,7 +208,7 @@ async fn test_reqresp_decay() -> anyhow::Result<()> {
         after
     );
 
-    // wait 4 more seconds to see that score cannot go upper than 0
+    // Verify decay upper bound: wait 4s to ensure score doesn't exceed 0.
     sleep(Duration::from_secs(4)).await;
 
     let (tx, rx) = oneshot::channel();
@@ -228,7 +223,7 @@ async fn test_reqresp_decay() -> anyhow::Result<()> {
     info!(score=?after, "score after 4 seconds decay");
     assert!(
         after.req_resp_app_score == 0.0,
-        "expected increased score, got {:?}",
+        "expected 0 got {:?}",
         after
     );
 
