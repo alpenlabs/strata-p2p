@@ -10,6 +10,8 @@ pub const DEFAULT_GOSSIP_APP_SCORE: f64 = 0.0;
 
 #[cfg(any(feature = "gossipsub", feature = "request-response"))]
 use std::collections::HashMap;
+#[cfg(any(feature = "gossipsub", feature = "request-response"))]
+use std::time::SystemTime;
 
 #[cfg(any(feature = "gossipsub", feature = "request-response"))]
 use libp2p::identity::PeerId;
@@ -26,6 +28,13 @@ pub struct ScoreManager {
     /// [`HashMap`] of request-response score for each peer.
     #[cfg(feature = "request-response")]
     req_resp_app_score: HashMap<PeerId, f64>,
+
+    /// Storage for last scoring decay time.
+    #[cfg(all(
+        any(feature = "gossipsub", feature = "request-response"),
+        not(feature = "byos")
+    ))]
+    last_scoring_decay_time: HashMap<PeerId, SystemTime>,
 }
 
 impl ScoreManager {
@@ -37,6 +46,9 @@ impl ScoreManager {
 
             #[cfg(feature = "request-response")]
             req_resp_app_score: HashMap::new(),
+
+            #[cfg(any(feature = "request-response", feature = "gossipsub"))]
+            last_scoring_decay_time: HashMap::new(),
         }
     }
 
@@ -66,6 +78,18 @@ impl ScoreManager {
     #[cfg(feature = "request-response")]
     pub fn update_req_resp_app_score(&mut self, peer_id: &PeerId, new_score: f64) {
         self.req_resp_app_score.insert(*peer_id, new_score);
+    }
+
+    /// Updates the last scoring decay time for a given [`PeerId`].
+    ///
+    /// Returns `Some(SystemTime)` containing the previous decay time if it existed,
+    /// or `None` if this is the first time updating the peer.
+    pub fn update_last_scoring_decay_time(
+        &mut self,
+        peer_id: PeerId,
+        time: SystemTime,
+    ) -> Option<SystemTime> {
+        self.last_scoring_decay_time.insert(peer_id, time)
     }
 }
 

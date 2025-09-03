@@ -1,10 +1,5 @@
 //! Swarm implementation for P2P.
 
-#[cfg(all(
-    any(feature = "gossipsub", feature = "request-response"),
-    not(feature = "byos")
-))]
-use std::collections::HashMap;
 #[cfg(not(feature = "byos"))]
 use std::num::NonZeroU8;
 #[cfg(any(feature = "gossipsub", feature = "request-response", feature = "byos"))]
@@ -422,13 +417,6 @@ pub struct P2P {
         not(feature = "byos")
     ))]
     validator: Box<dyn Validator>,
-
-    /// Storage for last scoring decay time.
-    #[cfg(all(
-        any(feature = "gossipsub", feature = "request-response"),
-        not(feature = "byos")
-    ))]
-    last_scoring_decay_time: HashMap<PeerId, SystemTime>,
 }
 
 /// Type alias that changes based on feature flags
@@ -545,12 +533,6 @@ impl P2P {
         ))]
         let validator = validator.unwrap_or_else(|| Box::new(DefaultP2PValidator));
 
-        #[cfg(all(
-            any(feature = "gossipsub", feature = "request-response"),
-            not(feature = "byos")
-        ))]
-        let last_scoring_decay_time = HashMap::new();
-
         let p2p = P2P {
             swarm,
             #[cfg(feature = "gossipsub")]
@@ -590,11 +572,6 @@ impl P2P {
                 not(feature = "byos")
             ))]
             validator,
-            #[cfg(all(
-                any(feature = "gossipsub", feature = "request-response"),
-                not(feature = "byos")
-            ))]
-            last_scoring_decay_time,
         };
 
         #[cfg(feature = "request-response")]
@@ -1143,15 +1120,15 @@ impl P2P {
             return Ok(());
         }
 
-        #[cfg(all(
-            any(feature = "gossipsub", feature = "request-response"),
-            not(feature = "byos")
-        ))]
+        #[cfg(not(feature = "byos"))]
         {
             let now = SystemTime::now();
-            let elapsed = self
-                .last_scoring_decay_time
-                .insert(propagation_source, now)
+
+            let last_time = self
+                .score_manager
+                .update_last_scoring_decay_time(propagation_source, now);
+
+            let elapsed = last_time
                 .and_then(|last| now.duration_since(last).ok())
                 .unwrap_or_default();
 
@@ -1159,7 +1136,6 @@ impl P2P {
                 let current_score = self.get_all_scores(&propagation_source).gossipsub_app_score;
                 let new_score = self.validator.apply_decay(&current_score, &elapsed);
 
-                #[cfg(feature = "gossipsub")]
                 self.score_manager
                     .update_gossipsub_app_score(&propagation_source, new_score);
             }
@@ -1702,9 +1678,12 @@ impl P2P {
     #[cfg(all(feature = "request-response", not(feature = "byos")))]
     async fn decay_request_response_score(&mut self, peer_id: &PeerId) {
         let now = SystemTime::now();
-        let elapsed = self
-            .last_scoring_decay_time
-            .insert(*peer_id, now)
+
+        let last_time = self
+            .score_manager
+            .update_last_scoring_decay_time(*peer_id, now);
+
+        let elapsed = last_time
             .and_then(|last| now.duration_since(last).ok())
             .unwrap_or_default();
 
