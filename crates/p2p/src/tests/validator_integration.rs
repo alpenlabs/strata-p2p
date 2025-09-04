@@ -10,13 +10,16 @@ use tokio::{
 use tracing::info;
 
 use super::common::{Setup, init_tracing};
-use crate::commands::{Command, QueryP2PStateCommand};
 #[cfg(any(feature = "gossipsub", feature = "request-response"))]
 use crate::validator::{Message, PenaltyType, Validator};
 #[cfg(feature = "gossipsub")]
 use crate::{commands::GossipCommand, events::GossipEvent};
 #[cfg(feature = "request-response")]
 use crate::{commands::RequestResponseCommand, events::ReqRespEvent};
+use crate::{
+    commands::{Command, QueryP2PStateCommand},
+    score_manager::PeerScore,
+};
 #[derive(Debug, Default, Clone)]
 struct TestValidator;
 
@@ -42,23 +45,28 @@ fn match_penalty(data: &[u8]) -> Option<PenaltyType> {
 impl Validator for TestValidator {
     #[allow(unused_variables)]
     fn validate_msg(&self, msg: &Message, old_app_score: f64) -> f64 {
+        #[cfg(feature = "request-response")]
+        if let Message::Request(data) = msg
+            && data.as_slice() == b"make_negative"
+        {
+            return old_app_score - 5.0;
+        }
         0.0
     }
 
     #[allow(unused_variables)]
-    fn get_penalty(
-        &self,
-        msg: &Message,
-        #[cfg(feature = "gossipsub")] gossip_internal_score: f64,
-        #[cfg(feature = "gossipsub")] gossip_app_score: f64,
-        #[cfg(feature = "request-response")] reqresp_app_score: f64,
-    ) -> Option<PenaltyType> {
+    fn get_penalty(&self, msg: &Message, peer_score: &PeerScore) -> Option<PenaltyType> {
         match msg {
             #[cfg(feature = "gossipsub")]
             Message::Gossipsub(data) => match_penalty(data),
             #[cfg(feature = "request-response")]
             Message::Request(data) | Message::Response(data) => match_penalty(data),
         }
+    }
+
+    fn apply_decay(&self, score: &f64, time_since_last_decay: &Duration) -> f64 {
+        info!(?score, ?time_since_last_decay, "apply_decay");
+        (score + time_since_last_decay.as_secs_f64()).min(0.0)
     }
 }
 
@@ -127,6 +135,97 @@ async fn test_gossipsub_mute_penalty() -> anyhow::Result<()> {
     let GossipEvent::ReceivedMessage(data) = user_handles[1].gossip.next_event().await?;
     assert_eq!(data, b"after mute expired");
     info!("Message sent successfully after mute expired");
+
+    cancel.cancel();
+    tasks.wait().await;
+    Ok(())
+}
+
+#[cfg(all(feature = "request-response", not(feature = "byos")))]
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn test_reqresp_decay() -> anyhow::Result<()> {
+    init_tracing();
+    const USERS_NUM: usize = 2;
+
+    let Setup {
+        mut user_handles,
+        cancel,
+        tasks,
+    } = Setup::all_to_all_with_custom_validator(USERS_NUM, TestValidator).await?;
+
+    sleep(Duration::from_millis(500)).await;
+
+    let (user0, user1) = user_handles.split_at_mut(1);
+    #[cfg(feature = "byos")]
+    let target_public_key = user1[0].app_keypair.public().clone();
+    #[cfg(not(feature = "byos"))]
+    let target_transport_id = user1[0].peer_id;
+
+    user0[0]
+        .reqresp
+        .send(RequestResponseCommand {
+            #[cfg(feature = "byos")]
+            target_app_public_key: target_public_key.clone(),
+            #[cfg(not(feature = "byos"))]
+            target_transport_id,
+            data: "make_negative".into(),
+        })
+        .await?;
+
+    let _ = timeout(Duration::from_secs(2), user1[0].reqresp.next_event()).await;
+
+    let (tx, rx) = oneshot::channel();
+    user1[0]
+        .command
+        .send_command(Command::GetPeerScore {
+            peer_id: user0[0].peer_id,
+            response_sender: tx,
+        })
+        .await;
+    let before = rx.await.unwrap();
+    info!(score=?before, "score before decay queried");
+    assert!(
+        before.req_resp_app_score < 0.0,
+        "expected negative score, got {:?}",
+        before
+    );
+
+    sleep(Duration::from_secs(2)).await;
+
+    let (tx, rx) = oneshot::channel();
+    user1[0]
+        .command
+        .send_command(Command::GetPeerScore {
+            peer_id: user0[0].peer_id,
+            response_sender: tx,
+        })
+        .await;
+    let after = rx.await.expect("peer score after decay");
+    info!(score=?after, "score after decay queried");
+    assert!(
+        after.req_resp_app_score > -3.0,
+        "expected increased score, got {:?}",
+        after
+    );
+
+    // Verify decay upper bound: wait 4s to ensure score doesn't exceed 0.
+    sleep(Duration::from_secs(4)).await;
+
+    let (tx, rx) = oneshot::channel();
+    user1[0]
+        .command
+        .send_command(Command::GetPeerScore {
+            peer_id: user0[0].peer_id,
+            response_sender: tx,
+        })
+        .await;
+    let after = rx.await.expect("peer score after decay");
+    info!(score=?after, "score after 4 seconds decay");
+    assert!(
+        after.req_resp_app_score == 0.0,
+        "expected 0 got {:?}",
+        after
+    );
 
     cancel.cancel();
     tasks.wait().await;

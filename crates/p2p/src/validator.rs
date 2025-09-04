@@ -9,8 +9,16 @@ use std::{
 
 use libp2p::identity::PeerId;
 
+use crate::score_manager::PeerScore;
+
 /// Default ban period for peer misbehavior. Hardcoded to 30 days.
 pub const DEFAULT_BAN_PERIOD: Duration = Duration::from_secs(60 * 60 * 24 * 30);
+
+/// Default linear decay rate applied per second when reducing/adjusting peer scores.
+///
+/// By default this is set to 0.0 to preserve existing behavior. Override by providing
+/// a custom `Validator` implementation if you want decay without introducing config yet.
+pub const DEFAULT_DECAY_RATE_PER_SEC: f64 = 0.9;
 
 /// Message types.
 #[derive(Debug)]
@@ -86,13 +94,10 @@ pub trait Validator: Debug + Send + Sync + 'static {
     fn validate_msg(&self, msg: &Message, old_app_score: f64) -> f64;
 
     /// Returns the logic that is used to analyze and process message `msg`.
-    fn get_penalty(
-        &self,
-        msg: &Message,
-        #[cfg(feature = "gossipsub")] gossip_internal_score: f64,
-        #[cfg(feature = "gossipsub")] gossip_app_score: f64,
-        #[cfg(feature = "request-response")] reqresp_app_score: f64,
-    ) -> Option<PenaltyType>;
+    fn get_penalty(&self, msg: &Message, peer_score: &PeerScore) -> Option<PenaltyType>;
+
+    /// Applies score decay based on time since the last decay.
+    fn apply_decay(&self, score: &f64, time_since_last_decay: &Duration) -> f64;
 }
 
 /// Default validator.
@@ -106,14 +111,15 @@ impl Validator for DefaultP2PValidator {
     }
 
     #[allow(unused_variables)]
-    fn get_penalty(
-        &self,
-        msg: &Message,
-        #[cfg(feature = "gossipsub")] gossip_internal_score: f64,
-        #[cfg(feature = "gossipsub")] gossip_app_score: f64,
-        #[cfg(feature = "request-response")] reqresp_app_score: f64,
-    ) -> Option<PenaltyType> {
+    fn get_penalty(&self, msg: &Message, peer_score: &PeerScore) -> Option<PenaltyType> {
         None
+    }
+
+    fn apply_decay(&self, score: &f64, time_since_last_decay: &Duration) -> f64 {
+        let delta_seconds = time_since_last_decay.as_secs_f64();
+        let decay_increment = DEFAULT_DECAY_RATE_PER_SEC * delta_seconds;
+
+        (score + decay_increment).min(0.0)
     }
 }
 

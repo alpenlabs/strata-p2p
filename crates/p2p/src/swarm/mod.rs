@@ -1141,6 +1141,18 @@ impl P2P {
             return Ok(());
         }
 
+        // NOTE: BYOS uses an allowlist, making scoring system useless.
+        #[cfg(not(feature = "byos"))]
+        {
+            let elapsed = self.get_elapsed_decay_time(&propagation_source);
+            if !elapsed.is_zero() {
+                let current_score = self.get_all_scores(&propagation_source).gossipsub_app_score;
+                let new_score = self.validator.apply_decay(&current_score, &elapsed);
+                self.score_manager
+                    .update_gossipsub_app_score(&propagation_source, new_score);
+            }
+        }
+
         let signed_gossipsub_message: SignedGossipsubMessage = match flexbuffers::from_slice(
             &message.data,
         ) {
@@ -1259,19 +1271,11 @@ impl P2P {
             self.score_manager
                 .update_gossipsub_app_score(&propagation_source, updated_score);
 
-            let PeerScore {
-                gossipsub_app_score,
-                gossipsub_internal_score,
-                #[cfg(feature = "request-response")]
-                req_resp_app_score,
-            } = self.get_all_scores(&propagation_source);
+            let peer_score = self.get_all_scores(&propagation_source);
 
             if let Some(penalty) = self.validator.get_penalty(
                 &MessageType::Gossipsub(signed_gossipsub_message.message.message.clone()),
-                gossipsub_internal_score,
-                gossipsub_app_score,
-                #[cfg(feature = "request-response")]
-                req_resp_app_score,
+                &peer_score,
             ) {
                 self.apply_penalty(&propagation_source, penalty).await;
                 return Ok(());
@@ -1369,6 +1373,7 @@ impl P2P {
 
                 Ok(())
             }
+
             Command::DisconnectFromPeer {
                 #[cfg(feature = "byos")]
                 target_app_public_key,
@@ -1400,6 +1405,44 @@ impl P2P {
 
                 Ok(())
             }
+
+            // NOTE: BYOS uses an allowlist, making scoring system useless.
+            #[cfg(all(
+                any(feature = "gossipsub", feature = "request-response"),
+                not(feature = "byos")
+            ))]
+            Command::GetPeerScore {
+                peer_id,
+                response_sender,
+            } => {
+                let mut score = self.get_all_scores(&peer_id);
+
+                let elapsed = self.get_elapsed_decay_time(&peer_id);
+                if !elapsed.is_zero() {
+                    #[cfg(feature = "gossipsub")]
+                    {
+                        let new_score = self
+                            .validator
+                            .apply_decay(&score.gossipsub_app_score, &elapsed);
+                        self.score_manager
+                            .update_gossipsub_app_score(&peer_id, new_score);
+                        score.gossipsub_app_score = new_score;
+                    }
+                    #[cfg(feature = "request-response")]
+                    {
+                        let updated_score = self
+                            .validator
+                            .apply_decay(&score.req_resp_app_score, &elapsed);
+                        self.score_manager
+                            .update_req_resp_app_score(&peer_id, updated_score);
+                        score.req_resp_app_score = updated_score;
+                    }
+                }
+
+                let _ = response_sender.send(score);
+                Ok(())
+            }
+
             Command::QueryP2PState(query) => match query {
                 QueryP2PStateCommand::IsConnected {
                     #[cfg(feature = "byos")]
@@ -1440,6 +1483,7 @@ impl P2P {
 
                     Ok(())
                 }
+
                 QueryP2PStateCommand::GetConnectedPeers { response_sender } => {
                     info!("Querying connected peers");
                     let peer_ids = self.swarm.connected_peers().cloned().collect::<Vec<_>>();
@@ -1466,6 +1510,7 @@ impl P2P {
 
                     Ok(())
                 }
+
                 QueryP2PStateCommand::GetMyListeningAddresses { response_sender } => {
                     info!("Querying my own local listening addresses.");
                     // We clone here because if not clone, we'll receive `Vec<&Multiaddr>`. Ok,
@@ -1673,6 +1718,33 @@ impl P2P {
         Ok(())
     }
 
+    // NOTE: BYOS uses an allowlist, making scoring system useless.
+    #[cfg(all(
+        any(feature = "gossipsub", feature = "request-response"),
+        not(feature = "byos")
+    ))]
+    fn get_elapsed_decay_time(&mut self, peer_id: &PeerId) -> Duration {
+        let now = SystemTime::now();
+        let last_time = self
+            .score_manager
+            .update_last_scoring_decay_time(*peer_id, now);
+
+        last_time
+            .and_then(|last| now.duration_since(last).ok())
+            .unwrap_or_default()
+    }
+
+    #[cfg(all(feature = "request-response", not(feature = "byos")))]
+    async fn decay_request_response_score(&mut self, peer_id: &PeerId) {
+        let elapsed = self.get_elapsed_decay_time(peer_id);
+        if !elapsed.is_zero() {
+            let current_score = self.get_all_scores(peer_id).req_resp_app_score;
+            let updated_score = self.validator.apply_decay(&current_score, &elapsed);
+            self.score_manager
+                .update_req_resp_app_score(peer_id, updated_score);
+        }
+    }
+
     /// Handles [`MessageEvent`] from the swarm.
     #[cfg(feature = "request-response")]
     async fn handle_message_event(
@@ -1732,6 +1804,7 @@ impl P2P {
 
                 #[cfg(not(feature = "byos"))]
                 {
+                    self.decay_request_response_score(&peer_id).await;
                     let old_app_score = self
                         .score_manager
                         .get_req_resp_score(&peer_id)
@@ -1745,22 +1818,12 @@ impl P2P {
                     self.score_manager
                         .update_req_resp_app_score(&peer_id, updated_score);
 
-                    let PeerScore {
-                        #[cfg(feature = "gossipsub")]
-                        gossipsub_internal_score,
-                        #[cfg(feature = "gossipsub")]
-                        gossipsub_app_score,
-                        req_resp_app_score,
-                    } = self.get_all_scores(&peer_id);
+                    let peer_score = self.get_all_scores(&peer_id);
 
-                    if let Some(penalty) = self.validator.get_penalty(
-                        &MessageType::Request(request.message.clone()),
-                        #[cfg(feature = "gossipsub")]
-                        gossipsub_internal_score,
-                        #[cfg(feature = "gossipsub")]
-                        gossipsub_app_score,
-                        req_resp_app_score,
-                    ) {
+                    if let Some(penalty) = self
+                        .validator
+                        .get_penalty(&MessageType::Request(request.message.clone()), &peer_score)
+                    {
                         self.apply_penalty(&peer_id, penalty).await;
                         return Ok(());
                     }
@@ -1904,8 +1967,10 @@ impl P2P {
                     return Ok(());
                 }
 
+                // NOTE: BYOS uses an allowlist, making scoring system useless.
                 #[cfg(not(feature = "byos"))]
                 {
+                    self.decay_request_response_score(&peer_id).await;
                     let response: ResponseMessage = signed_response_message.message.clone();
                     let old_app_score = self
                         .score_manager
@@ -1920,21 +1985,11 @@ impl P2P {
                     self.score_manager
                         .update_req_resp_app_score(&peer_id, updated_score);
 
-                    let PeerScore {
-                        #[cfg(feature = "gossipsub")]
-                        gossipsub_internal_score,
-                        #[cfg(feature = "gossipsub")]
-                        gossipsub_app_score,
-                        req_resp_app_score,
-                    } = self.get_all_scores(&peer_id);
+                    let peer_score = self.get_all_scores(&peer_id);
 
                     if let Some(penalty) = self.validator.get_penalty(
                         &MessageType::Response(response.message.clone()),
-                        #[cfg(feature = "gossipsub")]
-                        gossipsub_internal_score,
-                        #[cfg(feature = "gossipsub")]
-                        gossipsub_app_score,
-                        req_resp_app_score,
+                        &peer_score,
                     ) {
                         self.apply_penalty(&peer_id, penalty).await;
                         return Ok(());

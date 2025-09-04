@@ -7,6 +7,12 @@ use libp2p::PeerId;
 use libp2p::identity::PublicKey;
 use tokio::sync::oneshot;
 
+#[cfg(all(
+    any(feature = "gossipsub", feature = "request-response"),
+    not(feature = "byos")
+))]
+use crate::score_manager::PeerScore;
+
 /// Commands that users can send to the P2P node.
 #[derive(Debug)]
 pub enum Command {
@@ -33,6 +39,18 @@ pub enum Command {
         #[cfg(not(feature = "byos"))]
         /// Libp2p [`PeerId`] of target peer.
         target_transport_id: PeerId,
+    },
+
+    /// Gets [`PeerScore`] for a specific peer by [`PeerId`].
+    #[cfg(all(
+        any(feature = "gossipsub", feature = "request-response"),
+        not(feature = "byos")
+    ))]
+    GetPeerScore {
+        /// Transport `PeerId` to query.
+        peer_id: PeerId,
+        /// Channel to send the response back.
+        response_sender: oneshot::Sender<PeerScore>,
     },
 
     /// Directly queries P2P state (doesn't produce events).
