@@ -21,8 +21,10 @@ clippy.missing_const_for_fn = "deny"
 clippy.too_long_first_doc_paragraph = "warn"
 
 [workspace.dependencies]
-asynchronous-codec = { version = "0.7.0", features = ["json"] }
+asynchronous-codec = { version = "0.7.0"}
+bytes = "1.10.1"
 cynosure = "0.2.1"
+flexbuffers = "25.2.10"
 futures = "0.3.31"
 libp2p = { version = "0.55.0", features = [
   "noise",
@@ -39,7 +41,6 @@ libp2p = { version = "0.55.0", features = [
   "kad",
 ] }
 serde = { version = "1.0.219", features = ["derive"] }
-serde_json = "1.0.141"
 thiserror = "2.0.11"
 tokio = { version = "1.42.0", default-features = false, features = [
   "macros",

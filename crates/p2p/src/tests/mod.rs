@@ -24,5 +24,16 @@ pub(crate) mod quic;
 #[cfg(feature = "request-response")]
 pub(crate) mod request_response;
 
+#[cfg(any(feature = "gossipsub", feature = "request-response"))]
+pub(crate) mod flexbuffers;
+
 #[cfg(feature = "kad")]
 pub(crate) mod new_op_dht;
+
+pub(crate) mod conn_limits;
+
+#[cfg(feature = "mem-conn-limits-abs")]
+pub(crate) mod mem_abs_conn_limits;
+
+#[cfg(feature = "mem-conn-limits-rel")]
+pub(crate) mod mem_rel_conn_limits;

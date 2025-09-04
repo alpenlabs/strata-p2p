@@ -15,6 +15,8 @@ use behavior::{Behaviour, BehaviourEvent};
 #[cfg(feature = "byos")]
 use cynosure::site_c::queue::Queue;
 use errors::{P2PResult, ProtocolError};
+#[cfg(any(feature = "gossipsub", feature = "request-response"))]
+use flexbuffers;
 use futures::StreamExt as _;
 #[cfg(not(all(feature = "gossipsub", feature = "request-response")))]
 use futures::future::pending;
@@ -25,6 +27,7 @@ use libp2p::StreamProtocol;
 use libp2p::identity::PublicKey;
 use libp2p::{
     Multiaddr, PeerId, Swarm, SwarmBuilder, Transport,
+    connection_limits::ConnectionLimits,
     core::{ConnectedPoint, muxing::StreamMuxerBox, transport::MemoryTransport},
     identity::Keypair,
     noise,
@@ -321,6 +324,17 @@ pub struct P2PConfig {
     /// Kademlia protocol name
     #[cfg(feature = "kad")]
     pub kad_protocol_name: Option<KadProtocol>,
+
+    /// Limits on number of concurrent connections.
+    pub conn_limits: ConnectionLimits,
+
+    /// After this amount of RAM used by the process, new connections will be denied.
+    #[cfg(feature = "mem-conn-limits-abs")]
+    pub max_allowed_ram_used: usize,
+
+    /// After this percentage of RAM used by the process, new connections will be denied.
+    #[cfg(feature = "mem-conn-limits-rel")]
+    pub max_allowed_ram_used_percent: f64,
 }
 
 /// Implementation of P2P protocol data exchange.
@@ -1106,7 +1120,7 @@ impl P2P {
             return Ok(());
         }
 
-        let signed_gossipsub_message: SignedGossipsubMessage = match serde_json::from_slice(
+        let signed_gossipsub_message: SignedGossipsubMessage = match flexbuffers::from_slice(
             &message.data,
         ) {
             Ok(signed_msg) => signed_msg,
@@ -1470,7 +1484,9 @@ impl P2P {
         let signed_gossip_message = match SignedGossipsubMessage::new(
             GossipMessage::new(public_key.clone(), cmd.data),
             self.signer.as_ref(),
-        ) {
+        )
+        .await
+        {
             Ok(signed_msg) => signed_msg,
             Err(e) => {
                 error!(?e, "Failed to create signed gossipsub message");
@@ -1478,7 +1494,7 @@ impl P2P {
             }
         };
 
-        let signed_message_data = match serde_json::to_vec(&signed_gossip_message) {
+        let signed_message_data = match flexbuffers::to_vec(&signed_gossip_message) {
             Ok(data) => data,
             Err(e) => {
                 error!(?e, "Failed to serialize signed gossipsub message");
@@ -1566,7 +1582,7 @@ impl P2P {
 
         // Create and serialize signed message
         let signed_request_message =
-            match SignedRequestMessage::new(request_message, self.signer.as_ref()) {
+            match SignedRequestMessage::new(request_message, self.signer.as_ref()).await {
                 Ok(signed_msg) => signed_msg,
                 Err(e) => {
                     error!(?e, "Failed to create signed request message");
@@ -1574,7 +1590,7 @@ impl P2P {
                 }
             };
 
-        let signed_request_message_data = match serde_json::to_vec(&signed_request_message) {
+        let signed_request_message_data = match flexbuffers::to_vec(&signed_request_message) {
             Ok(data) => data,
             Err(e) => {
                 error!(?e, "Failed to serialize signed request message");
@@ -1658,7 +1674,7 @@ impl P2P {
                     return Ok(());
                 }
 
-                let signed_message: SignedRequestMessage = match serde_json::from_slice(&request) {
+                let signed_message: SignedRequestMessage = match flexbuffers::from_slice(&request) {
                     Ok(signed_msg) => signed_msg,
                     Err(e) => {
                         error!(%peer_id, ?e, "Failed to deserialize signed request message");
@@ -1780,7 +1796,8 @@ impl P2P {
                             let signed_message = SignedResponseMessage::new(
                                 ResponseMessage::new(app_public_key, response),
                                 self.signer.as_ref(),
-                            );
+                            )
+                            .await;
                             match signed_message {
                                 Ok(signed_msg) => signed_msg,
                                 Err(e) => {
@@ -1790,7 +1807,7 @@ impl P2P {
                             }
                         };
                         let signed_response_message_data =
-                            match serde_json::to_vec(&signed_response_message) {
+                            match flexbuffers::to_vec(&signed_response_message) {
                                 Ok(data) => data,
                                 Err(e) => {
                                     error!(?e, "Failed to serialize signed response message");
@@ -1825,8 +1842,13 @@ impl P2P {
                     return Ok(());
                 }
 
+                if response.is_empty() {
+                    warn!(%peer_id, "Received empty response, skipping deserialization");
+                    return Ok(());
+                }
+
                 let signed_response_message: SignedResponseMessage =
-                    match serde_json::from_slice(&response) {
+                    match flexbuffers::from_slice(&response) {
                         Ok(signed_msg) => signed_msg,
                         Err(e) => {
                             error!(%peer_id, ?e, "Failed to deserialize signed response message");
@@ -1942,10 +1964,11 @@ impl P2P {
             SetupBehaviourEvent::AppKeyReceived {
                 transport_id: peer_id,
                 app_public_key,
+                conn_id,
             } => {
                 if self.allowlist.contains(&app_public_key) {
                     info!(%peer_id, "Received app public key from peer");
-                    trace!(%peer_id, ?app_public_key, "App public key details");
+                    trace!(%peer_id, ?app_public_key, %conn_id, "App public key details");
                 } else {
                     info!(%peer_id, "Received app public key from a peer with not application public key not in allowlist. Disconnecting.");
                     let _ = self.swarm.disconnect_peer_id(peer_id);
@@ -1953,12 +1976,22 @@ impl P2P {
             }
             SetupBehaviourEvent::ErrorDuringSetupHandshake {
                 transport_id: peer_id,
+                conn_id,
                 error,
             } => {
-                warn!(%peer_id, ?error, "Error during SetupBehaviour's handshake, disconnecting peer");
+                warn!(%peer_id, ?error, %conn_id, "Error during SetupBehaviour's handshake, disconnecting peer");
                 // Drop the connection
                 if let Err(e) = self.swarm.disconnect_peer_id(peer_id) {
-                    warn!(%peer_id, ?e, "Failed to disconnect peer after SetupBehaviour's handshake failure");
+                    error!(%peer_id, ?e, "Failed to disconnect peer after SetupBehaviour's handshake failure");
+                }
+            }
+            SetupBehaviourEvent::NegotiationFailed {
+                transport_id: peer_id,
+                conn_id,
+            } => {
+                warn!(%peer_id, %conn_id, "Protocol negotiation failed: it seems remote peer does not support the protocol, disconnecting peer.");
+                if let Err(e) = self.swarm.disconnect_peer_id(peer_id) {
+                    error!(%peer_id, ?e, "Failed to disconnect peer after protocol negotiation failure");
                 }
             }
         }
@@ -2034,6 +2067,11 @@ macro_rules! finish_swarm {
                     $signer.clone(),
                     #[cfg(feature = "kad")]
                     &$cfg.kad_protocol_name,
+                    $cfg.conn_limits.clone(),
+                    #[cfg(feature = "mem-conn-limits-abs")]
+                    $cfg.max_allowed_ram_used,
+                    #[cfg(feature = "mem-conn-limits-rel")]
+                    $cfg.max_allowed_ram_used_percent,
                 )
                 .map_err(|e| e.into())
             })
@@ -2129,6 +2167,11 @@ pub fn with_default_transport(
                 signer.clone(),
                 #[cfg(feature = "kad")]
                 &config.kad_protocol_name,
+                config.conn_limits.clone(),
+                #[cfg(feature = "mem-conn-limits-abs")]
+                config.max_allowed_ram_used,
+                #[cfg(feature = "mem-conn-limits-rel")]
+                config.max_allowed_ram_used_percent,
             )
             .map_err(|e| e.into())
         })

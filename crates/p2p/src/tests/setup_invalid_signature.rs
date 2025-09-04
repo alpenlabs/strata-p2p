@@ -1,12 +1,14 @@
 //! Tests for the setup phase of P2P connections where signature is invalid.
 
-use std::{sync::Arc, time::Duration};
+use std::{pin::Pin, sync::Arc, time::Duration};
 
-use libp2p::{build_multiaddr, identity::Keypair};
+use libp2p::{build_multiaddr, connection_limits::ConnectionLimits, identity::Keypair};
 use tokio::{sync::oneshot, time::sleep};
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use tracing::info;
 
+#[cfg(feature = "mem-conn-limits-abs")]
+use crate::tests::common::SIXTEEN_GIBIBYTES;
 use crate::{
     commands::{Command, QueryP2PStateCommand},
     signer::ApplicationSigner,
@@ -23,9 +25,26 @@ impl BadApplicationSigner {
 }
 
 impl ApplicationSigner for BadApplicationSigner {
-    fn sign(&self, _message: &[u8]) -> Result<[u8; 64], Box<dyn std::error::Error + Send + Sync>> {
-        let signature = [0x02; 64];
-        Ok(signature)
+    fn sign<'life0, 'life1, 'async_trait>(
+        &'life0 self,
+        _message: &'life1 [u8],
+    ) -> Pin<
+        Box<
+            dyn Future<Output = Result<[u8; 64], Box<dyn std::error::Error + Send + Sync>>>
+                + Send
+                + Sync
+                + 'async_trait,
+        >,
+    >
+    where
+        'life0: 'async_trait,
+        'life1: 'async_trait,
+        Self: 'async_trait,
+    {
+        Box::pin(async move {
+            let signature = [0x02; 64];
+            Ok(signature)
+        })
     }
 }
 
@@ -51,6 +70,11 @@ async fn test_setup_with_invalid_signature() {
         vec![local_addr_good1.clone()],
         cancel_good1.child_token(),
         Arc::new(MockApplicationSigner::new(app_keypair_good1.clone())),
+        ConnectionLimits::default().with_max_established(Some(u32::MAX)),
+        #[cfg(feature = "mem-conn-limits-abs")]
+        SIXTEEN_GIBIBYTES,
+        #[cfg(feature = "mem-conn-limits-rel")]
+        1.0, // 100 %
     )
     .unwrap();
 
@@ -62,6 +86,11 @@ async fn test_setup_with_invalid_signature() {
         vec![local_addr_good2.clone()],
         cancel_good2.child_token(),
         Arc::new(MockApplicationSigner::new(app_keypair_good2.clone())),
+        ConnectionLimits::default().with_max_established(Some(u32::MAX)),
+        #[cfg(feature = "mem-conn-limits-abs")]
+        SIXTEEN_GIBIBYTES,
+        #[cfg(feature = "mem-conn-limits-rel")]
+        1.0, // 100 %
     )
     .unwrap();
 
@@ -93,6 +122,11 @@ async fn test_setup_with_invalid_signature() {
         vec![local_addr_bad.clone()],     // listening_addrs
         cancel_bad.child_token(),
         Arc::new(BadApplicationSigner::new(app_keypair_bad.clone())),
+        ConnectionLimits::default().with_max_established(Some(u32::MAX)),
+        #[cfg(feature = "mem-conn-limits-abs")]
+        SIXTEEN_GIBIBYTES,
+        #[cfg(feature = "mem-conn-limits-rel")]
+        1.0, // 100 %
     )
     .unwrap();
 

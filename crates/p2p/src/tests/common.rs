@@ -1,13 +1,15 @@
 //! Helper functions for the P2P tests.
 
 #[cfg(feature = "byos")]
-use std::sync::Arc;
+use std::{pin::Pin, sync::Arc};
 use std::{sync::Once, time::Duration};
 
 use futures::future::join_all;
 #[cfg(feature = "byos")]
 use libp2p::identity::PublicKey;
-use libp2p::{Multiaddr, PeerId, build_multiaddr, identity::Keypair};
+use libp2p::{
+    Multiaddr, PeerId, build_multiaddr, connection_limits::ConnectionLimits, identity::Keypair,
+};
 use rand::Rng;
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use tracing::debug;
@@ -25,6 +27,9 @@ use crate::swarm::{self, P2P, P2PConfig, handle::CommandHandle};
     not(feature = "byos")
 ))]
 use crate::validator::{DefaultP2PValidator, Validator};
+
+#[cfg(feature = "mem-conn-limits-abs")]
+pub(crate) const SIXTEEN_GIBIBYTES: usize = 16 * 1024 * 1024 * 1024; // https://en.wikipedia.org/wiki/Byte#Multiple-byte_units
 
 /// Only attempt to start tracing once
 ///
@@ -57,11 +62,28 @@ impl MockApplicationSigner {
 
 #[cfg(feature = "byos")]
 impl ApplicationSigner for MockApplicationSigner {
-    fn sign(&self, message: &[u8]) -> Result<[u8; 64], Box<dyn std::error::Error + Send + Sync>> {
-        // Sign with the stored keypair
-        let signature = self.app_keypair.sign(message)?;
-        let sign_array: [u8; 64] = signature.try_into().unwrap();
-        Ok(sign_array)
+    fn sign<'life0, 'life1, 'async_trait>(
+        &'life0 self,
+        message: &'life1 [u8],
+    ) -> Pin<
+        Box<
+            dyn Future<Output = Result<[u8; 64], Box<dyn std::error::Error + Send + Sync>>>
+                + Send
+                + Sync
+                + 'async_trait,
+        >,
+    >
+    where
+        'life0: 'async_trait,
+        'life1: 'async_trait,
+        Self: 'async_trait,
+    {
+        Box::pin(async move {
+            // Sign with the stored keypair
+            let signature = self.app_keypair.sign(message)?;
+            let sign_array: [u8; 64] = signature.try_into().unwrap();
+            Ok(sign_array)
+        })
     }
 }
 
@@ -93,6 +115,9 @@ impl User {
             not(feature = "byos")
         ))]
         validator: Box<dyn Validator>,
+        conn_limits: ConnectionLimits,
+        #[cfg(feature = "mem-conn-limits-abs")] max_allowed_ram_used: usize,
+        #[cfg(feature = "mem-conn-limits-rel")] max_allowed_ram_used_percent: f64,
     ) -> anyhow::Result<Self> {
         debug!(
             ?listening_addrs,
@@ -137,6 +162,11 @@ impl User {
             gossip_command_buffer_size: None,
             #[cfg(feature = "kad")]
             kad_protocol_name: None, // this will take default one.
+            conn_limits,
+            #[cfg(feature = "mem-conn-limits-abs")]
+            max_allowed_ram_used,
+            #[cfg(feature = "mem-conn-limits-rel")]
+            max_allowed_ram_used_percent,
         };
 
         // Determine transport type based on the first listening address
@@ -277,6 +307,11 @@ impl Setup {
                 Arc::new(MockApplicationSigner {
                     app_keypair: app_keypair.clone(),
                 }),
+                ConnectionLimits::default().with_max_established(Some(u32::MAX)),
+                #[cfg(feature = "mem-conn-limits-abs")]
+                SIXTEEN_GIBIBYTES,
+                #[cfg(feature = "mem-conn-limits-rel")]
+                1.0, // 100 %
             )?;
 
             users.push(user);
@@ -298,6 +333,11 @@ impl Setup {
                 cancel.child_token(),
                 #[cfg(any(feature = "gossipsub", feature = "request-response"))]
                 Box::new(DefaultP2PValidator),
+                ConnectionLimits::default().with_max_established(Some(u32::MAX)),
+                #[cfg(feature = "mem-conn-limits-abs")]
+                SIXTEEN_GIBIBYTES,
+                #[cfg(feature = "mem-conn-limits-rel")]
+                1.0, // 100 %
             )?;
 
             users.push(user);
@@ -364,6 +404,11 @@ impl Setup {
                 }),
                 #[cfg(not(feature = "byos"))]
                 Box::new(DefaultP2PValidator),
+                ConnectionLimits::default().with_max_established(Some(u32::MAX)),
+                #[cfg(feature = "mem-conn-limits-abs")]
+                SIXTEEN_GIBIBYTES,
+                #[cfg(feature = "mem-conn-limits-rel")]
+                1.0, // 100 %
             )?;
 
             users.push(user);
@@ -411,6 +456,11 @@ impl Setup {
                 vec![addr.clone()],
                 cancel.child_token(),
                 Box::new(validator.clone()),
+                ConnectionLimits::default().with_max_established(Some(u32::MAX)),
+                #[cfg(feature = "mem-conn-limits-abs")]
+                SIXTEEN_GIBIBYTES,
+                #[cfg(feature = "mem-conn-limits-rel")]
+                1.0, // 100 %
             )?;
 
             users.push(user);
