@@ -967,9 +967,9 @@ impl P2P {
         match event {
             SwarmEvent::Behaviour(event) => self.handle_behaviour_event(event).await,
             SwarmEvent::ConnectionEstablished { .. }
-            | SwarmEvent::OutgoingConnectionError { .. } => {
-                self.handle_connection_event(event).await
-            }
+            | SwarmEvent::OutgoingConnectionError { .. }
+            | SwarmEvent::IncomingConnectionError { .. }
+            | SwarmEvent::ConnectionClosed { .. } => self.handle_connection_event(event).await,
             _ => Ok(()),
         }
     }
@@ -1054,6 +1054,27 @@ impl P2P {
                 #[cfg(not(feature = "byos"))]
                 {
                     warn!(error = %error, "connection failed");
+                }
+                Ok(())
+            }
+            SwarmEvent::IncomingConnectionError {
+                connection_id,
+                local_addr,
+                send_back_addr,
+                error,
+            } => {
+                warn!(%connection_id, %local_addr, %send_back_addr, %error, "Incoming connection error.");
+                Ok(())
+            }
+            SwarmEvent::ConnectionClosed {
+                peer_id,
+                connection_id,
+                endpoint,
+                num_established,
+                cause,
+            } => {
+                if cause.is_some() {
+                    warn!(%peer_id, %connection_id, ?endpoint, %num_established, error = %cause.unwrap(), "Connection closed with an error.");
                 }
                 Ok(())
             }
