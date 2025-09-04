@@ -1,7 +1,7 @@
 //! Helper functions for the P2P tests.
 
 #[cfg(feature = "byos")]
-use std::sync::Arc;
+use std::{pin::Pin, sync::Arc};
 use std::{sync::Once, time::Duration};
 
 use futures::future::join_all;
@@ -62,11 +62,28 @@ impl MockApplicationSigner {
 
 #[cfg(feature = "byos")]
 impl ApplicationSigner for MockApplicationSigner {
-    fn sign(&self, message: &[u8]) -> Result<[u8; 64], Box<dyn std::error::Error + Send + Sync>> {
-        // Sign with the stored keypair
-        let signature = self.app_keypair.sign(message)?;
-        let sign_array: [u8; 64] = signature.try_into().unwrap();
-        Ok(sign_array)
+    fn sign<'life0, 'life1, 'async_trait>(
+        &'life0 self,
+        message: &'life1 [u8],
+    ) -> Pin<
+        Box<
+            dyn Future<Output = Result<[u8; 64], Box<dyn std::error::Error + Send + Sync>>>
+                + Send
+                + Sync
+                + 'async_trait,
+        >,
+    >
+    where
+        'life0: 'async_trait,
+        'life1: 'async_trait,
+        Self: 'async_trait,
+    {
+        Box::pin(async move {
+            // Sign with the stored keypair
+            let signature = self.app_keypair.sign(message)?;
+            let sign_array: [u8; 64] = signature.try_into().unwrap();
+            Ok(sign_array)
+        })
     }
 }
 

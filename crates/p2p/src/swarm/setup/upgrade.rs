@@ -115,6 +115,7 @@ impl OutboundUpgrade<Stream> for OutboundSetupUpgrade<Arc<dyn ApplicationSigner>
             );
 
             let signed_setup_message = SignedMessage::new(setup_message, self.signer.as_ref())
+                .await
                 .map_err(SetupUpgradeError::SignedMessageCreation)?;
 
             let mut framed = Framed::new(

@@ -4,7 +4,13 @@ version.workspace = true
 edition.workspace = true
 
 [features]
-default = ["quic", "request-response", "gossipsub", "mem-conn-limits-abs", "mem-conn-limits-rel"]
+default = [
+  "quic",
+  "request-response",
+  "gossipsub",
+  "mem-conn-limits-abs",
+  "mem-conn-limits-rel",
+]
 kad = ["libp2p/kad"]
 byos = ["dep:asynchronous-codec", "flexbuffers", "serde", "bytes"]
 gossipsub = ["libp2p/gossipsub", "flexbuffers", "serde"]
@@ -18,6 +24,7 @@ workspace = true
 
 [dependencies]
 asynchronous-codec = { workspace = true, optional = true }
+bytes = { workspace = true, optional = true }
 cynosure.workspace = true
 flexbuffers = { workspace = true, optional = true }
 futures.workspace = true
