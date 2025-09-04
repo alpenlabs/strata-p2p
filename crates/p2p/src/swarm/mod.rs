@@ -1120,6 +1120,7 @@ impl P2P {
             return Ok(());
         }
 
+        // NOTE: BYOS uses an allowlist, making scoring system useless.
         #[cfg(not(feature = "byos"))]
         {
             let elapsed = self.get_elapsed_decay_time(&propagation_source);
@@ -1351,6 +1352,7 @@ impl P2P {
 
                 Ok(())
             }
+
             Command::DisconnectFromPeer {
                 #[cfg(feature = "byos")]
                 target_app_public_key,
@@ -1382,6 +1384,8 @@ impl P2P {
 
                 Ok(())
             }
+
+            // NOTE: BYOS uses an allowlist, making scoring system useless.
             #[cfg(all(
                 any(feature = "gossipsub", feature = "request-response"),
                 not(feature = "byos")
@@ -1417,6 +1421,7 @@ impl P2P {
                 let _ = response_sender.send(score);
                 Ok(())
             }
+
             Command::QueryP2PState(query) => match query {
                 QueryP2PStateCommand::IsConnected {
                     #[cfg(feature = "byos")]
@@ -1457,6 +1462,7 @@ impl P2P {
 
                     Ok(())
                 }
+
                 QueryP2PStateCommand::GetConnectedPeers { response_sender } => {
                     info!("Querying connected peers");
                     let peer_ids = self.swarm.connected_peers().cloned().collect::<Vec<_>>();
@@ -1483,6 +1489,7 @@ impl P2P {
 
                     Ok(())
                 }
+
                 QueryP2PStateCommand::GetMyListeningAddresses { response_sender } => {
                     info!("Querying my own local listening addresses.");
                     // We clone here because if not clone, we'll receive `Vec<&Multiaddr>`. Ok,
@@ -1690,6 +1697,7 @@ impl P2P {
         Ok(())
     }
 
+    // NOTE: BYOS uses an allowlist, making scoring system useless.
     #[cfg(all(
         any(feature = "gossipsub", feature = "request-response"),
         not(feature = "byos")
@@ -1938,6 +1946,7 @@ impl P2P {
                     return Ok(());
                 }
 
+                // NOTE: BYOS uses an allowlist, making scoring system useless.
                 #[cfg(not(feature = "byos"))]
                 {
                     self.decay_request_response_score(&peer_id).await;
