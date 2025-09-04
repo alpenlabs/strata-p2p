@@ -1073,8 +1073,8 @@ impl P2P {
                 num_established,
                 cause,
             } => {
-                if cause.is_some() {
-                    warn!(%peer_id, %connection_id, ?endpoint, %num_established, error = %cause.unwrap(), "Connection closed with an error.");
+                if let Some(cause) = cause {
+                    warn!(%peer_id, %connection_id, ?endpoint, %num_established, error = %cause, "Connection closed with an error.");
                 }
                 Ok(())
             }
