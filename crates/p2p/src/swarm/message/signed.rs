@@ -33,7 +33,11 @@ where
         message: M,
         signer: &dyn ApplicationSigner,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+<<<<<<< HEAD
         let signature = signer.sign(&flexbuffers::to_vec(&message)?).await?;
+=======
+        let signature = signer.sign(&flexbuffers::to_vec(&message)?)?;
+>>>>>>> c3a82f9 (Serde with flexbuffers (#93))
         Ok(Self { message, signature })
     }
 }
