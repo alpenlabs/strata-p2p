@@ -15,12 +15,6 @@ use libp2p::identity::Keypair;
 pub trait ApplicationSigner: Debug + Send + Sync + 'static {
     /// Signs the given message with the application private key that corresponds to the
     /// app_public_key.
-    // this code looks so ugly because:
-    // 1. It was required to make it async
-    // 2. `async fn` or `-> impl Future<...>` is not `dyn` compatible: https://doc.rust-lang.org/reference/items/traits.html#r-items.traits.dyn-compatible.associated-functions
-    // 3. It was asked to not use `async_trait` macro from a corresponding crate.
-    // 4. Rust has some problems with automatic guessing of lifetimes in such cases. That's why
-    //    manually `async_trait` looks ugly.
     #[expect(clippy::type_complexity)]
     fn sign<'life0, 'life1, 'async_trait>(
         &'life0 self,
