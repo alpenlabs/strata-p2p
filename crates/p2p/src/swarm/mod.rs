@@ -1484,7 +1484,9 @@ impl P2P {
         let signed_gossip_message = match SignedGossipsubMessage::new(
             GossipMessage::new(public_key.clone(), cmd.data),
             self.signer.as_ref(),
-        ) {
+        )
+        .await
+        {
             Ok(signed_msg) => signed_msg,
             Err(e) => {
                 error!(?e, "Failed to create signed gossipsub message");
@@ -1580,7 +1582,7 @@ impl P2P {
 
         // Create and serialize signed message
         let signed_request_message =
-            match SignedRequestMessage::new(request_message, self.signer.as_ref()) {
+            match SignedRequestMessage::new(request_message, self.signer.as_ref()).await {
                 Ok(signed_msg) => signed_msg,
                 Err(e) => {
                     error!(?e, "Failed to create signed request message");
@@ -1794,7 +1796,8 @@ impl P2P {
                             let signed_message = SignedResponseMessage::new(
                                 ResponseMessage::new(app_public_key, response),
                                 self.signer.as_ref(),
-                            );
+                            )
+                            .await;
                             match signed_message {
                                 Ok(signed_msg) => signed_msg,
                                 Err(e) => {
