@@ -14,11 +14,14 @@ use super::common::{Setup, init_tracing};
 use crate::validator::{Message, PenaltyType, Validator};
 #[cfg(feature = "gossipsub")]
 use crate::{commands::GossipCommand, events::GossipEvent};
-#[cfg(feature = "request-response")]
-use crate::{commands::RequestResponseCommand, events::ReqRespEvent};
 use crate::{
-    commands::{Command, PeerModerationAction, Protocol, QueryP2PStateCommand},
+    commands::{Command, PeerModerationAction, QueryP2PStateCommand},
     score_manager::PeerScore,
+};
+#[cfg(feature = "request-response")]
+use crate::{
+    commands::{Protocol, RequestResponseCommand},
+    events::ReqRespEvent,
 };
 #[derive(Debug, Default, Clone)]
 struct TestValidator;
@@ -71,23 +74,23 @@ impl Validator for TestValidator {
 
     fn get_updated_score(
         &self,
-        peer_score: &crate::score_manager::PeerScore,
-        action: &crate::commands::PeerModerationAction,
+        peer_score: &PeerScore,
+        action: &PeerModerationAction,
     ) -> crate::score_manager::PeerScore {
-        use crate::commands::PeerModerationAction as Action;
-
         match action {
             // Reset app scores on ban; internal score is unaffected by validator here
-            Action::Ban(_) | Action::Unban => crate::score_manager::PeerScore {
-                #[cfg(feature = "gossipsub")]
-                gossipsub_app_score: 0.0,
-                #[cfg(feature = "request-response")]
-                req_resp_app_score: 0.0,
-                #[cfg(feature = "gossipsub")]
-                gossipsub_internal_score: peer_score.gossipsub_internal_score,
-            },
+            PeerModerationAction::Ban(_) | PeerModerationAction::Unban => {
+                crate::score_manager::PeerScore {
+                    #[cfg(feature = "gossipsub")]
+                    gossipsub_app_score: 0.0,
+                    #[cfg(feature = "request-response")]
+                    req_resp_app_score: 0.0,
+                    #[cfg(feature = "gossipsub")]
+                    gossipsub_internal_score: peer_score.gossipsub_internal_score,
+                }
+            }
             // Nudge app score down/up; swarm handler applies it only to the selected protocol
-            Action::Mute(_) => crate::score_manager::PeerScore {
+            PeerModerationAction::Mute(_) => crate::score_manager::PeerScore {
                 #[cfg(feature = "gossipsub")]
                 gossipsub_app_score: peer_score.gossipsub_app_score - 0.5,
                 #[cfg(feature = "request-response")]
@@ -95,7 +98,7 @@ impl Validator for TestValidator {
                 #[cfg(feature = "gossipsub")]
                 gossipsub_internal_score: peer_score.gossipsub_internal_score,
             },
-            Action::Unmute => crate::score_manager::PeerScore {
+            PeerModerationAction::Unmute => crate::score_manager::PeerScore {
                 #[cfg(feature = "gossipsub")]
                 gossipsub_app_score: peer_score.gossipsub_app_score + 0.5,
                 #[cfg(feature = "request-response")]

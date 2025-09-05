@@ -1453,6 +1453,10 @@ impl P2P {
                 Ok(())
             }
 
+            #[cfg(all(
+                any(feature = "gossipsub", feature = "request-response"),
+                not(feature = "byos")
+            ))]
             Command::ModeratePeer {
                 target_transport_id,
                 action,

@@ -31,8 +31,10 @@ pub enum PeerModerationAction {
 #[derive(Debug)]
 pub enum Protocol {
     /// Gossipsub message propagation/publication.
+    #[cfg(feature = "gossipsub")]
     Gossipsub,
     /// Request/Response protocol traffic.
+    #[cfg(feature = "request-response")]
     RequestResponse,
 }
 
@@ -77,6 +79,10 @@ pub enum Command {
     },
 
     /// Moderate a peer by applying an action scoped to a protocol.
+    #[cfg(all(
+        any(feature = "gossipsub", feature = "request-response"),
+        not(feature = "byos")
+    ))]
     ModeratePeer {
         /// Target peer's libp2p transport [`PeerId`].
         target_transport_id: PeerId,
