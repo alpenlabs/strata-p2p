@@ -79,7 +79,12 @@ pub enum Command {
         response_sender: oneshot::Sender<PeerScore>,
     },
 
-    /// Recalculate application scores for a peer using the validator.
+    /// Applies a moderation action to a peer (penalty or penalty removal),
+    /// and optionally recalculates its application score using a callback.
+    ///
+    /// The `action` field specifies a predefined moderation operation,
+    /// while the `callback` allows injecting a custom score function that
+    /// transforms the current [`AppPeerScore`] into a new one.
     #[cfg(all(
         any(feature = "gossipsub", feature = "request-response"),
         not(feature = "byos")
