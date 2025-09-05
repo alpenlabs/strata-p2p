@@ -23,7 +23,12 @@ use crate::score_manager::{AppPeerScore, PeerScore};
     not(feature = "byos")
 ))]
 use crate::validator::Action;
+
 /// Moderation action to apply to a peer.
+#[cfg(all(
+    any(feature = "gossipsub", feature = "request-response"),
+    not(feature = "byos")
+))]
 #[derive(Debug)]
 pub enum UnpenaltyType {
     /// Remove an active ban.
