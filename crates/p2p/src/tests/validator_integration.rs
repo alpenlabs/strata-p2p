@@ -15,12 +15,12 @@ use crate::validator::{Message, PenaltyType, Validator};
 #[cfg(feature = "gossipsub")]
 use crate::{commands::GossipCommand, events::GossipEvent};
 use crate::{
-    commands::{Command, PeerModerationAction, QueryP2PStateCommand},
+    commands::{Command, QueryP2PStateCommand},
     score_manager::PeerScore,
 };
 #[cfg(feature = "request-response")]
 use crate::{
-    commands::{Protocol, RequestResponseCommand},
+    commands::{RequestResponseCommand, UnpenaltyType},
     events::ReqRespEvent,
 };
 #[derive(Debug, Default, Clone)]
@@ -71,41 +71,14 @@ impl Validator for TestValidator {
         (score + time_since_last_decay.as_secs_f64()).min(0.0)
     }
 
+    #[allow(unused_variables)]
     fn get_updated_score(
         &self,
         peer_score: &PeerScore,
-        action: &PeerModerationAction,
+        action: &crate::validator::Action,
     ) -> crate::score_manager::PeerScore {
-        match action {
-            // Reset app scores on ban; internal score is unaffected by validator here
-            PeerModerationAction::Ban(_) | PeerModerationAction::Unban => {
-                crate::score_manager::PeerScore {
-                    #[cfg(feature = "gossipsub")]
-                    gossipsub_app_score: 0.0,
-                    #[cfg(feature = "request-response")]
-                    req_resp_app_score: 0.0,
-                    #[cfg(feature = "gossipsub")]
-                    gossipsub_internal_score: peer_score.gossipsub_internal_score,
-                }
-            }
-            // Nudge app score down/up; swarm handler applies it only to the selected protocol
-            PeerModerationAction::Mute(_) => crate::score_manager::PeerScore {
-                #[cfg(feature = "gossipsub")]
-                gossipsub_app_score: peer_score.gossipsub_app_score - 0.5,
-                #[cfg(feature = "request-response")]
-                req_resp_app_score: peer_score.req_resp_app_score - 0.5,
-                #[cfg(feature = "gossipsub")]
-                gossipsub_internal_score: peer_score.gossipsub_internal_score,
-            },
-            PeerModerationAction::Unmute => crate::score_manager::PeerScore {
-                #[cfg(feature = "gossipsub")]
-                gossipsub_app_score: peer_score.gossipsub_app_score + 0.5,
-                #[cfg(feature = "request-response")]
-                req_resp_app_score: peer_score.req_resp_app_score + 0.5,
-                #[cfg(feature = "gossipsub")]
-                gossipsub_internal_score: peer_score.gossipsub_internal_score,
-            },
-        }
+        // Tests do not rely on SetScore side-effects; keep scores unchanged.
+        peer_score.clone()
     }
 }
 
@@ -331,10 +304,9 @@ async fn test_reqresp_mute_then_unmute() -> anyhow::Result<()> {
     // Unmute must be performed by the receiver (user1) who applied the mute against sender (user0)
     user1
         .command
-        .send_command(Command::ModeratePeer {
+        .send_command(Command::UnpenaltyPeer {
             target_transport_id: user0.peer_id,
-            action: PeerModerationAction::Unmute,
-            protocol: Protocol::RequestResponse,
+            action: UnpenaltyType::UnmuteRequestResponse,
         })
         .await;
 

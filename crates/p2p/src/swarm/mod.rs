@@ -73,16 +73,6 @@ use {
     any(feature = "gossipsub", feature = "request-response"),
     not(feature = "byos")
 ))]
-use crate::commands::PeerModerationAction as ModAction;
-#[cfg(all(
-    any(feature = "gossipsub", feature = "request-response"),
-    not(feature = "byos")
-))]
-use crate::commands::Protocol;
-#[cfg(all(
-    any(feature = "gossipsub", feature = "request-response"),
-    not(feature = "byos")
-))]
 use crate::commands::UnpenaltyType;
 use crate::commands::{Command, QueryP2PStateCommand};
 #[cfg(all(feature = "gossipsub", not(feature = "byos")))]
@@ -1467,6 +1457,33 @@ impl P2P {
                             .unmute_peer_req_resp(&target_transport_id)
                     }
                 }
+                Ok(())
+            }
+
+            #[cfg(all(
+                any(feature = "gossipsub", feature = "request-response"),
+                not(feature = "byos")
+            ))]
+            Command::SetScore {
+                target_transport_id,
+                action,
+            } => {
+                // Recalculate and persist application scores based on validator logic
+                let current_scores = self.get_all_scores(&target_transport_id);
+                let updated_scores = self.validator.get_updated_score(&current_scores, &action);
+
+                #[cfg(feature = "gossipsub")]
+                self.score_manager.update_gossipsub_app_score(
+                    &target_transport_id,
+                    updated_scores.gossipsub_app_score,
+                );
+
+                #[cfg(feature = "request-response")]
+                self.score_manager.update_req_resp_app_score(
+                    &target_transport_id,
+                    updated_scores.req_resp_app_score,
+                );
+
                 Ok(())
             }
 

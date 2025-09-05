@@ -50,9 +50,17 @@ pub enum PenaltyType {
     Ban(Option<Duration>),
 }
 
+/// Action type for peer moderation operations.
+#[cfg(all(
+    any(feature = "gossipsub", feature = "request-response"),
+    not(feature = "byos")
+))]
+#[derive(Debug)]
 pub enum Action {
-    PenaltyType,
-    UnpenaltyType,
+    /// Apply a penalty to a peer.
+    ApplyPenalty(PenaltyType),
+    /// Remove a penalty from a peer.
+    RemovePenalty(UnpenaltyType),
 }
 
 /// Penalty information for a peer.

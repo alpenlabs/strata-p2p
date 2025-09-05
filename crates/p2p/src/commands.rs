@@ -1,7 +1,5 @@
 //! Commands for P2P implementation from operator implementation.
 
-use std::time::Duration;
-
 use libp2p::Multiaddr;
 #[cfg(not(feature = "byos"))]
 use libp2p::PeerId;
@@ -18,7 +16,7 @@ use crate::score_manager::PeerScore;
     any(feature = "gossipsub", feature = "request-response"),
     not(feature = "byos")
 ))]
-use crate::validator::PenaltyType;
+use crate::validator::{Action, PenaltyType};
 /// Moderation action to apply to a peer.
 #[derive(Debug)]
 pub enum UnpenaltyType {
@@ -97,6 +95,18 @@ pub enum Command {
         target_transport_id: PeerId,
         /// Action to perform.
         action: UnpenaltyType,
+    },
+
+    /// Recalculate application scores for a peer using the validator.
+    #[cfg(all(
+        any(feature = "gossipsub", feature = "request-response"),
+        not(feature = "byos")
+    ))]
+    SetScore {
+        /// Target peer's libp2p transport [`PeerId`].
+        target_transport_id: PeerId,
+        /// Which score category to update (penalty or unpenalty flow).
+        action: Action,
     },
 
     /// Directly queries P2P state (doesn't produce events).
