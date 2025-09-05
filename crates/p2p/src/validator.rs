@@ -37,8 +37,6 @@ pub enum Message {
 /// Penalty types for peer misbehavior.
 #[derive(Debug)]
 pub enum PenaltyType {
-    /// No action taken.
-    Ignore,
     /// Mute gossipsub messages for duration.
     #[cfg(feature = "gossipsub")]
     MuteGossip(Duration),

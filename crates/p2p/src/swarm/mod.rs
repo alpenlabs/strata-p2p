@@ -879,7 +879,6 @@ impl P2P {
     ))]
     async fn apply_penalty(&mut self, peer_id: &PeerId, penalty: PenaltyType) {
         match penalty {
-            PenaltyType::Ignore => (),
             #[cfg(feature = "gossipsub")]
             PenaltyType::MuteGossip(time_amount) => {
                 let until = SystemTime::now() + time_amount;

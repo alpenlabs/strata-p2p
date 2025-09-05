@@ -33,7 +33,6 @@ struct TestValidator;
 fn match_penalty(data: &[u8]) -> Option<PenaltyType> {
     let content = String::from_utf8_lossy(data);
     match content.as_ref() {
-        "ignore me" => Some(PenaltyType::Ignore),
         #[cfg(feature = "gossipsub")]
         "mute gossip" => Some(PenaltyType::MuteGossip(Duration::from_secs(4))),
         #[cfg(feature = "request-response")]
@@ -675,45 +674,6 @@ async fn test_reqresp_ban_penalty() -> anyhow::Result<()> {
     cancel.cancel();
     tasks.wait().await;
 
-    Ok(())
-}
-
-#[cfg(feature = "gossipsub")]
-#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
-async fn test_gossipsub_ignore_penalty() -> anyhow::Result<()> {
-    init_tracing();
-    const USERS_NUM: usize = 2;
-
-    let Setup {
-        mut user_handles,
-        cancel,
-        tasks,
-    } = Setup::all_to_all_with_custom_validator(USERS_NUM, TestValidator).await?;
-
-    sleep(Duration::from_millis(500)).await;
-
-    user_handles[0]
-        .gossip
-        .send(GossipCommand {
-            data: "ignore me".into(),
-        })
-        .await?;
-
-    sleep(Duration::from_millis(200)).await;
-
-    user_handles[0]
-        .gossip
-        .send(GossipCommand {
-            data: "normal message after ignore".into(),
-        })
-        .await?;
-
-    let GossipEvent::ReceivedMessage(data) = user_handles[1].gossip.next_event().await?;
-    assert_eq!(data, b"normal message after ignore");
-    info!("Normal message received after ignore penalty - ignore working correctly");
-
-    cancel.cancel();
-    tasks.wait().await;
     Ok(())
 }
 
