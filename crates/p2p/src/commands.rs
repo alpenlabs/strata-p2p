@@ -14,28 +14,25 @@ use tokio::sync::oneshot;
     not(feature = "byos")
 ))]
 use crate::score_manager::PeerScore;
+#[cfg(all(
+    any(feature = "gossipsub", feature = "request-response"),
+    not(feature = "byos")
+))]
+use crate::validator::PenaltyType;
 /// Moderation action to apply to a peer.
 #[derive(Debug)]
-pub enum PeerModerationAction {
-    /// Ban the peer for a duration; disconnect and block until expiry.
-    Ban(Duration),
+pub enum UnpenaltyType {
     /// Remove an active ban.
     Unban,
-    /// Mute the peer on the selected protocol for a duration.
-    Mute(Duration),
-    /// Remove an active mute on the selected protocol.
-    Unmute,
-}
-
-/// All existing protocols with scoring system.
-#[derive(Debug)]
-pub enum Protocol {
-    /// Gossipsub message propagation/publication.
+    /// Remove an active mute on the gossipsub protocol.
     #[cfg(feature = "gossipsub")]
-    Gossipsub,
-    /// Request/Response protocol traffic.
+    UnmuteGossipsub,
+    /// Remove an active mute on the request-response protocol.
     #[cfg(feature = "request-response")]
-    RequestResponse,
+    UnmuteRequestResponse,
+    /// Remove an active mute from both gossipsub and request-response.
+    #[cfg(all(feature = "gossipsub", feature = "request-response"))]
+    UnmuteBoth,
 }
 
 /// Commands that users can send to the P2P node.
@@ -78,18 +75,28 @@ pub enum Command {
         response_sender: oneshot::Sender<PeerScore>,
     },
 
-    /// Moderate a peer by applying an action scoped to a protocol.
+    /// Apply a penalty to a peer.
     #[cfg(all(
         any(feature = "gossipsub", feature = "request-response"),
         not(feature = "byos")
     ))]
-    ModeratePeer {
+    PenaltyPeer {
         /// Target peer's libp2p transport [`PeerId`].
         target_transport_id: PeerId,
-        /// Moderation action to apply.
-        action: PeerModerationAction,
-        /// Protocol scope of the moderation.
-        protocol: Protocol,
+        /// Penalty to apply.
+        action: PenaltyType,
+    },
+
+    /// Remove a penalty from a peer.
+    #[cfg(all(
+        any(feature = "gossipsub", feature = "request-response"),
+        not(feature = "byos")
+    ))]
+    UnpenaltyPeer {
+        /// Target peer's libp2p transport [`PeerId`].
+        target_transport_id: PeerId,
+        /// Action to perform.
+        action: UnpenaltyType,
     },
 
     /// Directly queries P2P state (doesn't produce events).

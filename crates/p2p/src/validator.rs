@@ -9,7 +9,7 @@ use std::{
 
 use libp2p::identity::PeerId;
 
-use crate::{commands::PeerModerationAction, score_manager::PeerScore};
+use crate::{commands::UnpenaltyType, score_manager::PeerScore};
 
 /// Default ban period for peer misbehavior. Hardcoded to 30 days.
 pub const DEFAULT_BAN_PERIOD: Duration = Duration::from_secs(60 * 60 * 24 * 30);
@@ -48,6 +48,11 @@ pub enum PenaltyType {
     MuteBoth(Duration),
     /// Ban peer (None = permanent, Some = temporary).
     Ban(Option<Duration>),
+}
+
+pub enum Action {
+    PenaltyType,
+    UnpenaltyType,
 }
 
 /// Penalty information for a peer.
@@ -97,9 +102,8 @@ pub trait Validator: Debug + Send + Sync + 'static {
     /// Applies score decay based on time since the last decay.
     fn apply_decay(&self, score: &f64, time_since_last_decay: &Duration) -> f64;
 
-    /// Returns the updated [`PeerScore`] to apply a [`PeerModerationAction`].
-    fn get_updated_score(&self, peer_score: &PeerScore, action: &PeerModerationAction)
-    -> PeerScore;
+    /// Returns the updated [`PeerScore`] to apply a [`Action`].
+    fn get_updated_score(&self, peer_score: &PeerScore, action: &Action) -> PeerScore;
 }
 
 /// Default validator.
@@ -125,11 +129,7 @@ impl Validator for DefaultP2PValidator {
     }
 
     #[allow(unused_variables)]
-    fn get_updated_score(
-        &self,
-        peer_score: &PeerScore,
-        action: &PeerModerationAction,
-    ) -> PeerScore {
+    fn get_updated_score(&self, peer_score: &PeerScore, action: &Action) -> PeerScore {
         peer_score.clone()
     }
 }

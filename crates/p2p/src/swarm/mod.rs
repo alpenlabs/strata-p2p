@@ -79,6 +79,11 @@ use crate::commands::PeerModerationAction as ModAction;
     not(feature = "byos")
 ))]
 use crate::commands::Protocol;
+#[cfg(all(
+    any(feature = "gossipsub", feature = "request-response"),
+    not(feature = "byos")
+))]
+use crate::commands::UnpenaltyType;
 use crate::commands::{Command, QueryP2PStateCommand};
 #[cfg(all(feature = "gossipsub", not(feature = "byos")))]
 use crate::score_manager::DEFAULT_GOSSIP_APP_SCORE;
@@ -1414,6 +1419,56 @@ impl P2P {
 
                 Ok(())
             }
+            #[cfg(all(
+                any(feature = "gossipsub", feature = "request-response"),
+                not(feature = "byos")
+            ))]
+            Command::PenaltyPeer {
+                target_transport_id,
+                action,
+            } => {
+                info!(%target_transport_id, ?action, "Applying penalty to peer");
+                self.apply_penalty(&target_transport_id, action).await;
+                Ok(())
+            }
+
+            #[cfg(all(
+                any(feature = "gossipsub", feature = "request-response"),
+                not(feature = "byos")
+            ))]
+            Command::UnpenaltyPeer {
+                target_transport_id,
+                action,
+            } => {
+                info!(%target_transport_id, ?action, "Removing penalty from peer");
+                match action {
+                    UnpenaltyType::Unban => {
+                        info!(%target_transport_id, "Unbanning peer");
+                        self.peer_penalty_storage.unban_peer(&target_transport_id)
+                    }
+                    #[cfg(all(feature = "gossipsub", feature = "request-response"))]
+                    UnpenaltyType::UnmuteBoth => {
+                        info!(%target_transport_id, "Unmuting peer for both protocols");
+                        self.peer_penalty_storage
+                            .unmute_peer_gossip(&target_transport_id);
+                        self.peer_penalty_storage
+                            .unmute_peer_req_resp(&target_transport_id);
+                    }
+                    #[cfg(feature = "gossipsub")]
+                    UnpenaltyType::UnmuteGossipsub => {
+                        info!(%target_transport_id, "Unmuting peer for gossipsub");
+                        self.peer_penalty_storage
+                            .unmute_peer_gossip(&target_transport_id)
+                    }
+                    #[cfg(feature = "request-response")]
+                    UnpenaltyType::UnmuteRequestResponse => {
+                        info!(%target_transport_id, "Unmuting peer for request-response");
+                        self.peer_penalty_storage
+                            .unmute_peer_req_resp(&target_transport_id)
+                    }
+                }
+                Ok(())
+            }
 
             // NOTE: BYOS uses an allowlist, making scoring system useless.
             #[cfg(all(
@@ -1452,75 +1507,6 @@ impl P2P {
                 Ok(())
             }
 
-            #[cfg(all(
-                any(feature = "gossipsub", feature = "request-response"),
-                not(feature = "byos")
-            ))]
-            Command::ModeratePeer {
-                target_transport_id,
-                action,
-                protocol,
-            } => {
-                // Update app score using validator
-                let current_scores = self.get_all_scores(&target_transport_id);
-                let updated_scores = self.validator.get_updated_score(&current_scores, &action);
-
-                match protocol {
-                    #[cfg(feature = "gossipsub")]
-                    Protocol::Gossipsub => {
-                        self.score_manager.update_gossipsub_app_score(
-                            &target_transport_id,
-                            updated_scores.gossipsub_app_score,
-                        );
-                    }
-                    #[cfg(feature = "request-response")]
-                    Protocol::RequestResponse => {
-                        self.score_manager.update_req_resp_app_score(
-                            &target_transport_id,
-                            updated_scores.req_resp_app_score,
-                        );
-                    }
-                }
-
-                match action {
-                    ModAction::Ban(duration) => {
-                        self.apply_penalty(&target_transport_id, PenaltyType::Ban(Some(duration)))
-                            .await;
-                    }
-                    ModAction::Unban => {
-                        self.peer_penalty_storage.unban_peer(&target_transport_id);
-                    }
-                    ModAction::Mute(duration) => match protocol {
-                        #[cfg(feature = "gossipsub")]
-                        Protocol::Gossipsub => {
-                            let until = SystemTime::now() + duration;
-                            let _ = self
-                                .peer_penalty_storage
-                                .mute_peer_gossip(&target_transport_id, until);
-                        }
-                        #[cfg(feature = "request-response")]
-                        Protocol::RequestResponse => {
-                            let until = SystemTime::now() + duration;
-                            let _ = self
-                                .peer_penalty_storage
-                                .mute_peer_req_resp(&target_transport_id, until);
-                        }
-                    },
-                    ModAction::Unmute => match protocol {
-                        #[cfg(feature = "gossipsub")]
-                        Protocol::Gossipsub => {
-                            self.peer_penalty_storage
-                                .unmute_peer_gossip(&target_transport_id);
-                        }
-                        #[cfg(feature = "request-response")]
-                        Protocol::RequestResponse => {
-                            self.peer_penalty_storage
-                                .unmute_peer_req_resp(&target_transport_id);
-                        }
-                    },
-                }
-                Ok(())
-            }
             Command::QueryP2PState(query) => match query {
                 QueryP2PStateCommand::IsConnected {
                     #[cfg(feature = "byos")]
