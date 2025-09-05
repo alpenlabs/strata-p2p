@@ -1,5 +1,7 @@
 //! Commands for P2P implementation from operator implementation.
 
+use std::time::Duration;
+
 use libp2p::Multiaddr;
 #[cfg(not(feature = "byos"))]
 use libp2p::PeerId;
@@ -12,6 +14,27 @@ use tokio::sync::oneshot;
     not(feature = "byos")
 ))]
 use crate::score_manager::PeerScore;
+/// Moderation action to apply to a peer.
+#[derive(Debug)]
+pub enum PeerModerationAction {
+    /// Ban the peer for a duration; disconnect and block until expiry.
+    Ban(Duration),
+    /// Remove an active ban.
+    Unban,
+    /// Mute the peer on the selected protocol for a duration.
+    Mute(Duration),
+    /// Remove an active mute on the selected protocol.
+    Unmute,
+}
+
+/// All existing protocols with scoring system.
+#[derive(Debug)]
+pub enum Protocol {
+    /// Gossipsub message propagation/publication.
+    Gossipsub,
+    /// Request/Response protocol traffic.
+    RequestResponse,
+}
 
 /// Commands that users can send to the P2P node.
 #[derive(Debug)]
@@ -51,6 +74,16 @@ pub enum Command {
         peer_id: PeerId,
         /// Channel to send the response back.
         response_sender: oneshot::Sender<PeerScore>,
+    },
+
+    /// Moderate a peer by applying an action scoped to a protocol.
+    ModeratePeer {
+        /// Target peer's libp2p transport [`PeerId`].
+        target_transport_id: PeerId,
+        /// Moderation action to apply.
+        action: PeerModerationAction,
+        /// Protocol scope of the moderation.
+        protocol: Protocol,
     },
 
     /// Directly queries P2P state (doesn't produce events).

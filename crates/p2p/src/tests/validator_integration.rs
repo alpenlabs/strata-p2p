@@ -17,7 +17,7 @@ use crate::{commands::GossipCommand, events::GossipEvent};
 #[cfg(feature = "request-response")]
 use crate::{commands::RequestResponseCommand, events::ReqRespEvent};
 use crate::{
-    commands::{Command, QueryP2PStateCommand},
+    commands::{Command, PeerModerationAction, Protocol, QueryP2PStateCommand},
     score_manager::PeerScore,
 };
 #[derive(Debug, Default, Clone)]
@@ -67,6 +67,43 @@ impl Validator for TestValidator {
     fn apply_decay(&self, score: &f64, time_since_last_decay: &Duration) -> f64 {
         info!(?score, ?time_since_last_decay, "apply_decay");
         (score + time_since_last_decay.as_secs_f64()).min(0.0)
+    }
+
+    fn get_updated_score(
+        &self,
+        peer_score: &crate::score_manager::PeerScore,
+        action: &crate::commands::PeerModerationAction,
+    ) -> crate::score_manager::PeerScore {
+        use crate::commands::PeerModerationAction as Action;
+
+        match action {
+            // Reset app scores on ban; internal score is unaffected by validator here
+            Action::Ban(_) | Action::Unban => crate::score_manager::PeerScore {
+                #[cfg(feature = "gossipsub")]
+                gossipsub_app_score: 0.0,
+                #[cfg(feature = "request-response")]
+                req_resp_app_score: 0.0,
+                #[cfg(feature = "gossipsub")]
+                gossipsub_internal_score: peer_score.gossipsub_internal_score,
+            },
+            // Nudge app score down/up; swarm handler applies it only to the selected protocol
+            Action::Mute(_) => crate::score_manager::PeerScore {
+                #[cfg(feature = "gossipsub")]
+                gossipsub_app_score: peer_score.gossipsub_app_score - 0.5,
+                #[cfg(feature = "request-response")]
+                req_resp_app_score: peer_score.req_resp_app_score - 0.5,
+                #[cfg(feature = "gossipsub")]
+                gossipsub_internal_score: peer_score.gossipsub_internal_score,
+            },
+            Action::Unmute => crate::score_manager::PeerScore {
+                #[cfg(feature = "gossipsub")]
+                gossipsub_app_score: peer_score.gossipsub_app_score + 0.5,
+                #[cfg(feature = "request-response")]
+                req_resp_app_score: peer_score.req_resp_app_score + 0.5,
+                #[cfg(feature = "gossipsub")]
+                gossipsub_internal_score: peer_score.gossipsub_internal_score,
+            },
+        }
     }
 }
 
@@ -229,6 +266,92 @@ async fn test_reqresp_decay() -> anyhow::Result<()> {
 
     cancel.cancel();
     tasks.wait().await;
+    Ok(())
+}
+
+#[cfg(feature = "request-response")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn test_reqresp_mute_then_unmute() -> anyhow::Result<()> {
+    init_tracing();
+    const USERS_NUM: usize = 2;
+
+    let Setup {
+        mut user_handles,
+        cancel,
+        tasks,
+    } = Setup::all_to_all_with_custom_validator(USERS_NUM, TestValidator).await?;
+
+    // Ensure connectivity
+    sleep(Duration::from_millis(500)).await;
+
+    // Send a benign request first; expect a request event on peer 1
+    let (tmp0, tmp1) = user_handles.split_at_mut(1);
+    let user0 = &mut tmp0[0];
+    let user1 = &mut tmp1[0];
+
+    user0
+        .reqresp
+        .send(crate::commands::RequestResponseCommand {
+            target_transport_id: user1.peer_id,
+            data: b"hello".to_vec(),
+        })
+        .await?;
+
+    let _ = timeout(Duration::from_secs(2), user1.reqresp.next_event()).await;
+
+    // Trigger validator-driven mute via a special request payload
+    user0
+        .reqresp
+        .send(crate::commands::RequestResponseCommand {
+            target_transport_id: user1.peer_id,
+            data: b"mute reqresp".to_vec(),
+        })
+        .await?;
+
+    // After mute, sending a request should yield no event within a small timeout
+    user0
+        .reqresp
+        .send(crate::commands::RequestResponseCommand {
+            target_transport_id: user1.peer_id,
+            data: b"should be muted".to_vec(),
+        })
+        .await?;
+
+    let muted_period = timeout(Duration::from_millis(400), user1.reqresp.next_event()).await;
+    assert!(
+        muted_period.is_err(),
+        "Peer should be muted and produce no events"
+    );
+
+    // Unmute the peer
+    user0
+        .command
+        .send_command(Command::ModeratePeer {
+            target_transport_id: user1.peer_id,
+            action: PeerModerationAction::Unmute,
+            protocol: Protocol::RequestResponse,
+        })
+        .await;
+
+    // After unmute, sending a request should produce an event again
+    sleep(Duration::from_millis(500)).await; // give unmute a moment
+    user0
+        .reqresp
+        .send(crate::commands::RequestResponseCommand {
+            target_transport_id: user1.peer_id,
+            data: b"unmuted now".to_vec(),
+        })
+        .await?;
+
+    let after_unmute = timeout(Duration::from_secs(2), user1.reqresp.next_event()).await;
+    assert!(
+        after_unmute.is_ok(),
+        "Expected request/response event after unmute"
+    );
+
+    cancel.cancel();
+    tasks.wait().await;
+
     Ok(())
 }
 
