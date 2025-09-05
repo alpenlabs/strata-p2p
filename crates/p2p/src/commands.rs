@@ -1,5 +1,11 @@
 //! Commands for P2P implementation from operator implementation.
 
+#[cfg(all(
+    any(feature = "gossipsub", feature = "request-response"),
+    not(feature = "byos")
+))]
+use std::fmt;
+
 use libp2p::Multiaddr;
 #[cfg(not(feature = "byos"))]
 use libp2p::PeerId;
@@ -11,12 +17,12 @@ use tokio::sync::oneshot;
     any(feature = "gossipsub", feature = "request-response"),
     not(feature = "byos")
 ))]
-use crate::score_manager::PeerScore;
+use crate::score_manager::{AppPeerScore, PeerScore};
 #[cfg(all(
     any(feature = "gossipsub", feature = "request-response"),
     not(feature = "byos")
 ))]
-use crate::validator::{Action, PenaltyType};
+use crate::validator::Action;
 /// Moderation action to apply to a peer.
 #[derive(Debug)]
 pub enum UnpenaltyType {
@@ -73,30 +79,6 @@ pub enum Command {
         response_sender: oneshot::Sender<PeerScore>,
     },
 
-    /// Apply a penalty to a peer.
-    #[cfg(all(
-        any(feature = "gossipsub", feature = "request-response"),
-        not(feature = "byos")
-    ))]
-    PenaltyPeer {
-        /// Target peer's libp2p transport [`PeerId`].
-        target_transport_id: PeerId,
-        /// Penalty to apply.
-        action: PenaltyType,
-    },
-
-    /// Remove a penalty from a peer.
-    #[cfg(all(
-        any(feature = "gossipsub", feature = "request-response"),
-        not(feature = "byos")
-    ))]
-    UnpenaltyPeer {
-        /// Target peer's libp2p transport [`PeerId`].
-        target_transport_id: PeerId,
-        /// Action to perform.
-        action: UnpenaltyType,
-    },
-
     /// Recalculate application scores for a peer using the validator.
     #[cfg(all(
         any(feature = "gossipsub", feature = "request-response"),
@@ -106,7 +88,9 @@ pub enum Command {
         /// Target peer's libp2p transport [`PeerId`].
         target_transport_id: PeerId,
         /// Action type (Penalty/Unpenalty types)
-        action: Action,
+        action: Option<Action>,
+        /// Function which return new score.
+        callback: Option<Callback>,
     },
 
     /// Directly queries P2P state (doesn't produce events).
@@ -181,5 +165,23 @@ pub enum QueryP2PStateCommand {
 impl From<QueryP2PStateCommand> for Command {
     fn from(v: QueryP2PStateCommand) -> Self {
         Self::QueryP2PState(v)
+    }
+}
+
+/// By default <dyn Fn> doesn't implement [`Debug`] trait. So we should create alias for it
+/// and implement [`Debug`] for this alias type and then use in our [`Command`].
+#[cfg(all(
+    any(feature = "gossipsub", feature = "request-response"),
+    not(feature = "byos")
+))]
+pub struct Callback(pub Box<dyn Fn(AppPeerScore) -> AppPeerScore + Send>);
+
+#[cfg(all(
+    any(feature = "gossipsub", feature = "request-response"),
+    not(feature = "byos")
+))]
+impl fmt::Debug for Callback {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "<closure>")
     }
 }

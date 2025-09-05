@@ -192,7 +192,7 @@ async fn test_reqresp_decay() -> anyhow::Result<()> {
     let before = rx.await.unwrap();
     info!(score=?before, "score before decay queried");
     assert!(
-        before.req_resp_app_score < 0.0,
+        before.app_score.req_resp_app_score < 0.0,
         "expected negative score, got {:?}",
         before
     );
@@ -210,7 +210,7 @@ async fn test_reqresp_decay() -> anyhow::Result<()> {
     let after = rx.await.expect("peer score after decay");
     info!(score=?after, "score after decay queried");
     assert!(
-        after.req_resp_app_score > -3.0,
+        after.app_score.req_resp_app_score > -3.0,
         "expected increased score, got {:?}",
         after
     );
@@ -229,7 +229,7 @@ async fn test_reqresp_decay() -> anyhow::Result<()> {
     let after = rx.await.expect("peer score after decay");
     info!(score=?after, "score after 4 seconds decay");
     assert!(
-        after.req_resp_app_score == 0.0,
+        after.app_score.req_resp_app_score == 0.0,
         "expected 0 got {:?}",
         after
     );
@@ -293,12 +293,12 @@ async fn test_reqresp_mute_then_unmute() -> anyhow::Result<()> {
         "Peer should be muted and produce no events"
     );
 
-    // Unmute must be performed by the receiver (user1) who applied the mute against sender (user0)
     user1
         .command
-        .send_command(Command::UnpenaltyPeer {
+        .send_command(Command::SetScore {
             target_transport_id: user0.peer_id,
-            action: UnpenaltyType::UnmuteRequestResponse,
+            action: Some(Action::RemovePenalty(UnpenaltyType::UnmuteRequestResponse)),
+            callback: None, // no score recalculation for this test
         })
         .await;
 
