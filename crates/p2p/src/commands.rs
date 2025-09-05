@@ -178,7 +178,7 @@ impl From<QueryP2PStateCommand> for Command {
     }
 }
 
-/// By default <dyn Fn> doesn't implement [`Debug`] trait. So we should create alias for it
+/// By default [`dyn Fn`] doesn't implement [`Debug`] trait. So we should create alias for it
 /// and implement [`Debug`] for this alias type and then use in our [`Command`].
 #[cfg(all(
     any(feature = "gossipsub", feature = "request-response"),
