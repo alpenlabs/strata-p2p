@@ -69,6 +69,11 @@ use {
     libp2p::request_response::{self, Event as RequestResponseEvent},
 };
 
+#[cfg(all(
+    any(feature = "gossipsub", feature = "request-response"),
+    not(feature = "byos")
+))]
+use crate::commands::UnpenaltyType;
 use crate::commands::{Command, QueryP2PStateCommand};
 #[cfg(all(feature = "gossipsub", not(feature = "byos")))]
 use crate::score_manager::DEFAULT_GOSSIP_APP_SCORE;
@@ -94,8 +99,8 @@ use crate::swarm::{dial_manager::DialManager, setup::events::SetupBehaviourEvent
 use crate::{
     score_manager::{PeerScore, ScoreManager},
     validator::{
-        DEFAULT_BAN_PERIOD, DefaultP2PValidator, Message as MessageType, PenaltyPeerStorage,
-        PenaltyType, Validator,
+        Action, DEFAULT_BAN_PERIOD, DefaultP2PValidator, Message as MessageType,
+        PenaltyPeerStorage, PenaltyType, Validator,
     },
 };
 
@@ -869,7 +874,6 @@ impl P2P {
     ))]
     async fn apply_penalty(&mut self, peer_id: &PeerId, penalty: PenaltyType) {
         match penalty {
-            PenaltyType::Ignore => (),
             #[cfg(feature = "gossipsub")]
             PenaltyType::MuteGossip(time_amount) => {
                 let until = SystemTime::now() + time_amount;
@@ -926,6 +930,8 @@ impl P2P {
         not(feature = "byos")
     ))]
     fn get_all_scores(&self, peer_id: &PeerId) -> PeerScore {
+        use crate::score_manager::AppPeerScore;
+
         #[cfg(feature = "gossipsub")]
         let (gossipsub_internal_score, gossipsub_app_score) = {
             let internal_score = self
@@ -950,12 +956,14 @@ impl P2P {
             .unwrap_or(DEFAULT_REQ_RESP_APP_SCORE);
 
         PeerScore {
+            app_score: AppPeerScore {
+                #[cfg(feature = "gossipsub")]
+                gossipsub_app_score,
+                #[cfg(feature = "request-response")]
+                req_resp_app_score,
+            },
             #[cfg(feature = "gossipsub")]
             gossipsub_internal_score,
-            #[cfg(feature = "gossipsub")]
-            gossipsub_app_score,
-            #[cfg(feature = "request-response")]
-            req_resp_app_score,
         }
     }
 
@@ -1146,7 +1154,10 @@ impl P2P {
         {
             let elapsed = self.get_elapsed_decay_time(&propagation_source);
             if !elapsed.is_zero() {
-                let current_score = self.get_all_scores(&propagation_source).gossipsub_app_score;
+                let current_score = self
+                    .get_all_scores(&propagation_source)
+                    .app_score
+                    .gossipsub_app_score;
                 let new_score = self.validator.apply_decay(&current_score, &elapsed);
                 self.score_manager
                     .update_gossipsub_app_score(&propagation_source, new_score);
@@ -1406,7 +1417,73 @@ impl P2P {
                 Ok(())
             }
 
-            // NOTE: BYOS uses an allowlist, making scoring system useless.
+            #[cfg(all(
+                any(feature = "gossipsub", feature = "request-response"),
+                not(feature = "byos")
+            ))]
+            Command::SetScore {
+                target_transport_id,
+                action,
+                callback,
+            } => {
+                if let Some(action_type) = action {
+                    match action_type {
+                        Action::ApplyPenalty(penalty) => {
+                            info!(%target_transport_id, ?penalty, "Applying penalty to peer");
+                            self.apply_penalty(&target_transport_id, penalty).await;
+                        }
+                        Action::RemovePenalty(unpenalty) => {
+                            info!(%target_transport_id, ?unpenalty, "Removing penalty from peer");
+                            match unpenalty {
+                                UnpenaltyType::Unban => {
+                                    info!(%target_transport_id, "Unbanning peer");
+                                    self.peer_penalty_storage.unban_peer(&target_transport_id);
+                                }
+                                #[cfg(all(feature = "gossipsub", feature = "request-response"))]
+                                UnpenaltyType::UnmuteBoth => {
+                                    info!(%target_transport_id, "Unmuting peer for both protocols");
+                                    self.peer_penalty_storage
+                                        .unmute_peer_gossip(&target_transport_id);
+                                    self.peer_penalty_storage
+                                        .unmute_peer_req_resp(&target_transport_id);
+                                }
+                                #[cfg(feature = "gossipsub")]
+                                UnpenaltyType::UnmuteGossipsub => {
+                                    info!(%target_transport_id, "Unmuting peer for gossipsub");
+                                    self.peer_penalty_storage
+                                        .unmute_peer_gossip(&target_transport_id);
+                                }
+                                #[cfg(feature = "request-response")]
+                                UnpenaltyType::UnmuteRequestResponse => {
+                                    info!(%target_transport_id, "Unmuting peer for request-response");
+                                    self.peer_penalty_storage
+                                        .unmute_peer_req_resp(&target_transport_id);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if let Some(cb) = callback {
+                    let current_scores = self.get_all_scores(&target_transport_id).app_score;
+                    let new_scores = (cb.0)(current_scores);
+                    info!(%target_transport_id, ?new_scores, "New score calculated");
+
+                    #[cfg(feature = "gossipsub")]
+                    self.score_manager.update_gossipsub_app_score(
+                        &target_transport_id,
+                        new_scores.gossipsub_app_score,
+                    );
+
+                    #[cfg(feature = "request-response")]
+                    self.score_manager.update_req_resp_app_score(
+                        &target_transport_id,
+                        new_scores.req_resp_app_score,
+                    );
+                }
+                Ok(())
+            }
+
             #[cfg(all(
                 any(feature = "gossipsub", feature = "request-response"),
                 not(feature = "byos")
@@ -1423,19 +1500,19 @@ impl P2P {
                     {
                         let new_score = self
                             .validator
-                            .apply_decay(&score.gossipsub_app_score, &elapsed);
+                            .apply_decay(&score.app_score.gossipsub_app_score, &elapsed);
                         self.score_manager
                             .update_gossipsub_app_score(&peer_id, new_score);
-                        score.gossipsub_app_score = new_score;
+                        score.app_score.gossipsub_app_score = new_score;
                     }
                     #[cfg(feature = "request-response")]
                     {
                         let updated_score = self
                             .validator
-                            .apply_decay(&score.req_resp_app_score, &elapsed);
+                            .apply_decay(&score.app_score.req_resp_app_score, &elapsed);
                         self.score_manager
                             .update_req_resp_app_score(&peer_id, updated_score);
-                        score.req_resp_app_score = updated_score;
+                        score.app_score.req_resp_app_score = updated_score;
                     }
                 }
 
@@ -1738,7 +1815,7 @@ impl P2P {
     async fn decay_request_response_score(&mut self, peer_id: &PeerId) {
         let elapsed = self.get_elapsed_decay_time(peer_id);
         if !elapsed.is_zero() {
-            let current_score = self.get_all_scores(peer_id).req_resp_app_score;
+            let current_score = self.get_all_scores(peer_id).app_score.req_resp_app_score;
             let updated_score = self.validator.apply_decay(&current_score, &elapsed);
             self.score_manager
                 .update_req_resp_app_score(peer_id, updated_score);
