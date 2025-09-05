@@ -105,7 +105,7 @@ pub enum Command {
     SetScore {
         /// Target peer's libp2p transport [`PeerId`].
         target_transport_id: PeerId,
-        /// Which score category to update (penalty or unpenalty flow).
+        /// Action type (Penalty/Unpenalty types)
         action: Action,
     },
 
