@@ -69,6 +69,7 @@ use {
     libp2p::request_response::{self, Event as RequestResponseEvent},
 };
 
+// NOTE: BYOS uses an allowlist, making scoring system useless.
 #[cfg(all(
     any(feature = "gossipsub", feature = "request-response"),
     not(feature = "byos")
@@ -1417,6 +1418,7 @@ impl P2P {
                 Ok(())
             }
 
+            // NOTE: BYOS uses an allowlist, making scoring system useless.
             #[cfg(all(
                 any(feature = "gossipsub", feature = "request-response"),
                 not(feature = "byos")
@@ -1584,6 +1586,7 @@ impl P2P {
         }
     }
 
+    // NOTE: BYOS uses an allowlist, making scoring system useless.
     #[cfg(all(
         any(feature = "gossipsub", feature = "request-response"),
         not(feature = "byos")

@@ -1,5 +1,6 @@
 //! Commands for P2P implementation from operator implementation.
 
+// NOTE: BYOS uses an allowlist, making scoring system useless.
 #[cfg(all(
     any(feature = "gossipsub", feature = "request-response"),
     not(feature = "byos")
@@ -17,12 +18,10 @@ use tokio::sync::oneshot;
     any(feature = "gossipsub", feature = "request-response"),
     not(feature = "byos")
 ))]
-use crate::score_manager::{AppPeerScore, PeerScore};
-#[cfg(all(
-    any(feature = "gossipsub", feature = "request-response"),
-    not(feature = "byos")
-))]
-use crate::validator::Action;
+use crate::{
+    score_manager::{AppPeerScore, PeerScore},
+    validator::Action,
+};
 
 /// Moderation action to apply to a peer.
 #[cfg(all(

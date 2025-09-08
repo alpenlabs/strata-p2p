@@ -51,6 +51,7 @@ pub enum PenaltyType {
 }
 
 /// Action type for peer moderation operations.
+/// NOTE: BYOS uses an allowlist, making scoring system useless.
 #[cfg(all(
     any(feature = "gossipsub", feature = "request-response"),
     not(feature = "byos")
