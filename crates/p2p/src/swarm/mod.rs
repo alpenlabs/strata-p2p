@@ -1595,27 +1595,27 @@ impl P2P {
         match unpenalty {
             UnpenaltyType::Unban => {
                 info!(%target_transport_id, "Unbanning peer");
-                self.peer_penalty_storage.unban_peer(&target_transport_id);
+                self.peer_penalty_storage.unban_peer(target_transport_id);
             }
             #[cfg(all(feature = "gossipsub", feature = "request-response"))]
             UnpenaltyType::UnmuteBoth => {
                 info!(%target_transport_id, "Unmuting peer for both protocols");
                 self.peer_penalty_storage
-                    .unmute_peer_gossip(&target_transport_id);
+                    .unmute_peer_gossip(target_transport_id);
                 self.peer_penalty_storage
-                    .unmute_peer_req_resp(&target_transport_id);
+                    .unmute_peer_req_resp(target_transport_id);
             }
             #[cfg(feature = "gossipsub")]
             UnpenaltyType::UnmuteGossipsub => {
                 info!(%target_transport_id, "Unmuting peer for gossipsub");
                 self.peer_penalty_storage
-                    .unmute_peer_gossip(&target_transport_id);
+                    .unmute_peer_gossip(target_transport_id);
             }
             #[cfg(feature = "request-response")]
             UnpenaltyType::UnmuteRequestResponse => {
                 info!(%target_transport_id, "Unmuting peer for request-response");
                 self.peer_penalty_storage
-                    .unmute_peer_req_resp(&target_transport_id);
+                    .unmute_peer_req_resp(target_transport_id);
             }
         }
     }
