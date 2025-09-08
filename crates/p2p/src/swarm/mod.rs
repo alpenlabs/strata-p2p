@@ -1436,7 +1436,7 @@ impl P2P {
                         }
                         Action::RemovePenalty(unpenalty) => {
                             info!(%target_transport_id, ?unpenalty, "Removing penalty from peer");
-                            self.remove_penalty(unpenalty, target_transport_id).await;
+                            self.remove_penalty(&target_transport_id, unpenalty).await;
                         }
                     }
                 }
@@ -1591,7 +1591,7 @@ impl P2P {
         any(feature = "gossipsub", feature = "request-response"),
         not(feature = "byos")
     ))]
-    async fn remove_penalty(&mut self, unpenalty: UnpenaltyType, target_transport_id: PeerId) {
+    async fn remove_penalty(&mut self, target_transport_id: &PeerId, unpenalty: UnpenaltyType) {
         match unpenalty {
             UnpenaltyType::Unban => {
                 info!(%target_transport_id, "Unbanning peer");
