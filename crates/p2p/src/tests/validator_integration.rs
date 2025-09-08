@@ -70,11 +70,6 @@ impl Validator for TestValidator {
         info!(?score, ?time_since_last_decay, "apply_decay");
         (score + time_since_last_decay.as_secs_f64()).min(0.0)
     }
-
-    #[allow(unused_variables)]
-    fn get_updated_score(&self, peer_score: &PeerScore, action: &Action) -> PeerScore {
-        peer_score.clone()
-    }
 }
 
 #[cfg(feature = "gossipsub")]

@@ -109,9 +109,6 @@ pub trait Validator: Debug + Send + Sync + 'static {
 
     /// Applies score decay based on time since the last decay.
     fn apply_decay(&self, score: &f64, time_since_last_decay: &Duration) -> f64;
-
-    /// Returns the updated [`PeerScore`] to apply a [`Action`].
-    fn get_updated_score(&self, peer_score: &PeerScore, action: &Action) -> PeerScore;
 }
 
 /// Default validator.
@@ -134,11 +131,6 @@ impl Validator for DefaultP2PValidator {
         let decay_increment = DEFAULT_DECAY_RATE_PER_SEC * delta_seconds;
 
         (score + decay_increment).min(0.0)
-    }
-
-    #[allow(unused_variables)]
-    fn get_updated_score(&self, peer_score: &PeerScore, action: &Action) -> PeerScore {
-        peer_score.clone()
     }
 }
 
