@@ -1455,6 +1455,8 @@ impl P2P {
                         &target_transport_id,
                         new_scores.req_resp_app_score,
                     );
+                    let cur_score = self.get_all_scores(&target_transport_id).app_score;
+                    info!(%target_transport_id, ?cur_score, "updated score");
                 }
                 Ok(())
             }

@@ -14,9 +14,10 @@ use super::common::{Setup, init_tracing};
 use crate::validator::{Action, Message, PenaltyType, Validator};
 #[cfg(feature = "gossipsub")]
 use crate::{commands::GossipCommand, events::GossipEvent};
+#[cfg(feature = "request-response")]
 use crate::{
-    commands::{Command, QueryP2PStateCommand},
-    score_manager::PeerScore,
+    commands::{Callback, Command, QueryP2PStateCommand},
+    score_manager::{AppPeerScore, PeerScore},
 };
 #[cfg(feature = "request-response")]
 use crate::{
@@ -311,6 +312,53 @@ async fn test_reqresp_mute_then_unmute() -> anyhow::Result<()> {
     assert!(
         after_unmute.is_ok(),
         "Expected request/response event after unmute"
+    );
+
+    // test callback
+    let (tx_before, rx_before) = oneshot::channel();
+    user1
+        .command
+        .send_command(Command::GetPeerScore {
+            peer_id: user0.peer_id,
+            response_sender: tx_before,
+        })
+        .await;
+    let before = rx_before.await.expect("peer score before callback");
+
+    println!("{:?}", before.app_score);
+
+    user1
+        .command
+        .send_command(Command::SetScore {
+            target_transport_id: user0.peer_id,
+            action: None, // only test the callback here
+            callback: Some(Callback(Box::new(move |mut s: AppPeerScore| {
+                s.req_resp_app_score -= 100.0;
+                s
+            }))),
+        })
+        .await;
+
+    sleep(Duration::from_millis(800)).await;
+
+    let (tx_after, rx_after) = oneshot::channel();
+    user1
+        .command
+        .send_command(Command::GetPeerScore {
+            peer_id: user0.peer_id,
+            response_sender: tx_after,
+        })
+        .await;
+    let after = rx_after.await.expect("peer score after callback");
+
+    println!("{:?}", after.app_score);
+
+    let expected = before.app_score.req_resp_app_score - 100.0;
+    assert!(
+        (after.app_score.req_resp_app_score - expected).abs() < 1.0,
+        "expected around {:.3}, got {:.3}",
+        expected,
+        after.app_score.req_resp_app_score
     );
 
     cancel.cancel();
