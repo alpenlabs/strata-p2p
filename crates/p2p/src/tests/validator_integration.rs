@@ -326,8 +326,6 @@ async fn test_reqresp_mute_then_unmute() -> anyhow::Result<()> {
         .await;
     let before = rx_before.await.expect("peer score before callback");
 
-    println!("{:?}", before.app_score);
-
     user1
         .command
         .send_command(Command::SetScore {
@@ -351,8 +349,6 @@ async fn test_reqresp_mute_then_unmute() -> anyhow::Result<()> {
         })
         .await;
     let after = rx_after.await.expect("peer score after callback");
-
-    println!("{:?}", after.app_score);
 
     let expected = before.app_score.req_resp_app_score - 100.0;
     assert!(
