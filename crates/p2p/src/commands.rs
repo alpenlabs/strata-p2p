@@ -98,7 +98,7 @@ pub enum Command {
         target_transport_id: PeerId,
         /// Action type (Penalty/Unpenalty types)
         action: Option<Action>,
-        /// Function which return new score.
+        /// Function which returns new score.
         callback: Option<Callback>,
     },
 
