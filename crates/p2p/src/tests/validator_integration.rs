@@ -10,19 +10,20 @@ use tokio::{
 use tracing::info;
 
 use super::common::{Setup, init_tracing};
-#[cfg(any(feature = "gossipsub", feature = "request-response"))]
-use crate::validator::{Action, Message, PenaltyType, Validator};
+use crate::score_manager::PeerScore;
 #[cfg(feature = "gossipsub")]
 use crate::{commands::GossipCommand, events::GossipEvent};
 #[cfg(feature = "request-response")]
 use crate::{
-    commands::{Callback, Command, QueryP2PStateCommand},
-    score_manager::{AppPeerScore, PeerScore},
-};
-#[cfg(feature = "request-response")]
-use crate::{
-    commands::{RequestResponseCommand, UnpenaltyType},
+    commands::{Callback, RequestResponseCommand, UnpenaltyType},
     events::ReqRespEvent,
+    score_manager::AppPeerScore,
+    validator::Action,
+};
+#[cfg(any(feature = "gossipsub", feature = "request-response"))]
+use crate::{
+    commands::{Command, QueryP2PStateCommand},
+    validator::{Message, PenaltyType, Validator},
 };
 #[derive(Debug, Default, Clone)]
 struct TestValidator;
