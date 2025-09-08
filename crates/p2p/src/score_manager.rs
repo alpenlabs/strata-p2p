@@ -96,6 +96,16 @@ impl ScoreManager {
 /// All scores for a peer.
 #[derive(Debug, Clone, Default)]
 pub struct PeerScore {
+    /// Peer's app scores.
+    pub app_score: AppPeerScore,
+    /// Gossipsub internal score.
+    #[cfg(feature = "gossipsub")]
+    pub gossipsub_internal_score: f64,
+}
+
+/// Peer's app scores.
+#[derive(Debug, Clone, Default)]
+pub struct AppPeerScore {
     /// Gossipsub application score.
     #[cfg(feature = "gossipsub")]
     pub gossipsub_app_score: f64,
@@ -103,8 +113,4 @@ pub struct PeerScore {
     /// Request-response application score.
     #[cfg(feature = "request-response")]
     pub req_resp_app_score: f64,
-
-    /// Gossipsub internal score.
-    #[cfg(feature = "gossipsub")]
-    pub gossipsub_internal_score: f64,
 }

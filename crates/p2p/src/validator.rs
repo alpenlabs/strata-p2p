@@ -9,7 +9,7 @@ use std::{
 
 use libp2p::identity::PeerId;
 
-use crate::score_manager::PeerScore;
+use crate::{commands::UnpenaltyType, score_manager::PeerScore};
 
 /// Default ban period for peer misbehavior. Hardcoded to 30 days.
 pub const DEFAULT_BAN_PERIOD: Duration = Duration::from_secs(60 * 60 * 24 * 30);
@@ -37,8 +37,6 @@ pub enum Message {
 /// Penalty types for peer misbehavior.
 #[derive(Debug)]
 pub enum PenaltyType {
-    /// No action taken.
-    Ignore,
     /// Mute gossipsub messages for duration.
     #[cfg(feature = "gossipsub")]
     MuteGossip(Duration),
@@ -50,6 +48,20 @@ pub enum PenaltyType {
     MuteBoth(Duration),
     /// Ban peer (None = permanent, Some = temporary).
     Ban(Option<Duration>),
+}
+
+/// Action type for peer moderation operations.
+/// NOTE: BYOS uses an allowlist, making scoring system useless.
+#[cfg(all(
+    any(feature = "gossipsub", feature = "request-response"),
+    not(feature = "byos")
+))]
+#[derive(Debug)]
+pub enum Action {
+    /// Apply a penalty to a peer.
+    ApplyPenalty(PenaltyType),
+    /// Remove a penalty from a peer.
+    RemovePenalty(UnpenaltyType),
 }
 
 /// Penalty information for a peer.
@@ -230,5 +242,28 @@ impl PenaltyPeerStorage {
 
         penalty.ban_until = Some(until);
         Ok(())
+    }
+
+    /// Removes an active ban from the peer, if any.
+    pub fn unban_peer(&mut self, peer_id: &PeerId) {
+        if let Some(penalty) = self.penalties.get_mut(peer_id) {
+            penalty.ban_until = None;
+        }
+    }
+
+    /// Removes an active gossipsub mute from the peer, if any.
+    #[cfg(feature = "gossipsub")]
+    pub fn unmute_peer_gossip(&mut self, peer_id: &PeerId) {
+        if let Some(penalty) = self.penalties.get_mut(peer_id) {
+            penalty.mute_gossip_until = None;
+        }
+    }
+
+    /// Removes an active request/response mute from the peer, if any.
+    #[cfg(feature = "request-response")]
+    pub fn unmute_peer_req_resp(&mut self, peer_id: &PeerId) {
+        if let Some(penalty) = self.penalties.get_mut(peer_id) {
+            penalty.mute_req_resp_until = None;
+        }
     }
 }

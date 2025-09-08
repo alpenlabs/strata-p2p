@@ -1,5 +1,12 @@
 //! Commands for P2P implementation from operator implementation.
 
+// NOTE: BYOS uses an allowlist, making scoring system useless.
+#[cfg(all(
+    any(feature = "gossipsub", feature = "request-response"),
+    not(feature = "byos")
+))]
+use std::fmt;
+
 use libp2p::Multiaddr;
 #[cfg(not(feature = "byos"))]
 use libp2p::PeerId;
@@ -11,7 +18,30 @@ use tokio::sync::oneshot;
     any(feature = "gossipsub", feature = "request-response"),
     not(feature = "byos")
 ))]
-use crate::score_manager::PeerScore;
+use crate::{
+    score_manager::{AppPeerScore, PeerScore},
+    validator::Action,
+};
+
+/// Moderation action to apply to a peer.
+#[cfg(all(
+    any(feature = "gossipsub", feature = "request-response"),
+    not(feature = "byos")
+))]
+#[derive(Debug)]
+pub enum UnpenaltyType {
+    /// Remove an active ban.
+    Unban,
+    /// Remove an active mute on the gossipsub protocol.
+    #[cfg(feature = "gossipsub")]
+    UnmuteGossipsub,
+    /// Remove an active mute on the request-response protocol.
+    #[cfg(feature = "request-response")]
+    UnmuteRequestResponse,
+    /// Remove an active mute from both gossipsub and request-response.
+    #[cfg(all(feature = "gossipsub", feature = "request-response"))]
+    UnmuteBoth,
+}
 
 /// Commands that users can send to the P2P node.
 #[derive(Debug)]
@@ -51,6 +81,25 @@ pub enum Command {
         peer_id: PeerId,
         /// Channel to send the response back.
         response_sender: oneshot::Sender<PeerScore>,
+    },
+
+    /// Applies a moderation action to a peer (penalty or penalty removal),
+    /// and optionally recalculates its application score using a callback.
+    ///
+    /// The `action` field specifies a predefined moderation operation,
+    /// while the `callback` allows injecting a custom score function that
+    /// transforms the current [`AppPeerScore`] into a new one.
+    #[cfg(all(
+        any(feature = "gossipsub", feature = "request-response"),
+        not(feature = "byos")
+    ))]
+    SetScore {
+        /// Target peer's libp2p transport [`PeerId`].
+        target_transport_id: PeerId,
+        /// Action type (Penalty/Unpenalty types)
+        action: Option<Action>,
+        /// Function which return new score.
+        callback: Option<Callback>,
     },
 
     /// Directly queries P2P state (doesn't produce events).
@@ -125,5 +174,23 @@ pub enum QueryP2PStateCommand {
 impl From<QueryP2PStateCommand> for Command {
     fn from(v: QueryP2PStateCommand) -> Self {
         Self::QueryP2PState(v)
+    }
+}
+
+/// By default [`dyn Fn`] doesn't implement [`Debug`] trait. So we should create alias for it
+/// and implement [`Debug`] for this alias type and then use in our [`Command`].
+#[cfg(all(
+    any(feature = "gossipsub", feature = "request-response"),
+    not(feature = "byos")
+))]
+pub struct Callback(pub Box<dyn Fn(AppPeerScore) -> AppPeerScore + Send>);
+
+#[cfg(all(
+    any(feature = "gossipsub", feature = "request-response"),
+    not(feature = "byos")
+))]
+impl fmt::Debug for Callback {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "<closure>")
     }
 }
