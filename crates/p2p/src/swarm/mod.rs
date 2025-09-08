@@ -1584,6 +1584,10 @@ impl P2P {
         }
     }
 
+    #[cfg(all(
+        any(feature = "gossipsub", feature = "request-response"),
+        not(feature = "byos")
+    ))]
     async fn remove_penalty(&mut self, unpenalty: UnpenaltyType, target_transport_id: PeerId) {
         match unpenalty {
             UnpenaltyType::Unban => {
