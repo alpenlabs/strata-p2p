@@ -26,7 +26,7 @@ use libp2p::StreamProtocol;
 #[cfg(feature = "byos")]
 use libp2p::identity::PublicKey;
 use libp2p::{
-    Multiaddr, PeerId, Swarm, SwarmBuilder, Transport,
+    Multiaddr, PeerId, StreamProtocol, Swarm, SwarmBuilder, Transport,
     connection_limits::ConnectionLimits,
     core::{ConnectedPoint, muxing::StreamMuxerBox, transport::MemoryTransport},
     identity::Keypair,
@@ -193,6 +193,13 @@ pub const DEFAULT_REQ_RESP_EVENT_BUFFER_SIZE: usize = 64;
 /// Default buffer size for gossip command channels.
 #[cfg(feature = "gossipsub")]
 pub const DEFAULT_GOSSIP_COMMAND_BUFFER_SIZE: usize = 64;
+
+/// All supported gossipsub versions.
+pub const GOSSIPSUB_VERSIONS: [StreamProtocol; 3] = [
+    StreamProtocol::new("/meshsub/1.2.0"),
+    StreamProtocol::new("/meshsub/1.1.0"),
+    StreamProtocol::new("/meshsub/1.0.0"),
+];
 
 /// Configuration options for [`P2P`].
 #[derive(Debug, Clone)]
@@ -1105,6 +1112,40 @@ impl P2P {
             }
             #[cfg(feature = "byos")]
             behavior::BehaviourEvent::Setup(event) => self.handle_setup_event(event).await,
+            BehaviourEvent::Identify(event) => match event {
+                libp2p::identify::Event::Received { peer_id, info, .. } => {
+                    #[cfg(feature = "gossipsub")]
+                    {
+                        let supports_gossip = info
+                            .protocols
+                            .iter()
+                            .any(|p| GOSSIPSUB_VERSIONS.contains(p));
+                        if !supports_gossip {
+                            info!(%peer_id, "Peer does not support gossipsub. Disconnecting.");
+                            let _ = self.swarm.disconnect_peer_id(peer_id);
+                            return Ok(());
+                        }
+                    }
+
+                    #[cfg(feature = "request-response")]
+                    {
+                        let reqresp_name: &'static str = match self.config.protocol_name.as_ref() {
+                            Some(name) => Box::leak(name.clone().into_boxed_str()),
+                            None => PROTOCOL_NAME,
+                        };
+                        let reqresp_proto = StreamProtocol::new(reqresp_name);
+                        let supports_reqresp = info.protocols.iter().any(|p| p == &reqresp_proto);
+                        if !supports_reqresp {
+                            info!(%peer_id, "Peer does not support request-response. Disconnecting.");
+                            let _ = self.swarm.disconnect_peer_id(peer_id);
+                            return Ok(());
+                        }
+                    }
+
+                    Ok(())
+                }
+                _ => Ok(()),
+            },
             _ => Ok(()),
         }
     }
@@ -1119,6 +1160,11 @@ impl P2P {
             } => {
                 self.handle_gossip_msg(propagation_source, message_id, message)
                     .await
+            }
+            GossipsubEvent::GossipsubNotSupported { peer_id } => {
+                info!(%peer_id, "Peer does not support gossipsub. Disconnecting.");
+                let _ = self.swarm.disconnect_peer_id(peer_id);
+                Ok(())
             }
             _ => Ok(()),
         }
@@ -1788,7 +1834,14 @@ impl P2P {
                 error,
                 ..
             } => {
-                error!(%peer, %error, %request_id, "Outbound failure")
+                error!(%peer, %error, %request_id, "Outbound failure");
+                match error {
+                    request_response::OutboundFailure::UnsupportedProtocols => {
+                        info!(%peer, "Peer does not support gossipsub. Disconnecting.");
+                        let _ = self.swarm.disconnect_peer_id(peer);
+                    }
+                    _ => {}
+                }
             }
             RequestResponseEvent::InboundFailure {
                 peer,
