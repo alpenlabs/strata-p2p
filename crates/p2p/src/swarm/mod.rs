@@ -1129,12 +1129,13 @@ impl P2P {
 
                     #[cfg(feature = "request-response")]
                     {
-                        let reqresp_name: &'static str = match self.config.protocol_name.as_ref() {
-                            Some(name) => Box::leak(name.clone().into_boxed_str()),
-                            None => PROTOCOL_NAME,
-                        };
-                        let reqresp_proto = StreamProtocol::new(reqresp_name);
-                        let supports_reqresp = info.protocols.iter().any(|p| p == &reqresp_proto);
+                        let reqresp_name = self
+                            .config
+                            .protocol_name
+                            .as_deref()
+                            .unwrap_or(PROTOCOL_NAME);
+                        let supports_reqresp =
+                            info.protocols.iter().any(|p| p.to_string() == reqresp_name);
                         if !supports_reqresp {
                             info!(%peer_id, "Peer does not support request-response. Disconnecting.");
                             let _ = self.swarm.disconnect_peer_id(peer_id);
