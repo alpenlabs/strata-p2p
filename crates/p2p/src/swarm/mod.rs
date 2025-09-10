@@ -92,7 +92,10 @@ use crate::swarm::codec_raw::{set_request_max_bytes, set_response_max_bytes};
 #[cfg(feature = "gossipsub")]
 use crate::swarm::message::{ProtocolId, gossipsub::GossipSubProtocolVersion};
 #[cfg(feature = "byos")]
-use crate::swarm::{dial_manager::DialManager, setup::events::SetupBehaviourEvent};
+use crate::swarm::{
+    dial_manager::DialManager,
+    setup::{events::SetupBehaviourEvent, upgrade::SETUP_PROTOCOL_NAME},
+};
 #[cfg(all(
     any(feature = "gossipsub", feature = "request-response"),
     not(feature = "byos")
@@ -1143,6 +1146,18 @@ impl P2P {
                         }
                     }
 
+                    #[cfg(feature = "byos")]
+                    {
+                        let supports_setup = info
+                            .protocols
+                            .inter()
+                            .any(|p| p.to_string() == SETUP_PROTOCOL_NAME);
+                        if !supports_setup {
+                            info!(%peer_id, "Peer does not support setup. Disconnecting.");
+                            let _ = self.swarm.disconnect_peer_id(peer_id);
+                            return Ok(());
+                        }
+                    }
                     Ok(())
                 }
                 _ => Ok(()),
