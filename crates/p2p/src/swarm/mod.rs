@@ -129,6 +129,12 @@ mod codec_raw;
 pub mod dial_manager;
 pub mod errors;
 pub mod handle;
+#[cfg(any(
+    feature = "byos",
+    feature = "gossipsub",
+    feature = "request-response",
+    feature = "kad"
+))]
 pub mod message;
 #[cfg(feature = "byos")]
 pub mod setup;

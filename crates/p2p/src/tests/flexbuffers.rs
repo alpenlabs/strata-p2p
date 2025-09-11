@@ -1,9 +1,12 @@
 //! Tests for flexbuffers serialization and deserialization of SignedMessages.
 
-#![cfg(all(feature = "gossipsub", feature = "byos"))]
-
+#[cfg(all(feature = "byos", feature = "gossipsub"))]
 use asynchronous_codec::{Decoder, Encoder};
+#[cfg(all(feature = "byos", feature = "gossipsub"))]
 use bytes::BytesMut;
+#[cfg(all(feature = "byos", feature = "gossipsub"))]
+use crate::swarm::{setup::flexbuffers_codec::FlexbuffersCodec};
+
 use libp2p::identity::Keypair;
 use tracing::{error, info};
 
@@ -16,8 +19,11 @@ use crate::swarm::message::request_response::{
     RequestMessage, RequestResponseProtocolVersion, ResponseMessage, SignedRequestMessage,
     SignedResponseMessage,
 };
+
+#[cfg(any(feature="gossipsub",feature="request-response"))]
+use crate::swarm::message::ProtocolId;
+
 use crate::{
-    swarm::{message::ProtocolId, setup::flexbuffers_codec::FlexbuffersCodec},
     tests::common::init_tracing,
 };
 
@@ -210,6 +216,58 @@ async fn test_signed_response_message_serialization() {
 
     assert_eq!(
         signed_msg, deserialized,
+        "response messages should be identical"
+    );
+}
+
+#[cfg(feature = "kad")]
+#[tokio::test]
+async fn test_signed_dht_record_serialization() {
+    use crate::swarm::message::dht_record::{RecordData, SignedRecord};
+
+    init_tracing();
+    let keypair = Keypair::generate_ed25519();
+    let public_key = keypair.public();
+
+    let dht_record = RecordData::new(
+        public_key.clone(),
+        vec![
+            "/ip4/127.0.0.1".parse().unwrap(),
+            "/ip6/[::1]".parse().unwrap(),
+        ],
+    );
+
+    let signed_record = SignedRecord {
+        message: dht_record,
+        signature: [42u8; 64], // Test signature
+    };
+
+    info!(?signed_record, "original signed response message");
+
+    let serialized = match flexbuffers::to_vec(&signed_record) {
+        Ok(data) => {
+            info!(data_len = data.len(), "response serialization successful");
+            data
+        }
+        Err(e) => {
+            error!(?e, "response serialization failed");
+            return;
+        }
+    };
+
+    let deserialized: SignedRecord = match flexbuffers::from_slice(&serialized) {
+        Ok(msg) => {
+            info!("response deserialization successful");
+            msg
+        }
+        Err(e) => {
+            error!(?e, "response deserialization failed");
+            return;
+        }
+    };
+
+    assert_eq!(
+        signed_record, deserialized,
         "response messages should be identical"
     );
 }
