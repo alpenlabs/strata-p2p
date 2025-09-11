@@ -12,10 +12,10 @@ default = [
   "mem-conn-limits-rel",
 ]
 kad = ["libp2p/kad"]
-byos = ["dep:asynchronous-codec", "flexbuffers", "serde", "bytes"]
-gossipsub = ["libp2p/gossipsub", "flexbuffers", "serde"]
+byos = ["dep:asynchronous-codec", "dep:flexbuffers", "dep:serde", "dep:bytes"]
+gossipsub = ["libp2p/gossipsub", "dep:flexbuffers", "dep:serde"]
 quic = ["libp2p/quic"]
-request-response = ["libp2p/request-response", "flexbuffers", "serde"]
+request-response = ["libp2p/request-response", "dep:flexbuffers", "dep:serde"]
 mem-conn-limits-abs = ['libp2p/memory-connection-limits']
 mem-conn-limits-rel = ['libp2p/memory-connection-limits']
 
