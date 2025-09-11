@@ -10,7 +10,12 @@ pub mod swarm;
 ))]
 pub mod validator;
 
-#[cfg(any(feature = "gossipsub", feature = "request-response", feature = "byos"))]
+#[cfg(any(
+    feature = "gossipsub",
+    feature = "request-response",
+    feature = "byos",
+    feature = "kad"
+))]
 pub mod signer;
 
 #[cfg(all(

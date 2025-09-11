@@ -10,8 +10,10 @@ pub(crate) mod setup_invalid_signature;
 
 #[cfg(feature = "gossipsub")]
 pub(crate) mod gossipsub;
+
 #[cfg(feature = "gossipsub")]
 pub(crate) mod new_op;
+
 #[cfg(all(
     any(feature = "gossipsub", feature = "request-response"),
     not(feature = "byos")
@@ -24,7 +26,7 @@ pub(crate) mod quic;
 #[cfg(feature = "request-response")]
 pub(crate) mod request_response;
 
-#[cfg(any(feature = "gossipsub", feature = "request-response"))]
+#[cfg(any(feature = "kad", feature = "gossipsub", feature = "request-response"))]
 pub(crate) mod flexbuffers;
 
 #[cfg(feature = "kad")]
