@@ -22,11 +22,13 @@ pub struct RecordData {
     /// Protocol version.
     pub version: DHTProtocolVersion,
 
-    /// The application public key (Ed25519).
+    /// The public key (Ed25519).
     #[serde(with = "pubkey_serializer")]
     pub public_key: PublicKey,
+
     /// Multiaddresses.
     pub multiaddresses: Vec<Multiaddr>,
+
     /// Timestamp of message creation.
     pub date: u64,
 }
