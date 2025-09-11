@@ -228,7 +228,7 @@ async fn test_signed_dht_record_serialization() {
         public_key.clone(),
         vec![
             "/ip4/127.0.0.1".parse().unwrap(),
-            "/ip6/[::1]".parse().unwrap(),
+            "/ip6/::1/tcp/0".parse().unwrap(),
         ],
     );
 
