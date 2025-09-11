@@ -4,12 +4,11 @@
 use asynchronous_codec::{Decoder, Encoder};
 #[cfg(all(feature = "byos", feature = "gossipsub"))]
 use bytes::BytesMut;
-#[cfg(all(feature = "byos", feature = "gossipsub"))]
-use crate::swarm::{setup::flexbuffers_codec::FlexbuffersCodec};
-
 use libp2p::identity::Keypair;
 use tracing::{error, info};
 
+#[cfg(any(feature = "gossipsub", feature = "request-response"))]
+use crate::swarm::message::ProtocolId;
 #[cfg(feature = "gossipsub")]
 use crate::swarm::message::gossipsub::{
     GossipMessage, GossipSubProtocolVersion, SignedGossipsubMessage,
@@ -19,13 +18,9 @@ use crate::swarm::message::request_response::{
     RequestMessage, RequestResponseProtocolVersion, ResponseMessage, SignedRequestMessage,
     SignedResponseMessage,
 };
-
-#[cfg(any(feature="gossipsub",feature="request-response"))]
-use crate::swarm::message::ProtocolId;
-
-use crate::{
-    tests::common::init_tracing,
-};
+#[cfg(all(feature = "byos", feature = "gossipsub"))]
+use crate::swarm::setup::flexbuffers_codec::FlexbuffersCodec;
+use crate::tests::common::init_tracing;
 
 #[cfg(feature = "gossipsub")]
 #[tokio::test]
