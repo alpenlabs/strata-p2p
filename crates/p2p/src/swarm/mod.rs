@@ -21,12 +21,12 @@ use futures::StreamExt as _;
 #[cfg(not(all(feature = "gossipsub", feature = "request-response")))]
 use futures::future::pending;
 use handle::CommandHandle;
-#[cfg(feature = "kad")]
+#[cfg(any(feature = "gossipsub", feature = "kad"))]
 use libp2p::StreamProtocol;
 #[cfg(feature = "byos")]
 use libp2p::identity::PublicKey;
 use libp2p::{
-    Multiaddr, PeerId, StreamProtocol, Swarm, SwarmBuilder, Transport,
+    Multiaddr, PeerId, Swarm, SwarmBuilder, Transport,
     connection_limits::ConnectionLimits,
     core::{ConnectedPoint, muxing::StreamMuxerBox, transport::MemoryTransport},
     identity::Keypair,
@@ -198,6 +198,7 @@ pub const DEFAULT_REQ_RESP_EVENT_BUFFER_SIZE: usize = 64;
 pub const DEFAULT_GOSSIP_COMMAND_BUFFER_SIZE: usize = 64;
 
 /// All supported gossipsub versions.
+#[cfg(feature = "gossipsub")]
 pub const GOSSIPSUB_VERSIONS: [StreamProtocol; 3] = [
     StreamProtocol::new("/meshsub/1.2.0"),
     StreamProtocol::new("/meshsub/1.1.0"),
@@ -1115,53 +1116,55 @@ impl P2P {
             }
             #[cfg(feature = "byos")]
             behavior::BehaviourEvent::Setup(event) => self.handle_setup_event(event).await,
-            BehaviourEvent::Identify(event) => match event {
-                libp2p::identify::Event::Received { peer_id, info, .. } => {
-                    #[cfg(feature = "gossipsub")]
-                    {
-                        let supports_gossip = info
-                            .protocols
-                            .iter()
-                            .any(|p| GOSSIPSUB_VERSIONS.contains(p));
-                        if !supports_gossip {
-                            info!(%peer_id, "Peer does not support gossipsub. Disconnecting.");
-                            let _ = self.swarm.disconnect_peer_id(peer_id);
-                            return Ok(());
-                        }
+            #[cfg(any(feature = "gossipsub", feature = "request-response", feature = "byos"))]
+            BehaviourEvent::Identify(libp2p::identify::Event::Received {
+                peer_id, info, ..
+            }) => {
+                #[cfg(feature = "gossipsub")]
+                {
+                    let supports_gossip = info
+                        .protocols
+                        .iter()
+                        .any(|p| GOSSIPSUB_VERSIONS.contains(p));
+                    if !supports_gossip {
+                        info!(%peer_id, "Peer does not support gossipsub. Disconnecting.");
+                        let _ = self.swarm.disconnect_peer_id(peer_id);
+                        return Ok(());
                     }
-
-                    #[cfg(feature = "request-response")]
-                    {
-                        let reqresp_name = self
-                            .config
-                            .protocol_name
-                            .as_deref()
-                            .unwrap_or(PROTOCOL_NAME);
-                        let supports_reqresp =
-                            info.protocols.iter().any(|p| p.to_string() == reqresp_name);
-                        if !supports_reqresp {
-                            info!(%peer_id, "Peer does not support request-response. Disconnecting.");
-                            let _ = self.swarm.disconnect_peer_id(peer_id);
-                            return Ok(());
-                        }
-                    }
-
-                    #[cfg(feature = "byos")]
-                    {
-                        let supports_setup = info
-                            .protocols
-                            .inter()
-                            .any(|p| p.to_string() == SETUP_PROTOCOL_NAME);
-                        if !supports_setup {
-                            info!(%peer_id, "Peer does not support setup. Disconnecting.");
-                            let _ = self.swarm.disconnect_peer_id(peer_id);
-                            return Ok(());
-                        }
-                    }
-                    Ok(())
                 }
-                _ => Ok(()),
-            },
+
+                #[cfg(feature = "request-response")]
+                {
+                    let reqresp_name = self
+                        .config
+                        .protocol_name
+                        .as_deref()
+                        .unwrap_or(PROTOCOL_NAME);
+                    let supports_reqresp = info
+                        .protocols
+                        .iter()
+                        .any(|p| *p.to_string() == *reqresp_name);
+                    if !supports_reqresp {
+                        info!(%peer_id, "Peer does not support request-response. Disconnecting.");
+                        let _ = self.swarm.disconnect_peer_id(peer_id);
+                        return Ok(());
+                    }
+                }
+
+                #[cfg(feature = "byos")]
+                {
+                    let supports_setup = info
+                        .protocols
+                        .iter()
+                        .any(|p| *p.to_string() == *SETUP_PROTOCOL_NAME);
+                    if !supports_setup {
+                        info!(%peer_id, "Peer does not support setup. Disconnecting.");
+                        let _ = self.swarm.disconnect_peer_id(peer_id);
+                        return Ok(());
+                    }
+                }
+                Ok(())
+            }
             _ => Ok(()),
         }
     }
@@ -1851,12 +1854,9 @@ impl P2P {
                 ..
             } => {
                 error!(%peer, %error, %request_id, "Outbound failure");
-                match error {
-                    request_response::OutboundFailure::UnsupportedProtocols => {
-                        info!(%peer, "Peer does not support gossipsub. Disconnecting.");
-                        let _ = self.swarm.disconnect_peer_id(peer);
-                    }
-                    _ => {}
+                if let request_response::OutboundFailure::UnsupportedProtocols = error {
+                    info!(%peer, "Peer does not support gossipsub. Disconnecting.");
+                    let _ = self.swarm.disconnect_peer_id(peer);
                 }
             }
             RequestResponseEvent::InboundFailure {

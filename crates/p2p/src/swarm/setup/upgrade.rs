@@ -26,7 +26,7 @@ use crate::{
     },
 };
 
-pub const SETUP_PROTOCOL_NAME: &str = "/handshake/1.0.0";
+pub(crate) const SETUP_PROTOCOL_NAME: &str = "/handshake/1.0.0";
 
 /// Inbound upgrade for handling incoming setup requests.
 ///
