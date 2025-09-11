@@ -24,7 +24,7 @@ pub struct RecordData {
 
     /// The application public key (Ed25519).
     #[serde(with = "pubkey_serializer")]
-    pub app_public_key: PublicKey,
+    pub public_key: PublicKey,
     /// Multiaddresses.
     pub multiaddresses: Vec<Multiaddr>,
     /// Timestamp of message creation.
@@ -44,7 +44,7 @@ impl RecordData {
 
         Self {
             version: DHTProtocolVersion::V1,
-            app_public_key,
+            public_key: app_public_key,
             date: timestamp,
             multiaddresses,
         }
@@ -53,7 +53,7 @@ impl RecordData {
 
 impl HasPublicKey for RecordData {
     fn public_key(&self) -> &PublicKey {
-        &self.app_public_key
+        &self.public_key
     }
 }
 

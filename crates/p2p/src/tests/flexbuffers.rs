@@ -218,7 +218,10 @@ async fn test_signed_response_message_serialization() {
 #[cfg(feature = "kad")]
 #[tokio::test]
 async fn test_signed_dht_record_serialization() {
-    use crate::swarm::message::dht_record::{RecordData, SignedRecord};
+    use crate::swarm::message::{
+        dht_record::{RecordData, SignedRecord},
+        signed::HasPublicKey,
+    };
 
     init_tracing();
     let keypair = Keypair::generate_ed25519();
@@ -261,8 +264,10 @@ async fn test_signed_dht_record_serialization() {
         }
     };
 
+    assert_eq!(signed_record, deserialized, "Records should be identical");
     assert_eq!(
-        signed_record, deserialized,
-        "response messages should be identical"
+        public_key,
+        deserialized.message.public_key().clone(),
+        "Public key should be identical"
     );
 }
