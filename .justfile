@@ -37,7 +37,7 @@ ensure-cargo-nextest:
 # Run feature matrix clippy (cargo-hack)
 [group('lint')]
 clippy-matrix: ensure-cargo-hack
-	RUSTFLAGS="-D warnings" cargo hack --feature-powerset --mutually-exclusive-features byos,kad clippy --workspace --lib --locked --examples --tests --benches --all-targets 
+	RUSTFLAGS="-D warnings" cargo hack --feature-powerset clippy --workspace --lib --locked --examples --tests --benches --all-targets 
 
 # Format check / fix
 [group('lint')]
@@ -92,7 +92,7 @@ lint: clippy-matrix fmt-check codespell taplo-lint taplo-fmt-check actionlint zi
 # Run feature matrix tests (nextest)
 [group('tests')]
 test-matrix: ensure-cargo-hack ensure-cargo-nextest
-	RUST_LOG="INFO" RUST_BACKTRACE=1 cargo hack --feature-powerset --mutually-exclusive-features byos,kad nextest run --workspace 
+	RUST_LOG="INFO" RUST_BACKTRACE=1 cargo hack --feature-powerset nextest run --workspace 
 
 
 # Unit tests with coverage (similar to unit.yml)

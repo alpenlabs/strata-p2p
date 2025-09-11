@@ -84,9 +84,9 @@ BYOS lets your app control signing with its own keys and enforces an application
 1. Start `p2p.listen()`; the setup handshake will exchange/verify application public keys and enforce the allowlist before allowing traffic.
 1. Use gossip/request‑response handles as in non‑BYOS; the library will sign/verify envelopes using your signer and the peer’s app public key.
 
-Notes:
+<!-- Notes:
 
-- BYOS cannot be combined with Kademlia (`kad`) and is rejected at compile time if both features are enabled.
+- BYOS cannot be combined with Kademlia (`kad`) and is rejected at compile time if both features are enabled. -->
 
 ## Kademlia (DHT)
 
