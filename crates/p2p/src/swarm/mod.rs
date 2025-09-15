@@ -1615,6 +1615,21 @@ impl P2P {
                     Ok(())
                 }
             },
+            #[cfg(feature = "kad")]
+            Command::FindMultiaddr {
+                #[cfg(feature = "byos")]
+                app_public_key,
+                #[cfg(not(feature = "byos"))]
+                transport_id,
+            } => {
+                self.ask_kademlia_get_record(
+                    #[cfg(feature = "byos")]
+                    &app_public_key,
+                    #[cfg(not(feature = "byos"))]
+                    &transport_id,
+                );
+                Ok(())
+            }
         }
     }
 
@@ -2194,6 +2209,34 @@ impl P2P {
             }
         }
         Ok(())
+    }
+
+    #[cfg(feature = "kad")]
+    fn ask_kademlia_get_record(
+        &mut self,
+        #[cfg(feature = "byos")] app_public_key: &PublicKey,
+        #[cfg(not(feature = "byos"))] transport_id: &PeerId,
+    ) {
+        use libp2p::kad::RecordKey;
+
+        let queryid = self
+            .swarm
+            .behaviour_mut()
+            .kademlia
+            .get_record(RecordKey::new(
+                #[cfg(feature = "byos")]
+                &app_public_key.encode_protobuf(),
+                #[cfg(not(feature = "byos"))]
+                &transport_id.to_bytes(),
+            ));
+
+        self.kademlia_map_received_records
+            .insert(queryid, Vec::new());
+
+        #[cfg(feature = "byos")]
+        trace!(?app_public_key, "We inserted queryid -> empty vec");
+        #[cfg(not(feature = "byos"))]
+        trace!(%transport_id, "We inserted queryid -> empty vec");
     }
 
     /// Handles a [`KademliaEvent`] from the swarm.
