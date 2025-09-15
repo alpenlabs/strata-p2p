@@ -1,5 +1,7 @@
 //! Swarm implementation for P2P.
 
+#[cfg(feature = "kad")]
+use std::collections::HashMap;
 #[cfg(not(feature = "byos"))]
 use std::num::NonZeroU8;
 #[cfg(any(feature = "gossipsub", feature = "request-response", feature = "byos"))]
@@ -21,8 +23,6 @@ use futures::StreamExt as _;
 #[cfg(not(all(feature = "gossipsub", feature = "request-response")))]
 use futures::future::pending;
 use handle::CommandHandle;
-#[cfg(feature = "kad")]
-use libp2p::StreamProtocol;
 #[cfg(feature = "byos")]
 use libp2p::identity::PublicKey;
 use libp2p::{
@@ -33,6 +33,15 @@ use libp2p::{
     noise,
     swarm::{NetworkBehaviour, SwarmEvent, dial_opts::DialOpts},
     yamux,
+};
+#[cfg(feature = "kad")]
+use libp2p::{
+    StreamProtocol,
+    kad::{
+        AddProviderError, AddProviderOk, BootstrapOk, Event as KademliaEvent, GetClosestPeersError,
+        GetClosestPeersOk, GetProvidersError, PutRecordError, PutRecordOk, QueryId, QueryResult,
+        Quorum, Record, store::RecordStore,
+    },
 };
 #[cfg(feature = "request-response")]
 use tokio::sync::oneshot;
@@ -89,6 +98,8 @@ use crate::signer::ApplicationSigner;
 use crate::signer::TransportKeypairSigner;
 #[cfg(feature = "request-response")]
 use crate::swarm::codec_raw::{set_request_max_bytes, set_response_max_bytes};
+#[cfg(feature = "kad")]
+use crate::swarm::message::dht_record::SignedRecord;
 #[cfg(feature = "gossipsub")]
 use crate::swarm::message::{ProtocolId, gossipsub::GossipSubProtocolVersion};
 #[cfg(feature = "byos")]
@@ -429,6 +440,15 @@ pub struct P2P {
         not(feature = "byos")
     ))]
     validator: Box<dyn Validator>,
+
+    /// When last event for specific query id is received, the most suitable record will be
+    /// returned. "Most suitable" in this context means with latest timestamp.
+    #[cfg(feature = "kad")]
+    kademlia_map_received_records: HashMap<QueryId, Vec<SignedRecord>>,
+
+    /// It is used to check if we have put record with info about ourselves.
+    #[cfg(feature = "kad")]
+    kademlia_is_initial_record_already_posted: bool,
 }
 
 /// Type alias that changes based on feature flags
@@ -584,6 +604,10 @@ impl P2P {
                 not(feature = "byos")
             ))]
             validator,
+            #[cfg(feature = "kad")]
+            kademlia_map_received_records: HashMap::new(),
+            #[cfg(feature = "kad")]
+            kademlia_is_initial_record_already_posted: false,
         };
 
         #[cfg(feature = "request-response")]
@@ -1111,6 +1135,8 @@ impl P2P {
             }
             #[cfg(feature = "byos")]
             behavior::BehaviourEvent::Setup(event) => self.handle_setup_event(event).await,
+            #[cfg(feature = "kad")]
+            BehaviourEvent::Kademlia(event) => self.handle_kademlia_event(event).await,
             _ => Ok(()),
         }
     }
@@ -2168,6 +2194,416 @@ impl P2P {
             }
         }
         Ok(())
+    }
+
+    /// Handles a [`KademliaEvent`] from the swarm.
+    #[cfg(feature = "kad")]
+    async fn handle_kademlia_event(&mut self, event: KademliaEvent) -> P2PResult<()> {
+        use crate::swarm::message::dht_record::SignedRecord;
+
+        match event {
+            KademliaEvent::InboundRequest { request } => match request {
+                libp2p::kad::InboundRequest::FindNode { num_closer_peers } => {
+                    trace!(%num_closer_peers, "InboundRequest::FindNode");
+                    Ok(())
+                }
+                libp2p::kad::InboundRequest::PutRecord {
+                    source,
+                    connection,
+                    record: opt_record,
+                } => {
+                    trace!(
+                        %source, %connection, ?opt_record, "InboundRequest::PutRecord"
+                    );
+                    match opt_record {
+                        Some(ref record_data) => {
+                            let res_our_record_data: Result<
+                                SignedRecord,
+                                flexbuffers::DeserializationError,
+                            > = flexbuffers::from_slice(&record_data.value);
+                            match res_our_record_data {
+                                Ok(signed_record) => {
+                                    if let Ok(true) = signed_record.verify() {
+                                        let res = self
+                                            .swarm
+                                            .behaviour_mut()
+                                            .kademlia
+                                            .store_mut()
+                                            .put(opt_record.unwrap());
+                                        if res.is_err() {
+                                            info!(err = %res.unwrap_err(), "Someone has asked us to put a record that is too big. Refusing to do so.")
+                                        }
+                                    } else {
+                                        info!(
+                                            "Someone asked us to put a record with invalid signature. Refusing to keep it."
+                                        )
+                                    }
+                                }
+                                Err(e) => {
+                                    info!(
+                                        ?e,
+                                        "Someone asked us to put either not valid or not properly signed record. Refusing to keep it."
+                                    )
+                                }
+                            }
+                        }
+                        None => {
+                            info!("Someone asked us to put empty record. Refusing to keep it.");
+                        }
+                    }
+                    Ok(())
+                }
+                libp2p::kad::InboundRequest::GetRecord {
+                    num_closer_peers,
+                    present_locally,
+                } => {
+                    trace!(
+                        %num_closer_peers, %present_locally, "libp2p::kad::InboundRequest::GetRecord"
+                    );
+                    Ok(())
+                }
+                libp2p::kad::InboundRequest::GetProvider {
+                    num_closer_peers,
+                    num_provider_peers,
+                } => {
+                    trace!(
+                        %num_closer_peers, %num_provider_peers, "libp2p::kad::InboundRequest::GetProvider"
+                    );
+                    Ok(())
+                }
+                libp2p::kad::InboundRequest::AddProvider { record } => {
+                    trace!(?record, "libp2p::kad::InboundRequest::AddProvider");
+                    Ok(())
+                }
+            },
+
+            KademliaEvent::OutboundQueryProgressed {
+                id,
+                result,
+                stats,
+                step,
+            } => match result {
+                QueryResult::Bootstrap(Ok(BootstrapOk {
+                    peer,
+                    num_remaining,
+                })) => {
+                    trace!(
+                        %id, ?stats, ?step, %peer, %num_remaining, "QueryResult::Bootstrap(Ok(BootstrapOk))"
+                    );
+                    Ok(())
+                }
+                QueryResult::Bootstrap(Err(libp2p::kad::BootstrapError::Timeout {
+                    peer,
+                    num_remaining,
+                })) => {
+                    trace!(
+                        %id, ?stats, ?step, %peer, ?num_remaining, "QueryResult::Bootstrap(Err(BootstrapErr))"
+                    );
+                    Ok(())
+                }
+                QueryResult::GetRecord(Ok(libp2p::kad::GetRecordOk::FoundRecord(peer_record))) => {
+                    trace!(
+                        %id, ?stats, ?step, peer_key = ?peer_record.record.key, peer_record = %String::from_utf8_lossy(&peer_record.record.value), "QueryResult::GetRecord(Ok(libp2p::kad::GetRecordOk::FoundRecord"
+                    );
+                    if self.kademlia_map_received_records.contains_key(&id) {
+                        let res_record: Result<SignedRecord, flexbuffers::DeserializationError> =
+                            flexbuffers::from_slice(&peer_record.record.value);
+
+                        let verified_record = res_record.ok().and_then(|record| {
+                            if let Ok(true) = record.verify() {
+                                Some(record)
+                            } else {
+                                trace!("Record signature verification failed");
+                                None
+                            }
+                        });
+
+                        if let Some(record) = verified_record {
+                            match self.kademlia_map_received_records.get_mut(&id) {
+                                None => {
+                                    warn!(
+                                        ?id,
+                                        "Something is terribly wrong: map had the key literally a moment ago, now it does not."
+                                    );
+                                }
+                                Some(vec_record) => {
+                                    vec_record.push(record);
+                                }
+                            }
+                        }
+                    }
+                    Ok(())
+                }
+                QueryResult::GetRecord(Ok(
+                    libp2p::kad::GetRecordOk::FinishedWithNoAdditionalRecord { cache_candidates },
+                )) => {
+                    trace!(
+                        %id, ?stats, ?step, ?cache_candidates, "QueryResult::GetRecord(Ok(libp2p::kad::GetRecordOk::FinishedWithNoAdditionalRecord))"
+                    );
+
+                    if let Some(records) = self.kademlia_map_received_records.get(&id) {
+                        match records.len() {
+                            0 => {
+                                info!(%id, "Finished query with no records.");
+                            }
+                            _ => {
+                                let _result = records
+                                    .iter()
+                                    .max_by(|x, y| x.message.date.cmp(&y.message.date));
+                            }
+                        }
+                    }
+
+                    Ok(())
+                }
+                QueryResult::GetRecord(Err(libp2p::kad::GetRecordError::Timeout { key })) => {
+                    trace!(
+                        %id, ?stats, ?step, ?key, "QueryResult::GetRecord(Err(libp2p::kad::GetRecordError::Timeout))"
+                    );
+                    if let Some(records) = self.kademlia_map_received_records.get(&id) {
+                        match records.len() {
+                            0 => {
+                                info!(%id, "Finished query with no records.");
+                            }
+                            _ => {
+                                let _result = records
+                                    .iter()
+                                    .max_by(|x, y| x.message.date.cmp(&y.message.date));
+                            }
+                        }
+                    }
+                    Ok(())
+                }
+                QueryResult::GetRecord(Err(libp2p::kad::GetRecordError::NotFound {
+                    key,
+                    closest_peers,
+                })) => {
+                    trace!(
+                        %id, ?stats, ?step, ?key, ?closest_peers, "QueryResult::GetRecord(Err(libp2p::kad::GetRecordError::NotFound))"
+                    );
+                    if let Some(records) = self.kademlia_map_received_records.get(&id) {
+                        match records.len() {
+                            0 => {
+                                info!(%id, "Finished query with no records.");
+                            }
+                            _ => {
+                                let _result = records
+                                    .iter()
+                                    .max_by(|x, y| x.message.date.cmp(&y.message.date));
+                            }
+                        }
+                    }
+                    Ok(())
+                }
+                QueryResult::GetRecord(Err(libp2p::kad::GetRecordError::QuorumFailed {
+                    key,
+                    records,
+                    quorum,
+                })) => {
+                    trace!(
+                        %id, ?stats, ?step, ?key, ?records, %quorum, "QueryResult::GetRecord(Err(libp2p::kad::GetRecordError::QuorumFailed))"
+                    );
+                    if let Some(records) = self.kademlia_map_received_records.get(&id) {
+                        match records.len() {
+                            0 => {
+                                info!(%id, "Finished query with no records.");
+                            }
+                            _ => {
+                                let _result = records
+                                    .iter()
+                                    .max_by(|x, y| x.message.date.cmp(&y.message.date));
+                            }
+                        }
+                    }
+                    Ok(())
+                }
+                QueryResult::PutRecord(Ok(PutRecordOk { key })) => {
+                    trace!(%id, ?stats, ?step, ?key, "QueryResult::PutRecord(Ok(PutRecordOk))");
+                    Ok(())
+                }
+                QueryResult::PutRecord(Err(PutRecordError::QuorumFailed {
+                    key,
+                    success: success_peerids,
+                    quorum,
+                })) => {
+                    trace!(
+                        %id, ?stats, ?step, ?key, ?success_peerids, %quorum, "QueryResult::PutRecord(Err(PutRecordError::QuorumFailed))"
+                    );
+                    Ok(())
+                }
+                QueryResult::PutRecord(Err(PutRecordError::Timeout {
+                    key,
+                    success: success_peerids,
+                    quorum,
+                })) => {
+                    trace!(
+                        %id, ?stats, ?step, ?key, ?success_peerids, %quorum, "QueryResult::PutRecord(Err(PutRecordError::Timeout))"
+                    );
+                    Ok(())
+                }
+                QueryResult::GetProviders(Ok(libp2p::kad::GetProvidersOk::FoundProviders {
+                    key,
+                    providers,
+                })) => {
+                    trace!(
+                        %id, ?stats, ?step, ?key, ?providers, "QueryResult::GetProviders(Ok(libp2p::kad::GetProvidersOk::FoundProviders))"
+                    );
+                    Ok(())
+                }
+                QueryResult::GetProviders(Ok(
+                    libp2p::kad::GetProvidersOk::FinishedWithNoAdditionalRecord { closest_peers },
+                )) => {
+                    trace!(
+                        %id, ?stats, ?step, ?closest_peers, "QueryResult::GetProviders(Ok(libp2p::kad::GetProvidersOk::FinishedWithNoAdditionalRecord))"
+                    );
+                    Ok(())
+                }
+                QueryResult::GetProviders(Err(GetProvidersError::Timeout {
+                    key,
+                    closest_peers,
+                })) => {
+                    trace!(
+                        %id, ?stats, ?step, ?key, ?closest_peers, "QueryResult::GetProviders(Err(GetProvidersError::Timeout))"
+                    );
+                    Ok(())
+                }
+                QueryResult::GetClosestPeers(Ok(GetClosestPeersOk { key, peers })) => {
+                    trace!(
+                        %id, ?stats, ?step, ?key, ?peers, "QueryResult::GetClosestPeers(Ok(GetClosestPeersOk))"
+                    );
+                    // TODO(Arniiiii) : since we manually add peers, here's a filtering could be
+                    // implemented
+                    for peer in peers {
+                        self.swarm
+                            .add_peer_address(peer.peer_id, peer.addrs[0].clone());
+                    }
+                    Ok(())
+                }
+                QueryResult::GetClosestPeers(Err(GetClosestPeersError::Timeout { key, peers })) => {
+                    trace!(
+                        %id, ?stats, ?step, ?key, ?peers, "QueryResult::GetClosestPeers(Ok(GetClosestPeersOk))"
+                    );
+                    Ok(())
+                }
+                QueryResult::StartProviding(Ok(AddProviderOk { key })) => {
+                    trace!(
+                        %id, ?stats, ?step, ?key, "QueryResult::StartProviding(Ok(AddProviderOk))"
+                    );
+                    Ok(())
+                }
+                QueryResult::StartProviding(Err(AddProviderError::Timeout { key })) => {
+                    trace!(
+                        %id, ?stats, ?step, ?key, "QueryResult::StartProviding(Err(AddProviderError::Timeout))"
+                    );
+                    Ok(())
+                }
+                QueryResult::RepublishRecord(Ok(PutRecordOk { key })) => {
+                    trace!(
+                        %id, ?stats, ?step, ?key, "QueryResult::RepublishRecord(Ok(PutRecordOk))"
+                    );
+                    Ok(())
+                }
+                QueryResult::RepublishRecord(Err(PutRecordError::QuorumFailed {
+                    key,
+                    success,
+                    quorum,
+                })) => {
+                    trace!(
+                        %id, ?stats, ?step, ?key, ?success, ?quorum, "QueryResult::RepublishRecord(Err(PutRecordError::QuorumFailed))"
+                    );
+                    Ok(())
+                }
+                QueryResult::RepublishRecord(Err(PutRecordError::Timeout {
+                    key,
+                    success,
+                    quorum,
+                })) => {
+                    trace!(
+                        %id, ?stats, ?step, ?key, ?success, %quorum, "QueryResult::RepublishRecord(Err(PutRecordError::QuorumFailed))"
+                    );
+                    Ok(())
+                }
+                QueryResult::RepublishProvider(Ok(AddProviderOk { key })) => {
+                    trace!(
+                        %id, ?stats, ?step, ?key, "QueryResult::RepublishProvider(Ok(AddProviderOk))"
+                    );
+                    Ok(())
+                }
+                QueryResult::RepublishProvider(Err(AddProviderError::Timeout { key })) => {
+                    trace!(
+                        %id, ?stats, ?step, ?key, "QueryResult::RepublishProvider(Err(AddProviderError::Timeout))"
+                    );
+                    Ok(())
+                }
+            },
+
+            KademliaEvent::RoutingUpdated {
+                peer,
+                is_new_peer,
+                addresses,
+                bucket_range,
+                old_peer,
+            } => {
+                trace!(
+                    ?peer,
+                    ?is_new_peer,
+                    ?addresses,
+                    ?bucket_range,
+                    ?old_peer,
+                    "KademliaEvent::RoutingUpdated"
+                );
+                if !self.kademlia_is_initial_record_already_posted {
+                    use crate::swarm::message::dht_record::RecordData;
+
+                    let maybe_signed_record_data = SignedRecord::new(
+                        RecordData::new(
+                            self.config.app_public_key.clone(),
+                            self.swarm.external_addresses().cloned().collect::<Vec<_>>(),
+                        ),
+                        self.signer.as_ref(),
+                    )
+                    .await;
+
+                    match maybe_signed_record_data {
+                        Err(e) => {
+                            warn!(%e,
+                                app_pk = ?self.config.app_public_key,
+                                local_tid = %self.swarm.local_peer_id(),
+                                external_addresses = ?self.swarm.external_addresses().cloned().collect::<Vec<_>>(),
+                                "Failed to serialize our own signed record.");
+                        }
+                        Ok(signed_record_data) => {
+                            let _ = self.swarm.behaviour_mut().kademlia.put_record(
+                                Record::new(
+                                    self.config.app_public_key.encode_protobuf(),
+                                    flexbuffers::to_vec(&signed_record_data).unwrap(),
+                                ),
+                                Quorum::Majority,
+                            );
+                        }
+                    };
+                    self.kademlia_is_initial_record_already_posted = true;
+                }
+                Ok(())
+            }
+            KademliaEvent::RoutablePeer { peer, address } => {
+                trace!(?peer, ?address, "KademliaEvent::RoutablePeer");
+                Ok(())
+            }
+            KademliaEvent::UnroutablePeer { peer } => {
+                trace!(?peer, "KademliaEvent::UnroutablePeer");
+                Ok(())
+            }
+
+            KademliaEvent::PendingRoutablePeer { peer, address } => {
+                trace!(?peer, ?address, "KademliaEvent::PendingRoutablePeer");
+                Ok(())
+            }
+            KademliaEvent::ModeChanged { new_mode } => {
+                trace!(?new_mode, "KademliaEvent::ModeChanged");
+                Ok(())
+            }
+        }
     }
 }
 

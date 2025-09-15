@@ -34,13 +34,6 @@ pub struct RecordData {
 }
 
 impl RecordData {
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "While in tests it is used, currently it is not used in real code."
-        )
-    )]
     pub(crate) fn new(app_public_key: PublicKey, multiaddresses: Vec<Multiaddr>) -> Self {
         let timestamp = get_timestamp();
 
