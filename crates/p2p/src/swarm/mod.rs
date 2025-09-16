@@ -2290,6 +2290,41 @@ impl P2P {
         trace!(%transport_id, "We inserted queryid -> empty vec");
     }
 
+    fn finish_looking_for_dht_record(&mut self, id: &QueryId) {
+        if let Some(records) = self.kademlia_map_received_records.get(id) {
+            match records.len() {
+                0 => {
+                    info!(%id, "Finished query with no records.");
+                    let res_sending = self
+                        .commands_events
+                        .send(CommandEvents::ResultFindMultiaddress(None));
+                    if let Err(e) = res_sending {
+                        error!(
+                            %e, "Failed sending event to command handler's event channel."
+                        );
+                    }
+                }
+                _ => {
+                    let result = records
+                        .iter()
+                        .max_by(|x, y| x.message.date.cmp(&y.message.date));
+                    debug!(result = ?result.unwrap(), "Sending back event to command handler's event channel.");
+                    let res_sending =
+                        self.commands_events
+                            .send(CommandEvents::ResultFindMultiaddress(Some(
+                                result.unwrap().message.multiaddresses.clone(),
+                            )));
+                    if let Err(e) = res_sending {
+                        error!(
+                            %e, "Failed sending event to command handler's event channel."
+                        );
+                    }
+                }
+            }
+            let _ = self.kademlia_map_received_records.remove(id);
+        }
+    }
+
     /// Handles a [`KademliaEvent`] from the swarm.
     #[cfg(feature = "kad")]
     async fn handle_kademlia_event(&mut self, event: KademliaEvent) -> P2PResult<()> {
@@ -2395,76 +2430,13 @@ impl P2P {
                     debug!(
                         %id, ?stats, ?step, ?cache_candidates, "QueryResult::GetRecord(Ok(libp2p::kad::GetRecordOk::FinishedWithNoAdditionalRecord))"
                     );
-
-                    if let Some(records) = self.kademlia_map_received_records.get(&id) {
-                        match records.len() {
-                            0 => {
-                                info!(%id, "Finished query with no records.");
-                                let res_sending = self
-                                    .commands_events
-                                    .send(CommandEvents::ResultFindMultiaddress(None));
-                                if let Err(e) = res_sending {
-                                    error!(
-                                        %e, "Failed sending event to command handler's event channel."
-                                    );
-                                }
-                            }
-                            _ => {
-                                let result = records
-                                    .iter()
-                                    .max_by(|x, y| x.message.date.cmp(&y.message.date));
-                                debug!(result = ?result.unwrap(), "Sending back event to command handler's event channel.");
-                                let res_sending = self.commands_events.send(
-                                    CommandEvents::ResultFindMultiaddress(Some(
-                                        result.unwrap().message.multiaddresses.clone(),
-                                    )),
-                                );
-                                if let Err(e) = res_sending {
-                                    error!(
-                                        %e, "Failed sending event to command handler's event channel."
-                                    );
-                                }
-                            }
-                        }
-                        let _ = self.kademlia_map_received_records.remove(&id);
-                    }
+                    self.finish_looking_for_dht_record(&id);
                 }
                 QueryResult::GetRecord(Err(libp2p::kad::GetRecordError::Timeout { key })) => {
                     debug!(
                         %id, ?stats, ?step, ?key, "QueryResult::GetRecord(Err(libp2p::kad::GetRecordError::Timeout))"
                     );
-                    if let Some(records) = self.kademlia_map_received_records.get(&id) {
-                        match records.len() {
-                            0 => {
-                                info!(%id, "Finished query with no records.");
-                                let res_sending = self
-                                    .commands_events
-                                    .send(CommandEvents::ResultFindMultiaddress(None));
-                                if let Err(e) = res_sending {
-                                    error!(
-                                        %e, "Failed sending event to command handler's event channel."
-                                    );
-                                }
-                            }
-                            _ => {
-                                info!(%id, "Finished query with some valid records.");
-                                let result = records
-                                    .iter()
-                                    .max_by(|x, y| x.message.date.cmp(&y.message.date));
-                                let res_sending = self.commands_events.send(
-                                    CommandEvents::ResultFindMultiaddress(Some(
-                                        result.unwrap().message.multiaddresses.clone(),
-                                    )),
-                                );
-                                if let Err(e) = res_sending {
-                                    error!(
-                                        %e, "Failed sending event to command handler's event channel."
-                                    );
-                                }
-                            }
-                        }
-                        let _ = self.kademlia_map_received_records.remove(&id);
-                    }
+                    self.finish_looking_for_dht_record(&id);
                 }
                 QueryResult::GetRecord(Err(libp2p::kad::GetRecordError::NotFound {
                     key,
@@ -2473,38 +2445,7 @@ impl P2P {
                     debug!(
                         %id, ?stats, ?step, ?key, ?closest_peers, "QueryResult::GetRecord(Err(libp2p::kad::GetRecordError::NotFound))"
                     );
-                    if let Some(records) = self.kademlia_map_received_records.get(&id) {
-                        match records.len() {
-                            0 => {
-                                info!(%id, "Finished query with no records.");
-                                let res_sending = self
-                                    .commands_events
-                                    .send(CommandEvents::ResultFindMultiaddress(None));
-                                if let Err(e) = res_sending {
-                                    error!(
-                                        %e, "Failed sending event to command handler's event channel."
-                                    );
-                                }
-                            }
-                            _ => {
-                                info!(%id, "Finished query with some valid records.");
-                                let result = records
-                                    .iter()
-                                    .max_by(|x, y| x.message.date.cmp(&y.message.date));
-                                let res_sending = self.commands_events.send(
-                                    CommandEvents::ResultFindMultiaddress(Some(
-                                        result.unwrap().message.multiaddresses.clone(),
-                                    )),
-                                );
-                                if let Err(e) = res_sending {
-                                    error!(
-                                        %e, "Failed sending event to command handler's event channel."
-                                    );
-                                }
-                            }
-                        }
-                        let _ = self.kademlia_map_received_records.remove(&id);
-                    }
+                    self.finish_looking_for_dht_record(&id);
                 }
                 QueryResult::GetRecord(Err(libp2p::kad::GetRecordError::QuorumFailed {
                     key,
@@ -2514,38 +2455,7 @@ impl P2P {
                     debug!(
                         %id, ?stats, ?step, ?key, ?records, %quorum, "QueryResult::GetRecord(Err(libp2p::kad::GetRecordError::QuorumFailed))"
                     );
-                    if let Some(records) = self.kademlia_map_received_records.get(&id) {
-                        match records.len() {
-                            0 => {
-                                info!(%id, "Finished query with no records.");
-                                let res_sending = self
-                                    .commands_events
-                                    .send(CommandEvents::ResultFindMultiaddress(None));
-                                if let Err(e) = res_sending {
-                                    error!(
-                                        %e, "Failed sending event to command handler's event channel."
-                                    );
-                                }
-                            }
-                            _ => {
-                                info!(%id, "Finished query with some valid records.");
-                                let result = records
-                                    .iter()
-                                    .max_by(|x, y| x.message.date.cmp(&y.message.date));
-                                let res_sending = self.commands_events.send(
-                                    CommandEvents::ResultFindMultiaddress(Some(
-                                        result.unwrap().message.multiaddresses.clone(),
-                                    )),
-                                );
-                                if let Err(e) = res_sending {
-                                    error!(
-                                        %e, "Failed sending event to command handler's event channel."
-                                    );
-                                }
-                            }
-                        }
-                        let _ = self.kademlia_map_received_records.remove(&id);
-                    }
+                    self.finish_looking_for_dht_record(&id);
                 }
                 QueryResult::GetClosestPeers(Ok(GetClosestPeersOk { key, peers })) => {
                     trace!(
