@@ -42,10 +42,7 @@ use libp2p::{
 #[cfg(feature = "kad")]
 use libp2p::{
     StreamProtocol,
-    kad::{
-        Event as KademliaEvent, GetClosestPeersOk, QueryId, QueryResult, Quorum, Record,
-        store::RecordStore,
-    },
+    kad::{Event as KademliaEvent, QueryId, QueryResult, Quorum, Record, store::RecordStore},
 };
 #[cfg(feature = "request-response")]
 use tokio::sync::oneshot;
