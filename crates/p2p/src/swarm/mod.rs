@@ -2290,6 +2290,7 @@ impl P2P {
         trace!(%transport_id, "We inserted queryid -> empty vec");
     }
 
+    #[cfg(feature = "kad")]
     fn finish_looking_for_dht_record(&mut self, id: &QueryId) {
         if let Some(records) = self.kademlia_map_received_records.get(id) {
             match records.len() {
