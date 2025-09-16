@@ -2458,17 +2458,6 @@ impl P2P {
                     );
                     self.finish_looking_for_dht_record(&id);
                 }
-                QueryResult::GetClosestPeers(Ok(GetClosestPeersOk { key, peers })) => {
-                    trace!(
-                        %id, ?stats, ?step, ?key, ?peers, "QueryResult::GetClosestPeers(Ok(GetClosestPeersOk))"
-                    );
-                    // TODO(Arniiiii) : since we manually add peers, here's a filtering could be
-                    // implemented
-                    for peer in peers {
-                        self.swarm
-                            .add_peer_address(peer.peer_id, peer.addrs[0].clone());
-                    }
-                }
                 _ => {}
             },
 
