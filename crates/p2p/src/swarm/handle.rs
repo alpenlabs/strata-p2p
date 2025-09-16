@@ -1,32 +1,28 @@
 //! Entity to control P2P implementation, spawned in another async task,
 //! and listen to its events and send commands through channels.
 
-#[cfg(feature = "gossipsub")]
-use std::fmt::{self, Display};
-use std::time::Duration;
-#[cfg(any(feature = "gossipsub", feature = "request-response"))]
 use std::{
+    fmt::{self, Display},
     pin::Pin,
     task::{Context, Poll},
+    time::Duration,
 };
 
-#[cfg(any(feature = "gossipsub", feature = "request-response"))]
 use futures::{FutureExt, Sink, Stream};
 #[cfg(not(feature = "byos"))]
 use libp2p::PeerId;
 #[cfg(feature = "byos")]
 use libp2p::identity::PublicKey;
-#[cfg(feature = "gossipsub")]
 use thiserror::Error;
-#[cfg(feature = "gossipsub")]
-use tokio::sync::broadcast::{self, error::RecvError};
-#[cfg(any(feature = "gossipsub", feature = "request-response"))]
-use tokio::sync::mpsc::error::SendError;
 use tokio::{
-    sync::{mpsc, oneshot},
+    sync::{
+        broadcast::{self, error::RecvError},
+        mpsc,
+        mpsc::error::SendError,
+        oneshot,
+    },
     time::timeout,
 };
-#[cfg(feature = "gossipsub")]
 use tracing::warn;
 
 #[cfg(feature = "request-response")]
@@ -37,6 +33,7 @@ use crate::events::ReqRespEvent;
 use crate::{commands::GossipCommand, events::GossipEvent};
 use crate::{
     commands::{Command, QueryP2PStateCommand},
+    events::CommandEvents,
     swarm::default_handle_timeout,
 };
 
@@ -44,11 +41,9 @@ use crate::{
 /// return the oldest message still retained by the channel.
 ///
 /// Includes the number of skipped messages.
-#[cfg(feature = "gossipsub")]
 #[derive(Debug, Clone, Error)]
 pub struct ErrDroppedMsgs(u64);
 
-#[cfg(feature = "gossipsub")]
 impl Display for ErrDroppedMsgs {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "GossipHandle dropped {} messages", self.0)
@@ -116,12 +111,26 @@ impl GossipHandle {
 /// Handle to sends commands to P2P.
 #[derive(Debug)]
 pub struct CommandHandle {
+    events: broadcast::Receiver<CommandEvents>,
     commands: mpsc::Sender<Command>,
 }
 
 impl CommandHandle {
-    pub(crate) const fn new(commands: mpsc::Sender<Command>) -> Self {
-        Self { commands }
+    pub(crate) const fn new(
+        events: broadcast::Receiver<CommandEvents>,
+        commands: mpsc::Sender<Command>,
+    ) -> Self {
+        Self { events, commands }
+    }
+
+    /// Gets the next event from P2P from events channel.
+    pub async fn next_event(&mut self) -> Result<CommandEvents, RecvError> {
+        self.events.recv().await
+    }
+
+    /// Checks if the event's channel is empty or not.
+    pub fn events_is_empty(&self) -> bool {
+        self.events.is_empty()
     }
 
     /// Sends command to P2P.
@@ -246,7 +255,7 @@ impl Clone for GossipHandle {
 
 impl Clone for CommandHandle {
     fn clone(&self) -> Self {
-        Self::new(self.commands.clone())
+        Self::new(self.events.resubscribe(), self.commands.clone())
     }
 }
 
@@ -277,6 +286,23 @@ impl Stream for ReqRespHandle {
         match poll {
             Poll::Ready(Some(v)) => Poll::Ready(Some(v)),
             Poll::Ready(None) => Poll::Ready(None),
+            Poll::Pending => Poll::Pending,
+        }
+    }
+}
+
+impl Stream for CommandHandle {
+    type Item = Result<CommandEvents, ErrDroppedMsgs>;
+
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let poll = Box::pin(self.next_event()).poll_unpin(cx);
+        match poll {
+            Poll::Ready(Ok(v)) => Poll::Ready(Some(Ok(v))),
+            Poll::Ready(Err(RecvError::Closed)) => Poll::Ready(None),
+            Poll::Ready(Err(RecvError::Lagged(skipped))) => {
+                warn!(%skipped, "Gossip Stream lost messages");
+                Poll::Ready(Some(Err(ErrDroppedMsgs(skipped))))
+            }
             Poll::Pending => Poll::Pending,
         }
     }
@@ -314,6 +340,28 @@ impl Sink<RequestResponseCommand> for ReqRespHandle {
     }
 
     fn start_send(self: Pin<&mut Self>, item: RequestResponseCommand) -> Result<(), Self::Error> {
+        self.commands
+            .try_send(item)
+            .map_err(|e| SendError(e.into_inner()))
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        Poll::Ready(Ok(()))
+    }
+
+    fn poll_close(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        Poll::Ready(Ok(()))
+    }
+}
+
+impl Sink<Command> for CommandHandle {
+    type Error = SendError<Command>;
+
+    fn poll_ready(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        Poll::Ready(Ok(()))
+    }
+
+    fn start_send(self: Pin<&mut Self>, item: Command) -> Result<(), Self::Error> {
         self.commands
             .try_send(item)
             .map_err(|e| SendError(e.into_inner()))

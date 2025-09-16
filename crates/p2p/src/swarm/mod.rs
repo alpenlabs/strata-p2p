@@ -4,7 +4,12 @@
 use std::collections::HashMap;
 #[cfg(not(feature = "byos"))]
 use std::num::NonZeroU8;
-#[cfg(any(feature = "gossipsub", feature = "request-response", feature = "byos"))]
+#[cfg(any(
+    feature = "gossipsub",
+    feature = "request-response",
+    feature = "byos",
+    feature = "kad"
+))]
 use std::sync::Arc;
 #[cfg(any(feature = "gossipsub", feature = "request-response"))]
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -45,7 +50,10 @@ use libp2p::{
 };
 #[cfg(feature = "request-response")]
 use tokio::sync::oneshot;
-use tokio::{sync::mpsc, time::timeout};
+use tokio::{
+    sync::{broadcast, mpsc},
+    time::timeout,
+};
 use tokio_util::sync::CancellationToken;
 #[cfg(any(feature = "gossipsub", feature = "request-response"))]
 use tracing::instrument;
@@ -62,7 +70,6 @@ use {
         Event as GossipsubEvent, Message, MessageAcceptance, MessageId, PeerScoreParams,
         PeerScoreThresholds, PublishError, Sha256Topic,
     },
-    tokio::sync::broadcast,
 };
 #[cfg(feature = "request-response")]
 use {
@@ -84,15 +91,19 @@ use {
     not(feature = "byos")
 ))]
 use crate::commands::UnpenaltyType;
-use crate::commands::{Command, QueryP2PStateCommand};
 #[cfg(all(feature = "gossipsub", not(feature = "byos")))]
 use crate::score_manager::DEFAULT_GOSSIP_APP_SCORE;
 #[cfg(all(feature = "request-response", not(feature = "byos")))]
 use crate::score_manager::DEFAULT_REQ_RESP_APP_SCORE;
-#[cfg(any(feature = "gossipsub", feature = "request-response", feature = "byos"))]
+#[cfg(any(
+    feature = "kad",
+    feature = "gossipsub",
+    feature = "request-response",
+    feature = "byos"
+))]
 use crate::signer::ApplicationSigner;
 #[cfg(all(
-    any(feature = "gossipsub", feature = "request-response"),
+    any(feature = "kad", feature = "gossipsub", feature = "request-response"),
     not(feature = "byos")
 ))]
 use crate::signer::TransportKeypairSigner;
@@ -104,6 +115,10 @@ use crate::swarm::message::dht_record::SignedRecord;
 use crate::swarm::message::{ProtocolId, gossipsub::GossipSubProtocolVersion};
 #[cfg(feature = "byos")]
 use crate::swarm::{dial_manager::DialManager, setup::events::SetupBehaviourEvent};
+use crate::{
+    commands::{Command, QueryP2PStateCommand},
+    events::CommandEvents,
+};
 #[cfg(all(
     any(feature = "gossipsub", feature = "request-response"),
     not(feature = "byos")
@@ -200,12 +215,19 @@ pub const DEFAULT_ENVELOPE_MAX_AGE: Duration = Duration::from_secs(300);
 #[cfg(feature = "gossipsub")]
 pub const DEFAULT_GOSSIP_EVENT_BUFFER_SIZE: usize = 256;
 
+/// Default buffer size for command's event broadcast channels.
+pub const DEFAULT_COMMAND_EVENT_BUFFER_SIZE: usize = 256;
+
 /// Default buffer size for command channels.
 pub const DEFAULT_COMMAND_BUFFER_SIZE: usize = 64;
 
 /// Default buffer size for request-response event channels.
 #[cfg(feature = "request-response")]
 pub const DEFAULT_REQ_RESP_EVENT_BUFFER_SIZE: usize = 64;
+
+/// Default buffer size for request-response command channel.
+#[cfg(feature = "request-response")]
+pub const DEFAULT_REQ_RESP_COMMAND_BUFFER_SIZE: usize = 64;
 
 /// Default buffer size for gossip command channels.
 #[cfg(feature = "gossipsub")]
@@ -295,6 +317,12 @@ pub struct P2PConfig {
     #[cfg(feature = "gossipsub")]
     pub gossip_event_buffer_size: Option<usize>,
 
+    /// Buffer size for command's event broadcast channels.
+    ///
+    /// If [`None`], the default buffer size will be used.
+    /// The default is [`DEFAULT_COMMAND_EVENT_BUFFER_SIZE`].
+    pub commands_event_buffer_size: Option<usize>,
+
     /// Buffer size for core command channels.
     ///
     /// If [`None`], the default buffer size will be used.
@@ -312,6 +340,13 @@ pub struct P2PConfig {
     /// The default is [`DEFAULT_REQ_RESP_EVENT_BUFFER_SIZE`].
     #[cfg(feature = "request-response")]
     pub req_resp_event_buffer_size: Option<usize>,
+
+    /// Buffer size for request-response command channels.
+    ///
+    /// If [`None`], the default buffer size will be used.
+    /// The default is [`DEFAULT_REQ_RESP_COMMAND_BUFFER_SIZE`].
+    #[cfg(feature = "request-response")]
+    pub req_resp_command_buffer_size: Option<usize>,
 
     /// Maximum request size (bytes) for request-response codec.
     ///
@@ -389,6 +424,9 @@ pub struct P2P {
     #[cfg(feature = "request-response")]
     request_response_commands: mpsc::Receiver<RequestResponseCommand>,
 
+    /// Event channel for the commands.
+    commands_events: broadcast::Sender<CommandEvents>,
+
     /// ([`Clone`]able) Command channel for the swarm.
     ///
     /// # Implementation details
@@ -412,7 +450,7 @@ pub struct P2P {
     allowlist: HashSet<PublicKey>,
 
     /// Application signer for signing setup messages.
-    #[cfg(any(feature = "gossipsub", feature = "request-response"))]
+    #[cfg(any(feature = "gossipsub", feature = "request-response", feature = "kad"))]
     signer: Arc<dyn ApplicationSigner>,
 
     /// Manages dial sequences and address queues for multiaddress connections.
@@ -469,7 +507,7 @@ impl P2P {
         #[cfg(feature = "gossipsub")] channel_size: Option<usize>,
         #[cfg(all(
             feature = "byos",
-            any(feature = "gossipsub", feature = "request-response")
+            any(feature = "gossipsub", feature = "request-response", feature = "kad")
         ))]
         signer: Arc<dyn ApplicationSigner>,
         #[cfg(all(
@@ -488,11 +526,18 @@ impl P2P {
                 .map_err(ProtocolError::Listen)?;
         }
 
-        // Core components setup
-        let command_buffer_size = cfg
-            .command_buffer_size
-            .unwrap_or(DEFAULT_COMMAND_BUFFER_SIZE);
-        let (cmds_tx, cmds_rx) = mpsc::channel(command_buffer_size);
+        let (commands_events_tx, cmds_tx, cmds_rx) = {
+            let commands_event_buffer_size = cfg
+                .commands_event_buffer_size
+                .unwrap_or(DEFAULT_COMMAND_EVENT_BUFFER_SIZE);
+            let (commands_events_tx, _commands_events_rx) =
+                broadcast::channel(commands_event_buffer_size);
+            let commands_command_buffer_size = cfg
+                .command_buffer_size
+                .unwrap_or(DEFAULT_COMMAND_BUFFER_SIZE);
+            let (commands_cmds_tx, commands_cmds_rx) = mpsc::channel(commands_command_buffer_size);
+            (commands_events_tx, commands_cmds_tx, commands_cmds_rx)
+        };
 
         #[cfg(all(
             any(feature = "gossipsub", feature = "request-response"),
@@ -506,7 +551,7 @@ impl P2P {
         let peer_penalty_storage = PenaltyPeerStorage::new();
 
         // Create signer - either provided (BYOS) or transport keypair signer (non-BYOS)
-        #[cfg(any(feature = "gossipsub", feature = "request-response"))]
+        #[cfg(any(feature = "gossipsub", feature = "request-response", feature = "kad"))]
         let signer: Arc<dyn ApplicationSigner> = {
             #[cfg(feature = "byos")]
             {
@@ -521,12 +566,15 @@ impl P2P {
         // Request-response setup (only when feature is enabled)
         #[cfg(feature = "request-response")]
         let (req_resp_event_tx, req_resp_event_rx, req_resp_cmds_tx, req_resp_cmds_rx) = {
+            let req_resp_command_buffer_size = cfg
+                .req_resp_command_buffer_size
+                .unwrap_or(DEFAULT_REQ_RESP_COMMAND_BUFFER_SIZE);
             let req_resp_event_buffer_size = cfg
                 .req_resp_event_buffer_size
                 .unwrap_or(DEFAULT_REQ_RESP_EVENT_BUFFER_SIZE);
             let (req_resp_event_tx, req_resp_event_rx) =
                 mpsc::channel::<ReqRespEvent>(req_resp_event_buffer_size);
-            let (req_resp_cmds_tx, req_resp_cmds_rx) = mpsc::channel(command_buffer_size);
+            let (req_resp_cmds_tx, req_resp_cmds_rx) = mpsc::channel(req_resp_command_buffer_size);
             (
                 req_resp_event_tx,
                 req_resp_event_rx,
@@ -581,11 +629,12 @@ impl P2P {
             topic,
             commands: cmds_rx,
             commands_sender: cmds_tx.clone(),
+            commands_events: commands_events_tx,
             cancellation_token: cancel,
             #[cfg(feature = "byos")]
             allowlist: HashSet::from_iter(allowlist),
             config: cfg,
-            #[cfg(any(feature = "gossipsub", feature = "request-response"))]
+            #[cfg(any(feature = "gossipsub", feature = "request-response", feature = "kad"))]
             signer,
             #[cfg(feature = "byos")]
             dial_manager: DialManager::new(),
@@ -633,7 +682,10 @@ impl P2P {
 
     /// Creates new handle for commands.
     pub fn new_command_handle(&self) -> CommandHandle {
-        CommandHandle::new(self.commands_sender.clone())
+        CommandHandle::new(
+            self.commands_events.subscribe(),
+            self.commands_sender.clone(),
+        )
     }
 
     /// Waits until all connections are established and all peers are subscribed to
@@ -2248,14 +2300,13 @@ impl P2P {
             KademliaEvent::InboundRequest { request } => match request {
                 libp2p::kad::InboundRequest::FindNode { num_closer_peers } => {
                     trace!(%num_closer_peers, "InboundRequest::FindNode");
-                    Ok(())
                 }
                 libp2p::kad::InboundRequest::PutRecord {
                     source,
                     connection,
                     record: opt_record,
                 } => {
-                    trace!(
+                    debug!(
                         %source, %connection, ?opt_record, "InboundRequest::PutRecord"
                     );
                     match opt_record {
@@ -2294,7 +2345,6 @@ impl P2P {
                             info!("Someone asked us to put empty record. Refusing to keep it.");
                         }
                     }
-                    Ok(())
                 }
                 libp2p::kad::InboundRequest::GetRecord {
                     num_closer_peers,
@@ -2303,7 +2353,6 @@ impl P2P {
                     trace!(
                         %num_closer_peers, %present_locally, "libp2p::kad::InboundRequest::GetRecord"
                     );
-                    Ok(())
                 }
                 libp2p::kad::InboundRequest::GetProvider {
                     num_closer_peers,
@@ -2312,11 +2361,9 @@ impl P2P {
                     trace!(
                         %num_closer_peers, %num_provider_peers, "libp2p::kad::InboundRequest::GetProvider"
                     );
-                    Ok(())
                 }
                 libp2p::kad::InboundRequest::AddProvider { record } => {
                     trace!(?record, "libp2p::kad::InboundRequest::AddProvider");
-                    Ok(())
                 }
             },
 
@@ -2333,7 +2380,6 @@ impl P2P {
                     trace!(
                         %id, ?stats, ?step, %peer, %num_remaining, "QueryResult::Bootstrap(Ok(BootstrapOk))"
                     );
-                    Ok(())
                 }
                 QueryResult::Bootstrap(Err(libp2p::kad::BootstrapError::Timeout {
                     peer,
@@ -2342,11 +2388,10 @@ impl P2P {
                     trace!(
                         %id, ?stats, ?step, %peer, ?num_remaining, "QueryResult::Bootstrap(Err(BootstrapErr))"
                     );
-                    Ok(())
                 }
                 QueryResult::GetRecord(Ok(libp2p::kad::GetRecordOk::FoundRecord(peer_record))) => {
-                    trace!(
-                        %id, ?stats, ?step, peer_key = ?peer_record.record.key, peer_record = %String::from_utf8_lossy(&peer_record.record.value), "QueryResult::GetRecord(Ok(libp2p::kad::GetRecordOk::FoundRecord"
+                    debug!(
+                        %id, ?stats, ?step, query_to_vec = ?self.kademlia_map_received_records, "QueryResult::GetRecord(Ok(libp2p::kad::GetRecordOk::FoundRecord"
                     );
                     if self.kademlia_map_received_records.contains_key(&id) {
                         let res_record: Result<SignedRecord, flexbuffers::DeserializationError> =
@@ -2354,9 +2399,10 @@ impl P2P {
 
                         let verified_record = res_record.ok().and_then(|record| {
                             if let Ok(true) = record.verify() {
+                                debug!("Record signature verification succeded");
                                 Some(record)
                             } else {
-                                trace!("Record signature verification failed");
+                                debug!("Record signature verification failed");
                                 None
                             }
                         });
@@ -2371,16 +2417,19 @@ impl P2P {
                                 }
                                 Some(vec_record) => {
                                     vec_record.push(record);
+                                    debug!(
+                                        ?id,
+                                        "Presumably pushed record in corresponding vector..."
+                                    );
                                 }
                             }
                         }
                     }
-                    Ok(())
                 }
                 QueryResult::GetRecord(Ok(
                     libp2p::kad::GetRecordOk::FinishedWithNoAdditionalRecord { cache_candidates },
                 )) => {
-                    trace!(
+                    debug!(
                         %id, ?stats, ?step, ?cache_candidates, "QueryResult::GetRecord(Ok(libp2p::kad::GetRecordOk::FinishedWithNoAdditionalRecord))"
                     );
 
@@ -2388,81 +2437,155 @@ impl P2P {
                         match records.len() {
                             0 => {
                                 info!(%id, "Finished query with no records.");
+                                let res_sending = self
+                                    .commands_events
+                                    .send(CommandEvents::ResultFindMultiaddress(None));
+                                if let Err(e) = res_sending {
+                                    error!(
+                                        %e, "Failed sending event to command handler's event channel."
+                                    );
+                                }
                             }
                             _ => {
-                                let _result = records
+                                let result = records
                                     .iter()
                                     .max_by(|x, y| x.message.date.cmp(&y.message.date));
+                                debug!(result = ?result.unwrap(), "Sending back event to command handler's event channel.");
+                                let res_sending = self.commands_events.send(
+                                    CommandEvents::ResultFindMultiaddress(Some(
+                                        result.unwrap().message.multiaddresses.clone(),
+                                    )),
+                                );
+                                if let Err(e) = res_sending {
+                                    error!(
+                                        %e, "Failed sending event to command handler's event channel."
+                                    );
+                                }
                             }
                         }
+                        let _ = self.kademlia_map_received_records.remove(&id);
                     }
-
-                    Ok(())
                 }
                 QueryResult::GetRecord(Err(libp2p::kad::GetRecordError::Timeout { key })) => {
-                    trace!(
+                    debug!(
                         %id, ?stats, ?step, ?key, "QueryResult::GetRecord(Err(libp2p::kad::GetRecordError::Timeout))"
                     );
                     if let Some(records) = self.kademlia_map_received_records.get(&id) {
                         match records.len() {
                             0 => {
                                 info!(%id, "Finished query with no records.");
+                                let res_sending = self
+                                    .commands_events
+                                    .send(CommandEvents::ResultFindMultiaddress(None));
+                                if let Err(e) = res_sending {
+                                    error!(
+                                        %e, "Failed sending event to command handler's event channel."
+                                    );
+                                }
                             }
                             _ => {
-                                let _result = records
+                                info!(%id, "Finished query with some valid records.");
+                                let result = records
                                     .iter()
                                     .max_by(|x, y| x.message.date.cmp(&y.message.date));
+                                let res_sending = self.commands_events.send(
+                                    CommandEvents::ResultFindMultiaddress(Some(
+                                        result.unwrap().message.multiaddresses.clone(),
+                                    )),
+                                );
+                                if let Err(e) = res_sending {
+                                    error!(
+                                        %e, "Failed sending event to command handler's event channel."
+                                    );
+                                }
                             }
                         }
+                        let _ = self.kademlia_map_received_records.remove(&id);
                     }
-                    Ok(())
                 }
                 QueryResult::GetRecord(Err(libp2p::kad::GetRecordError::NotFound {
                     key,
                     closest_peers,
                 })) => {
-                    trace!(
+                    debug!(
                         %id, ?stats, ?step, ?key, ?closest_peers, "QueryResult::GetRecord(Err(libp2p::kad::GetRecordError::NotFound))"
                     );
                     if let Some(records) = self.kademlia_map_received_records.get(&id) {
                         match records.len() {
                             0 => {
                                 info!(%id, "Finished query with no records.");
+                                let res_sending = self
+                                    .commands_events
+                                    .send(CommandEvents::ResultFindMultiaddress(None));
+                                if let Err(e) = res_sending {
+                                    error!(
+                                        %e, "Failed sending event to command handler's event channel."
+                                    );
+                                }
                             }
                             _ => {
-                                let _result = records
+                                info!(%id, "Finished query with some valid records.");
+                                let result = records
                                     .iter()
                                     .max_by(|x, y| x.message.date.cmp(&y.message.date));
+                                let res_sending = self.commands_events.send(
+                                    CommandEvents::ResultFindMultiaddress(Some(
+                                        result.unwrap().message.multiaddresses.clone(),
+                                    )),
+                                );
+                                if let Err(e) = res_sending {
+                                    error!(
+                                        %e, "Failed sending event to command handler's event channel."
+                                    );
+                                }
                             }
                         }
+                        let _ = self.kademlia_map_received_records.remove(&id);
                     }
-                    Ok(())
                 }
                 QueryResult::GetRecord(Err(libp2p::kad::GetRecordError::QuorumFailed {
                     key,
                     records,
                     quorum,
                 })) => {
-                    trace!(
+                    debug!(
                         %id, ?stats, ?step, ?key, ?records, %quorum, "QueryResult::GetRecord(Err(libp2p::kad::GetRecordError::QuorumFailed))"
                     );
                     if let Some(records) = self.kademlia_map_received_records.get(&id) {
                         match records.len() {
                             0 => {
                                 info!(%id, "Finished query with no records.");
+                                let res_sending = self
+                                    .commands_events
+                                    .send(CommandEvents::ResultFindMultiaddress(None));
+                                if let Err(e) = res_sending {
+                                    error!(
+                                        %e, "Failed sending event to command handler's event channel."
+                                    );
+                                }
                             }
                             _ => {
-                                let _result = records
+                                info!(%id, "Finished query with some valid records.");
+                                let result = records
                                     .iter()
                                     .max_by(|x, y| x.message.date.cmp(&y.message.date));
+                                let res_sending = self.commands_events.send(
+                                    CommandEvents::ResultFindMultiaddress(Some(
+                                        result.unwrap().message.multiaddresses.clone(),
+                                    )),
+                                );
+                                if let Err(e) = res_sending {
+                                    error!(
+                                        %e, "Failed sending event to command handler's event channel."
+                                    );
+                                }
                             }
                         }
+                        let _ = self.kademlia_map_received_records.remove(&id);
                     }
-                    Ok(())
                 }
                 QueryResult::PutRecord(Ok(PutRecordOk { key })) => {
                     trace!(%id, ?stats, ?step, ?key, "QueryResult::PutRecord(Ok(PutRecordOk))");
-                    Ok(())
                 }
                 QueryResult::PutRecord(Err(PutRecordError::QuorumFailed {
                     key,
@@ -2472,7 +2595,6 @@ impl P2P {
                     trace!(
                         %id, ?stats, ?step, ?key, ?success_peerids, %quorum, "QueryResult::PutRecord(Err(PutRecordError::QuorumFailed))"
                     );
-                    Ok(())
                 }
                 QueryResult::PutRecord(Err(PutRecordError::Timeout {
                     key,
@@ -2482,7 +2604,6 @@ impl P2P {
                     trace!(
                         %id, ?stats, ?step, ?key, ?success_peerids, %quorum, "QueryResult::PutRecord(Err(PutRecordError::Timeout))"
                     );
-                    Ok(())
                 }
                 QueryResult::GetProviders(Ok(libp2p::kad::GetProvidersOk::FoundProviders {
                     key,
@@ -2491,7 +2612,6 @@ impl P2P {
                     trace!(
                         %id, ?stats, ?step, ?key, ?providers, "QueryResult::GetProviders(Ok(libp2p::kad::GetProvidersOk::FoundProviders))"
                     );
-                    Ok(())
                 }
                 QueryResult::GetProviders(Ok(
                     libp2p::kad::GetProvidersOk::FinishedWithNoAdditionalRecord { closest_peers },
@@ -2499,7 +2619,6 @@ impl P2P {
                     trace!(
                         %id, ?stats, ?step, ?closest_peers, "QueryResult::GetProviders(Ok(libp2p::kad::GetProvidersOk::FinishedWithNoAdditionalRecord))"
                     );
-                    Ok(())
                 }
                 QueryResult::GetProviders(Err(GetProvidersError::Timeout {
                     key,
@@ -2508,7 +2627,6 @@ impl P2P {
                     trace!(
                         %id, ?stats, ?step, ?key, ?closest_peers, "QueryResult::GetProviders(Err(GetProvidersError::Timeout))"
                     );
-                    Ok(())
                 }
                 QueryResult::GetClosestPeers(Ok(GetClosestPeersOk { key, peers })) => {
                     trace!(
@@ -2520,31 +2638,26 @@ impl P2P {
                         self.swarm
                             .add_peer_address(peer.peer_id, peer.addrs[0].clone());
                     }
-                    Ok(())
                 }
                 QueryResult::GetClosestPeers(Err(GetClosestPeersError::Timeout { key, peers })) => {
                     trace!(
                         %id, ?stats, ?step, ?key, ?peers, "QueryResult::GetClosestPeers(Ok(GetClosestPeersOk))"
                     );
-                    Ok(())
                 }
                 QueryResult::StartProviding(Ok(AddProviderOk { key })) => {
                     trace!(
                         %id, ?stats, ?step, ?key, "QueryResult::StartProviding(Ok(AddProviderOk))"
                     );
-                    Ok(())
                 }
                 QueryResult::StartProviding(Err(AddProviderError::Timeout { key })) => {
                     trace!(
                         %id, ?stats, ?step, ?key, "QueryResult::StartProviding(Err(AddProviderError::Timeout))"
                     );
-                    Ok(())
                 }
                 QueryResult::RepublishRecord(Ok(PutRecordOk { key })) => {
                     trace!(
                         %id, ?stats, ?step, ?key, "QueryResult::RepublishRecord(Ok(PutRecordOk))"
                     );
-                    Ok(())
                 }
                 QueryResult::RepublishRecord(Err(PutRecordError::QuorumFailed {
                     key,
@@ -2554,7 +2667,6 @@ impl P2P {
                     trace!(
                         %id, ?stats, ?step, ?key, ?success, ?quorum, "QueryResult::RepublishRecord(Err(PutRecordError::QuorumFailed))"
                     );
-                    Ok(())
                 }
                 QueryResult::RepublishRecord(Err(PutRecordError::Timeout {
                     key,
@@ -2564,19 +2676,16 @@ impl P2P {
                     trace!(
                         %id, ?stats, ?step, ?key, ?success, %quorum, "QueryResult::RepublishRecord(Err(PutRecordError::QuorumFailed))"
                     );
-                    Ok(())
                 }
                 QueryResult::RepublishProvider(Ok(AddProviderOk { key })) => {
                     trace!(
                         %id, ?stats, ?step, ?key, "QueryResult::RepublishProvider(Ok(AddProviderOk))"
                     );
-                    Ok(())
                 }
                 QueryResult::RepublishProvider(Err(AddProviderError::Timeout { key })) => {
                     trace!(
                         %id, ?stats, ?step, ?key, "QueryResult::RepublishProvider(Err(AddProviderError::Timeout))"
                     );
-                    Ok(())
                 }
             },
 
@@ -2600,7 +2709,13 @@ impl P2P {
 
                     let maybe_signed_record_data = SignedRecord::new(
                         RecordData::new(
+                            #[cfg(feature = "byos")]
                             self.config.app_public_key.clone(),
+                            #[cfg(not(feature = "byos"))]
+                            self.config.transport_keypair.public(),
+                            #[cfg(test)]
+                            self.swarm.listeners().cloned().collect::<Vec<_>>(),
+                            #[cfg(not(test))]
                             self.swarm.external_addresses().cloned().collect::<Vec<_>>(),
                         ),
                         self.signer.as_ref(),
@@ -2610,7 +2725,6 @@ impl P2P {
                     match maybe_signed_record_data {
                         Err(e) => {
                             warn!(%e,
-                                app_pk = ?self.config.app_public_key,
                                 local_tid = %self.swarm.local_peer_id(),
                                 external_addresses = ?self.swarm.external_addresses().cloned().collect::<Vec<_>>(),
                                 "Failed to serialize our own signed record.");
@@ -2618,7 +2732,14 @@ impl P2P {
                         Ok(signed_record_data) => {
                             let _ = self.swarm.behaviour_mut().kademlia.put_record(
                                 Record::new(
+                                    #[cfg(feature = "byos")]
                                     self.config.app_public_key.encode_protobuf(),
+                                    #[cfg(not(feature = "byos"))]
+                                    self.config
+                                        .transport_keypair
+                                        .public()
+                                        .to_peer_id()
+                                        .to_bytes(),
                                     flexbuffers::to_vec(&signed_record_data).unwrap(),
                                 ),
                                 Quorum::Majority,
@@ -2627,26 +2748,22 @@ impl P2P {
                     };
                     self.kademlia_is_initial_record_already_posted = true;
                 }
-                Ok(())
             }
             KademliaEvent::RoutablePeer { peer, address } => {
                 trace!(?peer, ?address, "KademliaEvent::RoutablePeer");
-                Ok(())
             }
             KademliaEvent::UnroutablePeer { peer } => {
                 trace!(?peer, "KademliaEvent::UnroutablePeer");
-                Ok(())
             }
 
             KademliaEvent::PendingRoutablePeer { peer, address } => {
                 trace!(?peer, ?address, "KademliaEvent::PendingRoutablePeer");
-                Ok(())
             }
             KademliaEvent::ModeChanged { new_mode } => {
                 trace!(?new_mode, "KademliaEvent::ModeChanged");
-                Ok(())
             }
         }
+        Ok(())
     }
 }
 

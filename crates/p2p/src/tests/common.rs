@@ -151,9 +151,12 @@ impl User {
             #[cfg(feature = "gossipsub")]
             gossip_event_buffer_size: None,
             command_buffer_size: None,
+            commands_event_buffer_size: None,
             handle_default_timeout: None,
             #[cfg(feature = "request-response")]
             req_resp_event_buffer_size: None,
+            #[cfg(feature = "request-response")]
+            req_resp_command_buffer_size: None,
             #[cfg(feature = "request-response")]
             request_max_bytes: None,
             #[cfg(feature = "request-response")]
@@ -213,7 +216,7 @@ impl User {
             allowlist,
             #[cfg(feature = "gossipsub")]
             None,
-            #[cfg(all(feature = "byos", feature = "gossipsub"))]
+            #[cfg(all(feature = "byos", any(feature = "gossipsub", feature = "kad")))]
             signer,
             #[cfg(all(feature = "gossipsub", not(feature = "byos")))]
             Some(validator),

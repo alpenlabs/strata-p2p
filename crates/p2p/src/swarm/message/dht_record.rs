@@ -34,12 +34,12 @@ pub struct RecordData {
 }
 
 impl RecordData {
-    pub(crate) fn new(app_public_key: PublicKey, multiaddresses: Vec<Multiaddr>) -> Self {
+    pub(crate) fn new(public_key: PublicKey, multiaddresses: Vec<Multiaddr>) -> Self {
         let timestamp = get_timestamp();
 
         Self {
             version: DHTProtocolVersion::V1,
-            public_key: app_public_key,
+            public_key,
             date: timestamp,
             multiaddresses,
         }

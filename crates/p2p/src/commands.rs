@@ -8,9 +8,6 @@
 use std::fmt;
 
 use libp2p::Multiaddr;
-#[cfg(feature = "kad")]
-#[cfg(not(feature = "byos"))]
-use libp2p::PeerId;
 #[cfg(not(feature = "byos"))]
 use libp2p::PeerId;
 #[cfg(feature = "byos")]
