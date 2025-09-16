@@ -128,7 +128,7 @@ async fn test_find_non_existent_multiaddr() -> anyhow::Result<()> {
 
     match user_handles[USERS_NUM - 1].command.next_event().await {
         Ok(CommandEvents::ResultFindMultiaddress(opt)) => {
-            if let Some(_) = opt {
+            if opt.is_some() {
                 bail!("Somehow, an address for such peer has been found.");
             }
         }
