@@ -2423,41 +2423,20 @@ impl P2P {
                     }
                 }
                 QueryResult::GetRecord(Ok(
-                    libp2p::kad::GetRecordOk::FinishedWithNoAdditionalRecord { cache_candidates },
-                )) => {
-                    debug!(
-                        %id, ?stats, ?step, ?cache_candidates, "QueryResult::GetRecord(Ok(libp2p::kad::GetRecordOk::FinishedWithNoAdditionalRecord))"
-                    );
-                    self.finish_looking_for_dht_record(&id);
-                }
-                QueryResult::GetRecord(Err(libp2p::kad::GetRecordError::Timeout { key })) => {
-                    debug!(
-                        %id, ?stats, ?step, ?key, "QueryResult::GetRecord(Err(libp2p::kad::GetRecordError::Timeout))"
-                    );
-                    self.finish_looking_for_dht_record(&id);
-                }
-                QueryResult::GetRecord(Err(libp2p::kad::GetRecordError::NotFound {
-                    key,
-                    closest_peers,
+                    libp2p::kad::GetRecordOk::FinishedWithNoAdditionalRecord { .. },
+                ))
+                | QueryResult::GetRecord(Err(libp2p::kad::GetRecordError::Timeout { .. }))
+                | QueryResult::GetRecord(Err(libp2p::kad::GetRecordError::NotFound { .. }))
+                | QueryResult::GetRecord(Err(libp2p::kad::GetRecordError::QuorumFailed {
+                    ..
                 })) => {
                     debug!(
-                        %id, ?stats, ?step, ?key, ?closest_peers, "QueryResult::GetRecord(Err(libp2p::kad::GetRecordError::NotFound))"
-                    );
-                    self.finish_looking_for_dht_record(&id);
-                }
-                QueryResult::GetRecord(Err(libp2p::kad::GetRecordError::QuorumFailed {
-                    key,
-                    records,
-                    quorum,
-                })) => {
-                    debug!(
-                        %id, ?stats, ?step, ?key, ?records, %quorum, "QueryResult::GetRecord(Err(libp2p::kad::GetRecordError::QuorumFailed))"
+                        %id, ?stats, ?step, "QueryResult::GetRecord(Ok(libp2p::kad::GetRecordOk::FinishedWithNoAdditionalRecord))"
                     );
                     self.finish_looking_for_dht_record(&id);
                 }
                 _ => {}
             },
-
             KademliaEvent::RoutingUpdated {
                 peer,
                 is_new_peer,
