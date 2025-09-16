@@ -2399,7 +2399,7 @@ impl P2P {
 
                         let verified_record = res_record.ok().and_then(|record| {
                             if let Ok(true) = record.verify() {
-                                debug!("Record signature verification succeded");
+                                debug!("Record signature verification succeeded");
                                 Some(record)
                             } else {
                                 debug!("Record signature verification failed");

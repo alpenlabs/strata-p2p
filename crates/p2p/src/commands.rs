@@ -105,7 +105,8 @@ pub enum Command {
     /// Directly queries P2P state (doesn't produce events).
     QueryP2PState(QueryP2PStateCommand),
 
-    /// Try get record in DHT where application public is a key. A record is a [`SignedRecord`].
+    /// Try get record in DHT where application public is a key.
+    /// In non-BYOS case : key is transport id.
     /// Checking of signature is enabled and works via a Signer.
     #[cfg(feature = "kad")]
     FindMultiaddr {
