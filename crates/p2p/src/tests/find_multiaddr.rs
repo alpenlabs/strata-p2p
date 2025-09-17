@@ -97,7 +97,7 @@ async fn test_find_non_existent_multiaddr() -> anyhow::Result<()> {
         tasks,
     } = Setup::all_to_all(USERS_NUM).await?;
 
-    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
 
     // Get connection addresses of first old user for the new user to connect to.
     info!("Getting listening addresses for new user");
@@ -139,6 +139,8 @@ async fn test_find_non_existent_multiaddr() -> anyhow::Result<()> {
             }
         }
     }
+
+    info!(event = ?user_handles[USERS_NUM-1].command.next_event().await);
 
     assert!(user_handles[USERS_NUM - 1].command.events_is_empty());
 
