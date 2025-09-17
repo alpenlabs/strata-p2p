@@ -2485,7 +2485,7 @@ impl P2P {
                     ..
                 })) => {
                     debug!(
-                        %id, ?stats, ?step, "QueryResult::GetRecord(Ok(libp2p::kad::GetRecordOk::FinishedWithNoAdditionalRecord))"
+                        %id, ?stats, ?step, "QueryResult::GetRecord Finished query."
                     );
                     self.finish_looking_for_dht_record(&id);
                 }
