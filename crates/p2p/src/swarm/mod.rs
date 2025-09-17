@@ -188,6 +188,9 @@ pub const DEFAULT_CHANNEL_TIMEOUT: Duration = Duration::from_secs(5);
 /// Default timeout used by [`CommandHandle`].
 pub const DEFAULT_HANDLE_TIMEOUT: Duration = Duration::from_secs(1);
 
+/// Default Kademlia's record TTL.
+pub const DEFAULT_KAD_RECORD_TTL: Duration = Duration::from_hours(1);
+
 /// Global, runtime-configurable default handle timeout (milliseconds).
 static HANDLE_DEFAULT_TIMEOUT_MS: std::sync::atomic::AtomicU64 =
     std::sync::atomic::AtomicU64::new(1_000);
@@ -375,9 +378,13 @@ pub struct P2PConfig {
     /// (no tolerance for future timestamps).
     pub max_clock_skew: Option<Duration>,
 
-    /// Kademlia protocol name
+    /// Kademlia protocol name.
     #[cfg(feature = "kad")]
     pub kad_protocol_name: Option<KadProtocol>,
+
+    /// Kademlia TTL for our own record.
+    #[cfg(feature = "kad")]
+    pub kad_record_ttl: Option<Duration>,
 
     /// Limits on number of concurrent connections.
     pub conn_limits: ConnectionLimits,
@@ -887,6 +894,11 @@ impl P2P {
         allow(unused_variables)
     )]
     pub async fn listen(mut self) {
+        #[cfg(feature = "kad")]
+        let mut interval =
+            tokio::time::interval(self.config.kad_record_ttl.unwrap_or(DEFAULT_KAD_RECORD_TTL));
+        #[cfg(not(feature = "kad"))]
+        let mut interval = tokio::time::interval(Duration::from_secs(60 * 24 * 365 * 1000000000)); // practically never
         loop {
             let cancel_fut = self.cancellation_token.cancelled();
             let swarm_fut = self.swarm.select_next_some();
@@ -903,6 +915,11 @@ impl P2P {
             let reqresp_fut = pending::<Option<()>>();
 
             let result = tokio::select! {
+                _ = interval.tick() => {
+                    #[cfg(feature="kad")]
+                    let _ = self.ask_kademlia_put_record().await;
+                    Ok(())
+                }
                 _ = cancel_fut => {
                     debug!("Received cancellation, stopping listening");
                     return;
@@ -2288,6 +2305,53 @@ impl P2P {
     }
 
     #[cfg(feature = "kad")]
+    async fn ask_kademlia_put_record(&mut self) -> P2PResult<()> {
+        use crate::swarm::message::dht_record::RecordData;
+
+        let maybe_signed_record_data = SignedRecord::new(
+            RecordData::new(
+                #[cfg(feature = "byos")]
+                self.config.app_public_key.clone(),
+                #[cfg(not(feature = "byos"))]
+                self.config.transport_keypair.public(),
+                #[cfg(test)]
+                self.swarm.listeners().cloned().collect::<Vec<_>>(),
+                #[cfg(not(test))]
+                self.swarm.external_addresses().cloned().collect::<Vec<_>>(),
+            ),
+            self.signer.as_ref(),
+        )
+        .await;
+
+        match maybe_signed_record_data {
+            Err(e) => {
+                warn!(%e,
+                                local_tid = %self.swarm.local_peer_id(),
+                                external_addresses = ?self.swarm.external_addresses().cloned().collect::<Vec<_>>(),
+                                "Failed to serialize our own signed record.");
+            }
+            Ok(signed_record_data) => {
+                let _ = self.swarm.behaviour_mut().kademlia.put_record(
+                    Record::new(
+                        #[cfg(feature = "byos")]
+                        self.config.app_public_key.encode_protobuf(),
+                        #[cfg(not(feature = "byos"))]
+                        self.config
+                            .transport_keypair
+                            .public()
+                            .to_peer_id()
+                            .to_bytes(),
+                        flexbuffers::to_vec(&signed_record_data).unwrap(),
+                    ),
+                    Quorum::Majority,
+                );
+            }
+        };
+        self.kademlia_is_initial_record_already_posted = true;
+        Ok(())
+    }
+
+    #[cfg(feature = "kad")]
     fn finish_looking_for_dht_record(&mut self, id: &QueryId) {
         if let Some(records) = self.kademlia_map_received_records.get(id) {
             match records.len() {
@@ -2507,47 +2571,7 @@ impl P2P {
                     "KademliaEvent::RoutingUpdated"
                 );
                 if !self.kademlia_is_initial_record_already_posted {
-                    use crate::swarm::message::dht_record::RecordData;
-
-                    let maybe_signed_record_data = SignedRecord::new(
-                        RecordData::new(
-                            #[cfg(feature = "byos")]
-                            self.config.app_public_key.clone(),
-                            #[cfg(not(feature = "byos"))]
-                            self.config.transport_keypair.public(),
-                            #[cfg(test)]
-                            self.swarm.listeners().cloned().collect::<Vec<_>>(),
-                            #[cfg(not(test))]
-                            self.swarm.external_addresses().cloned().collect::<Vec<_>>(),
-                        ),
-                        self.signer.as_ref(),
-                    )
-                    .await;
-
-                    match maybe_signed_record_data {
-                        Err(e) => {
-                            warn!(%e,
-                                local_tid = %self.swarm.local_peer_id(),
-                                external_addresses = ?self.swarm.external_addresses().cloned().collect::<Vec<_>>(),
-                                "Failed to serialize our own signed record.");
-                        }
-                        Ok(signed_record_data) => {
-                            let _ = self.swarm.behaviour_mut().kademlia.put_record(
-                                Record::new(
-                                    #[cfg(feature = "byos")]
-                                    self.config.app_public_key.encode_protobuf(),
-                                    #[cfg(not(feature = "byos"))]
-                                    self.config
-                                        .transport_keypair
-                                        .public()
-                                        .to_peer_id()
-                                        .to_bytes(),
-                                    flexbuffers::to_vec(&signed_record_data).unwrap(),
-                                ),
-                                Quorum::Majority,
-                            );
-                        }
-                    };
+                    let _ = self.ask_kademlia_put_record().await;
                     self.kademlia_is_initial_record_already_posted = true;
                 }
             }
