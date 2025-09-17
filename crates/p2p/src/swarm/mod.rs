@@ -2342,41 +2342,39 @@ impl P2P {
                 debug!(
                     %source, %connection, ?opt_record, "InboundRequest::PutRecord"
                 );
-                match opt_record {
-                    Some(ref record_data) => {
-                        let res_our_record_data: Result<
-                            SignedRecord,
-                            flexbuffers::DeserializationError,
-                        > = flexbuffers::from_slice(&record_data.value);
-                        match res_our_record_data {
-                            Ok(signed_record) => {
-                                if let Ok(true) = signed_record.verify() {
-                                    let res = self
-                                        .swarm
-                                        .behaviour_mut()
-                                        .kademlia
-                                        .store_mut()
-                                        .put(opt_record.unwrap());
-                                    if res.is_err() {
-                                        info!(err = %res.unwrap_err(), "Someone has asked us to put a record that is too big. Refusing to do so.")
-                                    }
-                                } else {
-                                    info!(
-                                        "Someone asked us to put a record with invalid signature. Refusing to keep it."
-                                    )
-                                }
-                            }
-                            Err(e) => {
-                                info!(
-                                    ?e,
-                                    "Someone asked us to put either not valid or not properly signed record. Refusing to keep it."
-                                )
-                            }
-                        }
-                    }
-                    None => {
-                        info!("Someone asked us to put empty record. Refusing to keep it.");
-                    }
+                if opt_record.is_none() {
+                    info!("Someone asked us to put empty record. Refusing to keep it.");
+                    return Ok(());
+                }
+
+                let ref record_data = opt_record.unwrap();
+                let res_our_record_data: Result<SignedRecord, flexbuffers::DeserializationError> =
+                    flexbuffers::from_slice(&record_data.value);
+                if let Err(e) = res_our_record_data {
+                    info!(
+                        ?e,
+                        "Someone asked us to put either not valid or not properly signed record. Refusing to keep it."
+                    );
+                    return Ok(());
+                }
+                let signed_record = res_our_record_data.unwrap();
+                if let Err(error) = signed_record.verify() {
+                    info!(
+                        %error, "Someone asked us to put a record with invalid signature. Refusing to keep it."
+                    );
+                    return Ok(());
+                }
+
+                let res = self
+                    .swarm
+                    .behaviour_mut()
+                    .kademlia
+                    .store_mut()
+                    .put(record_data.clone());
+
+                if let Err(error) = res {
+                    info!(%error, "Someone has asked us to put a record that is too big. Refusing to do so.");
+                    return Ok(());
                 }
             }
             KademliaEvent::OutboundQueryProgressed {
