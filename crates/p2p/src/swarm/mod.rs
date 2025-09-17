@@ -2347,7 +2347,7 @@ impl P2P {
                     return Ok(());
                 }
 
-                let ref record_data = opt_record.unwrap();
+                let record_data = &opt_record.unwrap();
                 let res_our_record_data: Result<SignedRecord, flexbuffers::DeserializationError> =
                     flexbuffers::from_slice(&record_data.value);
                 if let Err(e) = res_our_record_data {
@@ -2363,6 +2363,37 @@ impl P2P {
                         %error, "Someone asked us to put a record with invalid signature. Refusing to keep it."
                     );
                     return Ok(());
+                }
+
+                #[cfg(feature = "byos")]
+                {
+                    let res_deser_key = PublicKey::try_decode_protobuf(record_data.key.as_ref());
+                    if let Err(error) = res_deser_key {
+                        info!(%error, "Someone asked us to put a record with a key that is not deserializable into a public key.");
+                        return Ok(());
+                    }
+
+                    if signed_record.message.public_key != res_deser_key.unwrap() {
+                        info!(
+                            "Someone asked us to put a record with the application public key that does not corresponds to application public key in key field of DHT record."
+                        );
+                        return Ok(());
+                    }
+                }
+                #[cfg(not(feature = "byos"))]
+                {
+                    let res_deser_key = PeerId::from_bytes(record_data.key.as_ref());
+                    if let Err(error) = res_deser_key {
+                        info!(%error, "Someone asked us to put a record with a key that is not deserializable into a peer id.");
+                        return Ok(());
+                    }
+
+                    if signed_record.message.public_key.to_peer_id() != res_deser_key.unwrap() {
+                        info!(
+                            "Someone asked us to put a record with the transport public key that does not corresponds to transport id in key field of DHT record."
+                        );
+                        return Ok(());
+                    }
                 }
 
                 let res = self
@@ -2387,38 +2418,63 @@ impl P2P {
                     debug!(
                         %id, ?stats, ?step, query_to_vec = ?self.kademlia_map_received_records, "QueryResult::GetRecord(Ok(libp2p::kad::GetRecordOk::FoundRecord"
                     );
-                    if self.kademlia_map_received_records.contains_key(&id) {
-                        let res_record: Result<SignedRecord, flexbuffers::DeserializationError> =
-                            flexbuffers::from_slice(&peer_record.record.value);
+                    if !self.kademlia_map_received_records.contains_key(&id) {
+                        warn!(
+                            "We somehow got a record for a query with id we don't know about. If you use in code anything like `kad_behaviour.get_record()`, stop doing it and use our method `self.ask_kademlia_get_record(...)`"
+                        );
+                        return Ok(());
+                    }
 
-                        let verified_record = res_record.ok().and_then(|record| {
-                            if let Ok(true) = record.verify() {
-                                debug!("Record signature verification succeeded");
-                                Some(record)
-                            } else {
-                                debug!("Record signature verification failed");
-                                None
-                            }
-                        });
+                    let res_record: Result<SignedRecord, flexbuffers::DeserializationError> =
+                        flexbuffers::from_slice(&peer_record.record.value);
 
-                        if let Some(record) = verified_record {
-                            match self.kademlia_map_received_records.get_mut(&id) {
-                                None => {
-                                    warn!(
-                                        ?id,
-                                        "Something is terribly wrong: map had the key literally a moment ago, now it does not."
-                                    );
-                                }
-                                Some(vec_record) => {
-                                    vec_record.push(record);
-                                    debug!(
-                                        ?id,
-                                        "Presumably pushed record in corresponding vector..."
-                                    );
-                                }
-                            }
+                    if let Err(error) = res_record {
+                        info!(%error, "Failed deserializing a record that we received.");
+                        return Ok(());
+                    }
+
+                    let signed_record = res_record.unwrap();
+
+                    #[cfg(feature = "byos")]
+                    {
+                        let res_deser_key =
+                            PublicKey::try_decode_protobuf(peer_record.record.key.as_ref());
+                        if let Err(error) = res_deser_key {
+                            info!(%error, "We got a record with a key that is not deserializable into a public key.");
+                            return Ok(());
+                        }
+
+                        if signed_record.message.public_key != res_deser_key.unwrap() {
+                            info!(
+                                "We got a record with the application public key that does not corresponds to application public key in key field of DHT record."
+                            );
+                            return Ok(());
                         }
                     }
+                    #[cfg(not(feature = "byos"))]
+                    {
+                        let res_deser_key = PeerId::from_bytes(peer_record.record.key.as_ref());
+                        if let Err(error) = res_deser_key {
+                            info!(%error, "We got a record with a key that is not deserializable into a peer id.");
+                            return Ok(());
+                        }
+
+                        if signed_record.message.public_key.to_peer_id() != res_deser_key.unwrap() {
+                            info!(
+                                "We got a record with the transport public key that does not corresponds to transport id in key field of DHT record."
+                            );
+                            return Ok(());
+                        }
+                    }
+
+                    if let Err(error) = signed_record.verify() {
+                        info!(%error, "Signature verification failed of a record that we received.");
+                        return Ok(());
+                    }
+
+                    let vec_records = self.kademlia_map_received_records.get_mut(&id).unwrap();
+                    vec_records.push(signed_record);
+                    debug!(?id, "Presumably pushed record in corresponding vector...");
                 }
                 QueryResult::GetRecord(Ok(
                     libp2p::kad::GetRecordOk::FinishedWithNoAdditionalRecord { .. },
