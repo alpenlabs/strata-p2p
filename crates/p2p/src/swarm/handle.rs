@@ -8,7 +8,9 @@ use std::{
     time::Duration,
 };
 
-use futures::{FutureExt, Sink, Stream, StreamExt};
+#[cfg(any(feature = "gossipsub", feature = "request-response"))]
+use futures::FutureExt;
+use futures::{Sink, Stream, StreamExt};
 #[cfg(not(feature = "byos"))]
 use libp2p::PeerId;
 #[cfg(feature = "byos")]
