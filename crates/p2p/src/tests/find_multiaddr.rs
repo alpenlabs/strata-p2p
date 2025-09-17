@@ -1,5 +1,5 @@
 use anyhow::bail;
-use futures::StreamExt;
+use futures::{SinkExt, StreamExt};
 use libp2p::{Multiaddr, identity::Keypair};
 use tokio::sync::oneshot::channel;
 use tracing::{debug, info};
@@ -115,9 +115,9 @@ async fn test_find_non_existent_multiaddr() -> anyhow::Result<()> {
 
     info!("Sending command Command::FindMultiaddr to last old user");
 
-    user_handles[USERS_NUM - 1]
+    let _ = user_handles[USERS_NUM - 1]
         .command
-        .send_command(Command::FindMultiaddr {
+        .send(Command::FindMultiaddr {
             #[cfg(feature = "byos")]
             app_public_key: Keypair::generate_ed25519().public(),
             #[cfg(not(feature = "byos"))]
