@@ -1,4 +1,5 @@
 use anyhow::bail;
+use futures::StreamExt;
 use libp2p::{Multiaddr, identity::Keypair};
 use tokio::sync::oneshot::channel;
 use tracing::{debug, info};
@@ -126,16 +127,20 @@ async fn test_find_non_existent_multiaddr() -> anyhow::Result<()> {
 
     info!("Waiting for result from command Command::FindMultiaddr");
 
-    match user_handles[USERS_NUM - 1].command.next_event().await {
-        Ok(CommandEvents::ResultFindMultiaddress(opt)) => {
-            if opt.is_some() {
-                bail!("Somehow, an address for such peer has been found.");
+    while let Some(smth) = user_handles[USERS_NUM - 1].command.next().await {
+        match smth {
+            Ok(CommandEvents::ResultFindMultiaddress(opt)) => {
+                if opt.is_some() {
+                    bail!("Somehow, an address for such peer has been found.");
+                } else {
+                    break;
+                }
+            }
+            Err(e) => {
+                bail!("Error while waiting for event from command handler: {}", e);
             }
         }
-        Err(e) => {
-            bail!("Error while waiting for event from command handler: {}", e);
-        }
-    };
+    }
 
     // Clean up
     cancel.cancel();
