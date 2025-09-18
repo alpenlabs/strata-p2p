@@ -138,9 +138,9 @@ async fn test_find_non_existent_multiaddr() -> anyhow::Result<()> {
         }
     }
 
-    info!(event = ?user_handles[USERS_NUM-1].command.next_event().await);
+    // info!(event = ?user_handles[USERS_NUM-1].command.next_event().await);
 
-    // assert!(user_handles[USERS_NUM - 1].command.events_is_empty());
+    assert!(user_handles[USERS_NUM - 1].command.events_is_empty());
 
     // Clean up
     cancel.cancel();
