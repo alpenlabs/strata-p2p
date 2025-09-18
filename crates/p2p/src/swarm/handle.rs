@@ -8,9 +8,9 @@ use std::{
     time::Duration,
 };
 
+use futures::Sink;
 #[cfg(any(feature = "gossipsub", feature = "request-response"))]
-use futures::FutureExt;
-use futures::{Sink, Stream, StreamExt};
+use futures::{FutureExt, Stream};
 #[cfg(not(feature = "byos"))]
 use libp2p::PeerId;
 #[cfg(feature = "byos")]
@@ -24,10 +24,6 @@ use tokio::{
         oneshot,
     },
     time::timeout,
-};
-use tokio_stream::{
-    self,
-    wrappers::{BroadcastStream, errors::BroadcastStreamRecvError},
 };
 #[cfg(feature = "gossipsub")]
 use tracing::warn;
@@ -119,20 +115,15 @@ impl GossipHandle {
 #[derive(Debug)]
 pub struct CommandHandle {
     events: broadcast::Receiver<CommandEvents>,
-    events_stream: tokio_stream::wrappers::BroadcastStream<CommandEvents>,
     commands: mpsc::Sender<Command>,
 }
 
 impl CommandHandle {
-    pub(crate) fn new(
+    pub(crate) const fn new(
         events: broadcast::Receiver<CommandEvents>,
         commands: mpsc::Sender<Command>,
     ) -> Self {
-        Self {
-            commands,
-            events_stream: BroadcastStream::new(events.resubscribe()),
-            events,
-        }
+        Self { commands, events }
     }
 
     /// Gets the next event from P2P from events channel.
@@ -300,14 +291,6 @@ impl Stream for ReqRespHandle {
             Poll::Ready(None) => Poll::Ready(None),
             Poll::Pending => Poll::Pending,
         }
-    }
-}
-
-impl Stream for CommandHandle {
-    type Item = Result<CommandEvents, BroadcastStreamRecvError>;
-
-    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        self.events_stream.poll_next_unpin(cx)
     }
 }
 

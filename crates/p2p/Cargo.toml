@@ -43,7 +43,6 @@ libp2p = { workspace = true, features = [
 serde = { workspace = true, optional = true }
 thiserror.workspace = true
 tokio = { workspace = true, features = ["macros", "time"] }
-tokio-stream.workspace = true
 tokio-util.workspace = true
 tracing.workspace = true
 
