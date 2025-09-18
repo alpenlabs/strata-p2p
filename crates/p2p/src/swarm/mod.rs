@@ -2324,7 +2324,7 @@ impl P2P {
         .await;
 
         if let Err(error) = res_signed_record_data {
-            warn!(%error, 
+            warn!(%error,
                 local_tid = %self.swarm.local_peer_id(),
                 external_addresses = ?self.swarm.external_addresses().cloned().collect::<Vec<_>>(),
                 "Failed to serialize our own signed record.");
