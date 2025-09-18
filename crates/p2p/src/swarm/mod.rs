@@ -2347,7 +2347,7 @@ impl P2P {
             ),
             Quorum::Majority,
         );
-        
+
         self.kademlia_is_initial_record_already_posted = true;
 
         Ok(())
