@@ -2308,7 +2308,7 @@ impl P2P {
     async fn ask_kademlia_put_record(&mut self) -> P2PResult<()> {
         use crate::swarm::message::dht_record::RecordData;
 
-        let maybe_signed_record_data = SignedRecord::new(
+        let res_signed_record_data = SignedRecord::new(
             RecordData::new(
                 #[cfg(feature = "byos")]
                 self.config.app_public_key.clone(),
@@ -2323,31 +2323,33 @@ impl P2P {
         )
         .await;
 
-        match maybe_signed_record_data {
-            Err(e) => {
-                warn!(%e,
-                                local_tid = %self.swarm.local_peer_id(),
-                                external_addresses = ?self.swarm.external_addresses().cloned().collect::<Vec<_>>(),
-                                "Failed to serialize our own signed record.");
-            }
-            Ok(signed_record_data) => {
-                let _ = self.swarm.behaviour_mut().kademlia.put_record(
-                    Record::new(
-                        #[cfg(feature = "byos")]
-                        self.config.app_public_key.encode_protobuf(),
-                        #[cfg(not(feature = "byos"))]
-                        self.config
-                            .transport_keypair
-                            .public()
-                            .to_peer_id()
-                            .to_bytes(),
-                        flexbuffers::to_vec(&signed_record_data).unwrap(),
-                    ),
-                    Quorum::Majority,
-                );
-            }
-        };
+        if let Err(error) = res_signed_record_data {
+            warn!(%error, 
+                local_tid = %self.swarm.local_peer_id(),
+                external_addresses = ?self.swarm.external_addresses().cloned().collect::<Vec<_>>(),
+                "Failed to serialize our own signed record.");
+            return Ok(());
+        }
+
+        let signed_record_data = res_signed_record_data.unwrap();
+
+        let _ = self.swarm.behaviour_mut().kademlia.put_record(
+            Record::new(
+                #[cfg(feature = "byos")]
+                self.config.app_public_key.encode_protobuf(),
+                #[cfg(not(feature = "byos"))]
+                self.config
+                    .transport_keypair
+                    .public()
+                    .to_peer_id()
+                    .to_bytes(),
+                flexbuffers::to_vec(&signed_record_data).unwrap(),
+            ),
+            Quorum::Majority,
+        );
+        
         self.kademlia_is_initial_record_already_posted = true;
+
         Ok(())
     }
 
