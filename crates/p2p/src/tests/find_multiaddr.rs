@@ -7,7 +7,7 @@ use tracing::{debug, info};
 use super::common::Setup;
 use crate::{
     commands::{Command, QueryP2PStateCommand},
-    events::CommandEvents,
+    events::CommandEvent,
     tests::common::init_tracing,
 };
 
@@ -60,7 +60,7 @@ async fn test_find_multiaddr() -> anyhow::Result<()> {
     info!("Waiting for result from command Command::FindMultiaddr");
 
     match user_handles[USERS_NUM - 1].command.next_event().await {
-        Ok(CommandEvents::ResultFindMultiaddress(opt)) => match opt {
+        Ok(CommandEvent::ResultFindMultiaddress(opt)) => match opt {
             Some(vec_addrs) => {
                 assert!(vec_addrs.iter().any(|x| x == connect_addr));
             }
@@ -128,7 +128,7 @@ async fn test_find_non_existent_multiaddr() -> anyhow::Result<()> {
     info!("Waiting for result from command Command::FindMultiaddr");
 
     match user_handles[USERS_NUM - 1].command.next_event().await {
-        Ok(CommandEvents::ResultFindMultiaddress(opt)) => {
+        Ok(CommandEvent::ResultFindMultiaddress(opt)) => {
             if opt.is_some() {
                 bail!("Somehow, an address for such peer has been found.");
             }

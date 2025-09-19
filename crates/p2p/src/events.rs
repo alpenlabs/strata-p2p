@@ -27,7 +27,7 @@ pub enum ReqRespEvent {
 
 /// Events emitted from the command handler.
 #[derive(Debug, Clone)]
-pub enum CommandEvents {
+pub enum CommandEvent {
     /// Result of `FindMultiaddress`
     #[cfg(feature = "kad")]
     ResultFindMultiaddress(Option<Vec<Multiaddr>>),

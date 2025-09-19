@@ -113,7 +113,7 @@ use crate::swarm::message::{ProtocolId, gossipsub::GossipSubProtocolVersion};
 use crate::swarm::{dial_manager::DialManager, setup::events::SetupBehaviourEvent};
 use crate::{
     commands::{Command, QueryP2PStateCommand},
-    events::CommandEvents,
+    events::CommandEvent,
 };
 #[cfg(all(
     any(feature = "gossipsub", feature = "request-response"),
@@ -428,7 +428,7 @@ pub struct P2P {
     request_response_commands: mpsc::Receiver<RequestResponseCommand>,
 
     /// Event channel for the commands.
-    commands_events: broadcast::Sender<CommandEvents>,
+    commands_events: broadcast::Sender<CommandEvent>,
 
     /// ([`Clone`]able) Command channel for the swarm.
     ///
@@ -2361,7 +2361,7 @@ impl P2P {
                     info!(%id, "Finished query with no records.");
                     let res_sending = self
                         .commands_events
-                        .send(CommandEvents::ResultFindMultiaddress(None));
+                        .send(CommandEvent::ResultFindMultiaddress(None));
                     if let Err(e) = res_sending {
                         error!(
                             %e, "Failed sending event to command handler's event channel."
@@ -2375,7 +2375,7 @@ impl P2P {
                     debug!(result = ?result.unwrap(), "Sending back event to command handler's event channel.");
                     let res_sending =
                         self.commands_events
-                            .send(CommandEvents::ResultFindMultiaddress(Some(
+                            .send(CommandEvent::ResultFindMultiaddress(Some(
                                 result.unwrap().message.multiaddresses.clone(),
                             )));
                     if let Err(e) = res_sending {

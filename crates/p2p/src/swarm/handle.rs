@@ -36,7 +36,7 @@ use crate::events::ReqRespEvent;
 use crate::{commands::GossipCommand, events::GossipEvent};
 use crate::{
     commands::{Command, QueryP2PStateCommand},
-    events::CommandEvents,
+    events::CommandEvent,
     swarm::default_handle_timeout,
 };
 
@@ -114,20 +114,20 @@ impl GossipHandle {
 /// Handle to sends commands to P2P.
 #[derive(Debug)]
 pub struct CommandHandle {
-    events: broadcast::Receiver<CommandEvents>,
+    events: broadcast::Receiver<CommandEvent>,
     commands: mpsc::Sender<Command>,
 }
 
 impl CommandHandle {
     pub(crate) const fn new(
-        events: broadcast::Receiver<CommandEvents>,
+        events: broadcast::Receiver<CommandEvent>,
         commands: mpsc::Sender<Command>,
     ) -> Self {
         Self { commands, events }
     }
 
     /// Gets the next event from P2P from events channel.
-    pub async fn next_event(&mut self) -> Result<CommandEvents, RecvError> {
+    pub async fn next_event(&mut self) -> Result<CommandEvent, RecvError> {
         self.events.recv().await
     }
 
