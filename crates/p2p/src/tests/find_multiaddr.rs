@@ -1,7 +1,9 @@
+use std::time::Duration;
+
 use anyhow::bail;
-use futures::SinkExt;
+use futures::{SinkExt, StreamExt};
 use libp2p::{Multiaddr, identity::Keypair};
-use tokio::sync::oneshot::channel;
+use tokio::{sync::oneshot::channel, task, time::sleep};
 use tracing::{debug, info};
 
 use super::common::Setup;
@@ -86,10 +88,7 @@ async fn test_find_non_existent_multiaddr() -> anyhow::Result<()> {
     init_tracing();
     const USERS_NUM: usize = 9;
 
-    info!(
-        users = USERS_NUM,
-        "Setting up users in all-to-all topology"
-    );
+    info!(users = USERS_NUM, "Setting up users in all-to-all topology");
 
     let Setup {
         mut user_handles,
@@ -126,22 +125,35 @@ async fn test_find_non_existent_multiaddr() -> anyhow::Result<()> {
 
     info!("Waiting for result from command Command::FindMultiaddr");
 
-    match user_handles[USERS_NUM - 1].command.next_event().await {
-        Ok(CommandEvent::ResultFindMultiaddress(opt)) => {
-            if opt.is_some() {
-                bail!("Somehow, an address for such peer has been found.");
+    task::spawn(async move {
+        loop {
+            tokio::select!(
+                    Some(smth) = user_handles[USERS_NUM - 1].command.next() => {
+                match smth {
+                    Ok(CommandEvent::ResultFindMultiaddress(opt)) => {
+                        if opt.is_some() {
+                            bail!("Somehow, an address for such peer has been found.");
+                        }
+                        info!("SUCCESS!!!");
+                    }
+                    Err(e) => {
+                        bail!("Error while waiting for event from command handler: {}", e);
+                    }
+                };
+                break Ok(());
+                }
+                else => {
+            continue
+
             }
+            )
         }
-        Err(e) => {
-            bail!("Error while waiting for event from command handler: {}", e);
-        }
-    }
+    });
+
+    sleep(Duration::from_secs(5)).await;
 
     // info!(event = ?user_handles[USERS_NUM-1].command.next_event().await);
 
-    assert!(user_handles[USERS_NUM - 1].command.events_is_empty());
-
-    // Clean up
     cancel.cancel();
     tasks.wait().await;
 

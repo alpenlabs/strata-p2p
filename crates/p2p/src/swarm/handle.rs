@@ -25,6 +25,7 @@ use tokio::{
     },
     time::timeout,
 };
+use tracing::trace;
 #[cfg(feature = "gossipsub")]
 use tracing::warn;
 
@@ -290,6 +291,33 @@ impl Stream for ReqRespHandle {
             Poll::Ready(Some(v)) => Poll::Ready(Some(v)),
             Poll::Ready(None) => Poll::Ready(None),
             Poll::Pending => Poll::Pending,
+        }
+    }
+}
+
+impl Stream for CommandHandle {
+    type Item = Result<CommandEvent, ErrDroppedMsgs>;
+
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        trace!("We got into poll_next in command handler.");
+        let poll = Box::pin(self.next_event()).poll_unpin(cx);
+        match poll {
+            Poll::Ready(Ok(v)) => {
+                trace!("We got Poll::Ready(Some(Ok(v))).");
+                Poll::Ready(Some(Ok(v)))
+            }
+            Poll::Ready(Err(RecvError::Closed)) => {
+                trace!("We got Poll::Ready(Err(RecvError::Closed)).");
+                Poll::Ready(None)
+            }
+            Poll::Ready(Err(RecvError::Lagged(skipped))) => {
+                warn!(%skipped, "Command Stream lost messages");
+                Poll::Ready(Some(Err(ErrDroppedMsgs(skipped))))
+            }
+            Poll::Pending => {
+                trace!("We got Poll::Pending.");
+                Poll::Pending
+            }
         }
     }
 }
