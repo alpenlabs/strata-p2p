@@ -88,7 +88,7 @@ async fn test_find_non_existent_multiaddr() -> anyhow::Result<()> {
 
     info!(
         users = USERS_NUM,
-        "Setting up users in all-to-all topology with new user in allowlist"
+        "Setting up users in all-to-all topology"
     );
 
     let Setup {
@@ -99,8 +99,7 @@ async fn test_find_non_existent_multiaddr() -> anyhow::Result<()> {
 
     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
 
-    // Get connection addresses of first old user for the new user to connect to.
-    info!("Getting listening addresses for new user");
+    info!("Getting listening addresses of first user");
     let (tx, rx) = channel::<Vec<Multiaddr>>();
     user_handles[0]
         .command
@@ -113,7 +112,7 @@ async fn test_find_non_existent_multiaddr() -> anyhow::Result<()> {
     let result = rx.await.unwrap();
     debug!(addresses = ?result, "Retrieved listening addresses");
 
-    info!("Sending command Command::FindMultiaddr to last old user");
+    info!("Sending command Command::FindMultiaddr to last user");
 
     let _ = user_handles[USERS_NUM - 1]
         .command
