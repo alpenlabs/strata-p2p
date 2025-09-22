@@ -2,7 +2,7 @@
 
 use std::time::Duration;
 
-use futures::SinkExt;
+use futures::{SinkExt, StreamExt};
 use tokio::time::sleep;
 use tracing::info;
 
@@ -41,7 +41,7 @@ async fn test_reqresp_basic() -> anyhow::Result<()> {
         .expect("Failed to send request message");
     info!("Node 1 sent request to Node 2");
 
-    match user_handles[1].reqresp.next_event().await.unwrap() {
+    match user_handles[1].reqresp.next().await.unwrap() {
         ReqRespEvent::ReceivedRequest(data, channel) => {
             info!(?data, "Node 2 received request");
             assert_eq!(data, req_msg, "Node 2 did not receive the correct request");
@@ -51,7 +51,7 @@ async fn test_reqresp_basic() -> anyhow::Result<()> {
         _ => unreachable!("Node 2 did not receive a request"),
     }
 
-    match user_handles[0].reqresp.next_event().await.unwrap() {
+    match user_handles[0].reqresp.next().await.unwrap() {
         ReqRespEvent::ReceivedResponse(resp) => {
             info!(?resp, "Node 1 received response");
             assert_eq!(
