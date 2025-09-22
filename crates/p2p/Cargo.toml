@@ -49,6 +49,6 @@ tracing.workspace = true
 anyhow = "1.0.95"
 rand = "0.9.1"
 tokio = { workspace = true, features = ["rt", "rt-multi-thread"] }
-tokio-stream.workspace = true
+tokio-stream = { workspace = true, optional = true}
 tokio-util.workspace = true
 tracing-subscriber.workspace = true
