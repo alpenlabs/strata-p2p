@@ -11,7 +11,7 @@ use std::{
 };
 
 #[cfg(any(feature = "gossipsub", feature = "request-response"))]
-use futures::{FutureExt, Sink, Stream};
+use futures::{Sink, Stream};
 #[cfg(not(feature = "byos"))]
 use libp2p::PeerId;
 #[cfg(feature = "byos")]
@@ -26,8 +26,6 @@ use tokio::{
     sync::{mpsc, oneshot},
     time::timeout,
 };
-#[cfg(feature = "gossipsub")]
-use tracing::warn;
 
 #[cfg(feature = "request-response")]
 use crate::commands::RequestResponseCommand;
@@ -247,24 +245,6 @@ impl Clone for GossipHandle {
 impl Clone for CommandHandle {
     fn clone(&self) -> Self {
         Self::new(self.commands.clone())
-    }
-}
-
-#[cfg(feature = "gossipsub")]
-impl Stream for GossipHandle {
-    type Item = Result<GossipEvent, ErrDroppedMsgs>;
-
-    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let poll = Box::pin(self.next_event()).poll_unpin(cx);
-        match poll {
-            Poll::Ready(Ok(v)) => Poll::Ready(Some(Ok(v))),
-            Poll::Ready(Err(RecvError::Closed)) => Poll::Ready(None),
-            Poll::Ready(Err(RecvError::Lagged(skipped))) => {
-                warn!(%skipped, "Gossip Stream lost messages");
-                Poll::Ready(Some(Err(ErrDroppedMsgs(skipped))))
-            }
-            Poll::Pending => Poll::Pending,
-        }
     }
 }
 
