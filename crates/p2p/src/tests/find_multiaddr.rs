@@ -125,30 +125,12 @@ async fn test_find_non_existent_multiaddr() -> anyhow::Result<()> {
 
     info!("Waiting for result from command Command::FindMultiaddr");
 
-    task::spawn(async move {
-        loop {
-            tokio::select!(
-                    Some(smth) = user_handles[USERS_NUM - 1].command.next() => {
-                match smth {
-                    Ok(CommandEvent::ResultFindMultiaddress(opt)) => {
-                        if opt.is_some() {
-                            bail!("Somehow, an address for such peer has been found.");
-                        }
-                        info!("SUCCESS!!!");
-                    }
-                    Err(e) => {
-                        bail!("Error while waiting for event from command handler: {}", e);
-                    }
-                };
-                break Ok(());
-                }
-                else => {
-            continue
+    // Choose which version to use:
+    // Option 1: Using next_event() - async method approach
+    //wait_for_result_with_next_event(user_handles).await?;
 
-            }
-            )
-        }
-    });
+    // Option 2: Using next() - Stream API approach (uncomment to use)
+    wait_for_result_with_stream_next(user_handles).await?;
 
     sleep(Duration::from_secs(5)).await;
 
@@ -158,4 +140,71 @@ async fn test_find_non_existent_multiaddr() -> anyhow::Result<()> {
     tasks.wait().await;
 
     Ok(())
+}
+
+/// Version using next_event() - async method approach
+async fn wait_for_result_with_next_event(
+    user_handles: Vec<super::common::UserHandle>,
+) -> anyhow::Result<()> {
+    const USERS_NUM: usize = 9;
+    task::spawn(async move {
+        let mut user_handles = user_handles;
+        loop {
+            tokio::select!(
+                result = user_handles[USERS_NUM - 1].command.next_event() => {
+                    match result {
+                        Ok(CommandEvent::ResultFindMultiaddress(opt)) => {
+                            if opt.is_some() {
+                                bail!("Somehow, an address for such peer has been found.");
+                            }
+                            info!("SUCCESS with next_event()!!!");
+                            break Ok(());
+                        }
+                        Ok(_) => continue, // Other CommandEvent variants
+                        Err(e) => {
+                            bail!("Error while waiting for event from command handler: {}", e);
+                        }
+                    }
+                }
+                else => {
+                    continue;
+                }
+            )
+        }
+    })
+    .await?
+}
+
+/// Version using next() - Stream API approach
+#[allow(dead_code)]
+async fn wait_for_result_with_stream_next(
+    user_handles: Vec<super::common::UserHandle>,
+) -> anyhow::Result<()> {
+    const USERS_NUM: usize = 9;
+    task::spawn(async move {
+        let mut user_handles = user_handles;
+        loop {
+            tokio::select!(
+                Some(result) = user_handles[USERS_NUM - 1].command.next() => {
+                    match result {
+                        Ok(CommandEvent::ResultFindMultiaddress(opt)) => {
+                            if opt.is_some() {
+                                bail!("Somehow, an address for such peer has been found.");
+                            }
+                            info!("SUCCESS with Stream::next()!!!");
+                            break Ok(());
+                        }
+                        Ok(_) => continue, // Other CommandEvent variants
+                        Err(e) => {
+                            bail!("Error while waiting for event from command handler: {}", e);
+                        }
+                    }
+                }
+                else => {
+                    continue;
+                }
+            )
+        }
+    })
+    .await?
 }

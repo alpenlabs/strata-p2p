@@ -3,6 +3,7 @@
 
 use std::{
     fmt::{self, Display},
+    future::Future,
     pin::Pin,
     task::{Context, Poll},
     time::Duration,
@@ -10,7 +11,7 @@ use std::{
 
 use futures::Sink;
 #[cfg(any(feature = "gossipsub", feature = "request-response"))]
-use futures::{FutureExt, Stream};
+use futures::Stream;
 #[cfg(not(feature = "byos"))]
 use libp2p::PeerId;
 #[cfg(feature = "byos")]
@@ -86,19 +87,34 @@ impl ReqRespHandle {
 
 /// Handle to receive a gossipsub event from P2P.
 #[cfg(feature = "gossipsub")]
-#[derive(Debug)]
 pub struct GossipHandle {
     events: broadcast::Receiver<GossipEvent>,
     commands: mpsc::Sender<GossipCommand>,
+    next_fut: Option<Pin<Box<dyn Future<Output = Result<GossipEvent, RecvError>> + Send>>>,
+}
+
+#[cfg(feature = "gossipsub")]
+impl std::fmt::Debug for GossipHandle {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("GossipHandle")
+            .field("events", &self.events)
+            .field("commands", &self.commands)
+            .field("next_fut", &self.next_fut.is_some())
+            .finish()
+    }
 }
 
 #[cfg(feature = "gossipsub")]
 impl GossipHandle {
-    pub(crate) const fn new(
+    pub(crate) fn new(
         events: broadcast::Receiver<GossipEvent>,
         commands: mpsc::Sender<GossipCommand>,
     ) -> Self {
-        Self { events, commands }
+        Self {
+            events,
+            commands,
+            next_fut: None,
+        }
     }
 
     /// Gets the next event from P2P from events channel.
@@ -113,18 +129,32 @@ impl GossipHandle {
 }
 
 /// Handle to sends commands to P2P.
-#[derive(Debug)]
 pub struct CommandHandle {
     events: broadcast::Receiver<CommandEvent>,
     commands: mpsc::Sender<Command>,
+    next_fut: Option<Pin<Box<dyn Future<Output = Result<CommandEvent, RecvError>> + Send>>>,
+}
+
+impl std::fmt::Debug for CommandHandle {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CommandHandle")
+            .field("events", &self.events)
+            .field("commands", &self.commands)
+            .field("next_fut", &self.next_fut.is_some())
+            .finish()
+    }
 }
 
 impl CommandHandle {
-    pub(crate) const fn new(
+    pub(crate) fn new(
         events: broadcast::Receiver<CommandEvent>,
         commands: mpsc::Sender<Command>,
     ) -> Self {
-        Self { commands, events }
+        Self {
+            commands,
+            events,
+            next_fut: None,
+        }
     }
 
     /// Gets the next event from P2P from events channel.
@@ -267,16 +297,27 @@ impl Clone for CommandHandle {
 impl Stream for GossipHandle {
     type Item = Result<GossipEvent, ErrDroppedMsgs>;
 
-    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let poll = Box::pin(self.next_event()).poll_unpin(cx);
-        match poll {
-            Poll::Ready(Ok(v)) => Poll::Ready(Some(Ok(v))),
-            Poll::Ready(Err(RecvError::Closed)) => Poll::Ready(None),
-            Poll::Ready(Err(RecvError::Lagged(skipped))) => {
-                warn!(%skipped, "Gossip Stream lost messages");
-                Poll::Ready(Some(Err(ErrDroppedMsgs(skipped))))
-            }
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let this = self.get_mut();
+
+        if this.next_fut.is_none() {
+            let mut receiver = this.events.resubscribe();
+            this.next_fut = Some(Box::pin(async move { receiver.recv().await }));
+        }
+
+        match this.next_fut.as_mut().unwrap().as_mut().poll(cx) {
             Poll::Pending => Poll::Pending,
+            Poll::Ready(res) => {
+                this.next_fut = None;
+                match res {
+                    Ok(v) => Poll::Ready(Some(Ok(v))),
+                    Err(RecvError::Closed) => Poll::Ready(None),
+                    Err(RecvError::Lagged(skipped)) => {
+                        warn!(%skipped, "Gossip Stream lost messages");
+                        Poll::Ready(Some(Err(ErrDroppedMsgs(skipped))))
+                    }
+                }
+            }
         }
     }
 }
@@ -286,37 +327,44 @@ impl Stream for ReqRespHandle {
     type Item = ReqRespEvent;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let poll = Box::pin(self.next_event()).poll_unpin(cx);
-        match poll {
-            Poll::Ready(Some(v)) => Poll::Ready(Some(v)),
-            Poll::Ready(None) => Poll::Ready(None),
-            Poll::Pending => Poll::Pending,
-        }
+        self.events.poll_recv(cx)
     }
 }
 
 impl Stream for CommandHandle {
     type Item = Result<CommandEvent, ErrDroppedMsgs>;
 
-    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let this = self.get_mut();
+
         trace!("We got into poll_next in command handler.");
-        let poll = Box::pin(self.next_event()).poll_unpin(cx);
-        match poll {
-            Poll::Ready(Ok(v)) => {
-                trace!("We got Poll::Ready(Some(Ok(v))).");
-                Poll::Ready(Some(Ok(v)))
-            }
-            Poll::Ready(Err(RecvError::Closed)) => {
-                trace!("We got Poll::Ready(Err(RecvError::Closed)).");
-                Poll::Ready(None)
-            }
-            Poll::Ready(Err(RecvError::Lagged(skipped))) => {
-                warn!(%skipped, "Command Stream lost messages");
-                Poll::Ready(Some(Err(ErrDroppedMsgs(skipped))))
-            }
+
+        if this.next_fut.is_none() {
+            let mut receiver = this.events.resubscribe();
+            this.next_fut = Some(Box::pin(async move { receiver.recv().await }));
+        }
+
+        match this.next_fut.as_mut().unwrap().as_mut().poll(cx) {
             Poll::Pending => {
                 trace!("We got Poll::Pending.");
                 Poll::Pending
+            }
+            Poll::Ready(res) => {
+                this.next_fut = None;
+                match res {
+                    Ok(v) => {
+                        trace!("We got Poll::Ready(Some(Ok(v))).");
+                        Poll::Ready(Some(Ok(v)))
+                    }
+                    Err(RecvError::Closed) => {
+                        trace!("We got Poll::Ready(Err(RecvError::Closed)).");
+                        Poll::Ready(None)
+                    }
+                    Err(RecvError::Lagged(skipped)) => {
+                        warn!(%skipped, "Command Stream lost messages");
+                        Poll::Ready(Some(Err(ErrDroppedMsgs(skipped))))
+                    }
+                }
             }
         }
     }
