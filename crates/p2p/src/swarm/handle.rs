@@ -109,6 +109,12 @@ impl GossipHandle {
     pub fn events_is_empty(&self) -> bool {
         self.events.is_empty()
     }
+
+    /// Get a new Gossipsub event receiver. Useful if it is necessary to get a receiver for
+    /// `tokio_stream::BroadcastStream`.
+    pub fn get_new_receiver(&self) -> broadcast::Receiver<GossipEvent> {
+        self.events.resubscribe()
+    }
 }
 
 /// Handle to sends commands to P2P.
