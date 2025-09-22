@@ -11,7 +11,9 @@ use std::{
 };
 
 #[cfg(any(feature = "gossipsub", feature = "request-response"))]
-use futures::{Sink, Stream};
+use futures::Sink;
+#[cfg(feature = "request-response")]
+use futures::Stream;
 #[cfg(not(feature = "byos"))]
 use libp2p::PeerId;
 #[cfg(feature = "byos")]
@@ -72,7 +74,7 @@ impl ReqRespHandle {
 
     /// Gets the next event from the P2P events channel.
     ///
-    /// This handle can also be used as a [`Stream`] for convenient event processing.
+    /// This handle can also be sed ] for convenient event processing.
     pub async fn next_event(&mut self) -> Option<ReqRespEvent> {
         self.events.recv().await
     }
