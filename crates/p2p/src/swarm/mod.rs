@@ -1068,6 +1068,7 @@ impl P2P {
         &mut self,
         event: SwarmEvent<<Behaviour as NetworkBehaviour>::ToSwarm>,
     ) -> P2PResult<()> {
+        trace!(?event, "Received an event");
         match event {
             SwarmEvent::Behaviour(event) => self.handle_behaviour_event(event).await,
             SwarmEvent::ConnectionEstablished { .. }

@@ -43,5 +43,8 @@ pub(crate) mod mem_rel_conn_limits;
 #[cfg(feature = "kad")]
 pub(crate) mod find_multiaddr;
 
-#[cfg(all(feature = "kad", not(feature = "byos")))]
+#[cfg(all(
+    feature = "kad",
+    not(any(feature = "byos", feature = "gossipsub", feature = "request-response"))
+))]
 pub(crate) mod kad_invalid_record;
