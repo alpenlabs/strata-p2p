@@ -141,6 +141,12 @@ impl CommandHandle {
         let _ = self.commands.send(command.into()).await;
     }
 
+    /// Get a new Command event receiver. Useful if it is necessary to get a receiver for
+    /// `tokio_stream::BroadcastStream`.
+    pub fn get_new_receiver(&self) -> broadcast::Receiver<CommandEvent> {
+        self.events.resubscribe()
+    }
+
     /// Checks if the P2P node is connected to the specified peer.
     /// If timeout is None, uses the default timeout of 1 second.
     /// Returns true if connected, false otherwise.
