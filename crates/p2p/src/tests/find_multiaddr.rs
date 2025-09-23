@@ -86,10 +86,7 @@ async fn test_find_non_existent_multiaddr() -> anyhow::Result<()> {
     init_tracing();
     const USERS_NUM: usize = 9;
 
-    info!(
-        users = USERS_NUM,
-        "Setting up users in all-to-all topology"
-    );
+    info!(users = USERS_NUM, "Setting up users in all-to-all topology");
 
     let Setup {
         mut user_handles,
