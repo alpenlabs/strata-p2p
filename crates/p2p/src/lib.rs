@@ -26,3 +26,6 @@ pub mod score_manager;
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+use tokio_stream as _;
