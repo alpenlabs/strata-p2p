@@ -11,7 +11,9 @@ use std::{
 };
 
 #[cfg(any(feature = "gossipsub", feature = "request-response"))]
-use futures::{FutureExt, Sink, Stream};
+use futures::Sink;
+#[cfg(feature = "request-response")]
+use futures::Stream;
 #[cfg(not(feature = "byos"))]
 use libp2p::PeerId;
 #[cfg(feature = "byos")]
@@ -26,8 +28,6 @@ use tokio::{
     sync::{mpsc, oneshot},
     time::timeout,
 };
-#[cfg(feature = "gossipsub")]
-use tracing::warn;
 
 #[cfg(feature = "request-response")]
 use crate::commands::RequestResponseCommand;
@@ -110,6 +110,12 @@ impl GossipHandle {
     /// Checks if the event's channel is empty or not.
     pub fn events_is_empty(&self) -> bool {
         self.events.is_empty()
+    }
+
+    /// Get a new Gossipsub event receiver. Useful if it is necessary to get a receiver for
+    /// `tokio_stream::BroadcastStream`.
+    pub fn get_new_receiver(&self) -> broadcast::Receiver<GossipEvent> {
+        self.events.resubscribe()
     }
 }
 
@@ -250,35 +256,12 @@ impl Clone for CommandHandle {
     }
 }
 
-#[cfg(feature = "gossipsub")]
-impl Stream for GossipHandle {
-    type Item = Result<GossipEvent, ErrDroppedMsgs>;
-
-    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let poll = Box::pin(self.next_event()).poll_unpin(cx);
-        match poll {
-            Poll::Ready(Ok(v)) => Poll::Ready(Some(Ok(v))),
-            Poll::Ready(Err(RecvError::Closed)) => Poll::Ready(None),
-            Poll::Ready(Err(RecvError::Lagged(skipped))) => {
-                warn!(%skipped, "Gossip Stream lost messages");
-                Poll::Ready(Some(Err(ErrDroppedMsgs(skipped))))
-            }
-            Poll::Pending => Poll::Pending,
-        }
-    }
-}
-
 #[cfg(feature = "request-response")]
 impl Stream for ReqRespHandle {
     type Item = ReqRespEvent;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let poll = Box::pin(self.next_event()).poll_unpin(cx);
-        match poll {
-            Poll::Ready(Some(v)) => Poll::Ready(Some(v)),
-            Poll::Ready(None) => Poll::Ready(None),
-            Poll::Pending => Poll::Pending,
-        }
+        self.events.poll_recv(cx)
     }
 }
 
