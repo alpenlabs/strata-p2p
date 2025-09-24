@@ -23,7 +23,10 @@ use super::common::init_tracing;
 #[cfg(all(feature = "gossipsub", not(feature = "byos")))]
 use crate::validator::DefaultP2PValidator;
 
-#[cfg(feature = "mem-conn-limits-abs")]
+#[cfg(all(
+    any(feature = "gossipsub", feature = "byos"),
+    feature = "mem-conn-limits-abs"
+))]
 const SIXTEEN_GIBIBYTES: usize = 16 * 1024 * 1024 * 1024;
 
 #[cfg(any(feature = "gossipsub", feature = "byos"))]
