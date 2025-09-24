@@ -1,7 +1,9 @@
 //! Tests for protocol support checking functionality.
 
+#[cfg(any(feature = "gossipsub", feature = "byos"))]
 use std::time::Duration;
 
+#[cfg(any(feature = "gossipsub", feature = "byos"))]
 use libp2p::{
     Transport,
     core::{muxing::StreamMuxerBox, upgrade::Version},
@@ -9,15 +11,16 @@ use libp2p::{
     identity::Keypair,
     noise, yamux,
 };
+#[cfg(any(feature = "gossipsub", feature = "byos"))]
 use tokio::time::sleep;
+#[cfg(any(feature = "gossipsub", feature = "byos"))]
 use tokio_util::sync::CancellationToken;
+#[cfg(any(feature = "gossipsub", feature = "byos"))]
 use tracing::info;
 
+#[cfg(any(feature = "gossipsub", feature = "byos"))]
 use super::common::init_tracing;
-#[cfg(all(
-    any(feature = "gossipsub", feature = "request-response"),
-    not(feature = "byos")
-))]
+#[cfg(all(feature = "gossipsub", not(feature = "byos")))]
 use crate::validator::DefaultP2PValidator;
 
 #[cfg(feature = "mem-conn-limits-abs")]
@@ -342,11 +345,6 @@ async fn test_request_response_protocol_checking() -> anyhow::Result<()> {
         vec![], // Allow any peers for this test
         None,   // gossip channel size
         signer.clone(),
-        #[cfg(all(
-            any(feature = "gossipsub", feature = "request-response"),
-            not(feature = "byos")
-        ))]
-        Some(Box::new(DefaultP2PValidator)),
     )?;
 
     #[cfg(feature = "request-response")]
