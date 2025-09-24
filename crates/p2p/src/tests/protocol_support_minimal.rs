@@ -261,10 +261,8 @@ async fn test_gossipsub_protocol_checking() -> anyhow::Result<()> {
         (connection_established, connection_closed)
     });
 
-    // Wait for connection attempt and potential disconnect
     sleep(Duration::from_secs(2)).await;
 
-    // Check the results
     let (conn_established, conn_closed) = minimal_handle.await?;
 
     info!(
@@ -272,8 +270,6 @@ async fn test_gossipsub_protocol_checking() -> anyhow::Result<()> {
         conn_established, conn_closed
     );
 
-    // We expect the connection to be established briefly but then closed due to protocol
-    // mismatch - the main P2P node requires gossipsub but the minimal node doesn't support it
     assert!(
         conn_established,
         "Connection should be established initially"
@@ -296,7 +292,6 @@ async fn test_gossipsub_protocol_checking() -> anyhow::Result<()> {
 async fn test_request_response_protocol_checking() -> anyhow::Result<()> {
     init_tracing();
 
-    // Create a full P2P node with all features enabled
     let cancel = CancellationToken::new();
     let app_keypair = Keypair::generate_ed25519();
     let transport_keypair = Keypair::generate_ed25519();
@@ -345,8 +340,8 @@ async fn test_request_response_protocol_checking() -> anyhow::Result<()> {
         config,
         cancel.child_token(),
         swarm,
-        vec![], // Allow any peers for this test
-        None,   // gossip channel size
+        vec![],
+        None, // gossip channel size
         signer.clone(),
     )?;
 
@@ -361,7 +356,6 @@ async fn test_request_response_protocol_checking() -> anyhow::Result<()> {
 
     sleep(Duration::from_millis(100)).await;
 
-    // Create a node with gossipsub and setup but NO request-response (will be disconnected)
     let no_req_resp_transport_keypair = Keypair::generate_ed25519();
     let no_req_resp_addr: libp2p::Multiaddr = "/memory/50001".parse()?;
 
@@ -373,7 +367,6 @@ async fn test_request_response_protocol_checking() -> anyhow::Result<()> {
         &topic,
     );
 
-    // Create swarm with gossipsub and setup but no request-response
     let mut no_req_resp_swarm =
         libp2p::SwarmBuilder::with_existing_identity(no_req_resp_transport_keypair)
             .with_tokio()
@@ -389,7 +382,6 @@ async fn test_request_response_protocol_checking() -> anyhow::Result<()> {
             .unwrap()
             .build();
 
-    // Listen on the no-request-response address
     no_req_resp_swarm.listen_on(no_req_resp_addr)?;
 
     no_req_resp_swarm.dial(listen_addr)?;
@@ -397,7 +389,6 @@ async fn test_request_response_protocol_checking() -> anyhow::Result<()> {
     let mut connection_established = false;
     let mut connection_closed = false;
 
-    // Start the no-request-response swarm and monitor events
     let no_req_resp_handle = tokio::spawn(async move {
         use futures::StreamExt;
         use libp2p::swarm::SwarmEvent;
@@ -422,10 +413,8 @@ async fn test_request_response_protocol_checking() -> anyhow::Result<()> {
         (connection_established, connection_closed)
     });
 
-    // Wait for connection attempt and potential disconnect
     sleep(Duration::from_secs(2)).await;
 
-    // Check the results
     let (conn_established, conn_closed) = no_req_resp_handle.await?;
 
     info!(
@@ -433,9 +422,6 @@ async fn test_request_response_protocol_checking() -> anyhow::Result<()> {
         conn_established, conn_closed
     );
 
-    // We expect the connection to be established briefly but then closed due to protocol mismatch
-    // The main P2P node requires request-response (feature enabled) but the no-request-response
-    // node doesn't support it
     assert!(
         conn_established,
         "Connection should be established initially"
@@ -458,7 +444,6 @@ async fn test_request_response_protocol_checking() -> anyhow::Result<()> {
 async fn test_setup_protocol_checking() -> anyhow::Result<()> {
     init_tracing();
 
-    // Create a full P2P node with byos enabled (requires setup)
     let cancel = CancellationToken::new();
     let app_keypair = Keypair::generate_ed25519();
     let transport_keypair = Keypair::generate_ed25519();
@@ -516,7 +501,7 @@ async fn test_setup_protocol_checking() -> anyhow::Result<()> {
         config,
         cancel.child_token(),
         swarm,
-        vec![], // Allow any peers for this test
+        vec![],
         #[cfg(feature = "gossipsub")]
         None, // gossip channel size
         #[cfg(all(
@@ -542,13 +527,11 @@ async fn test_setup_protocol_checking() -> anyhow::Result<()> {
 
     sleep(Duration::from_millis(100)).await;
 
-    // Create a minimal node that has NO setup protocol (will be disconnected)
     let minimal_transport_keypair = Keypair::generate_ed25519();
     let minimal_addr: libp2p::Multiaddr = "/memory/40001".parse()?;
 
     let minimal_behaviour = MinimalBehaviour::new("/strata", &minimal_transport_keypair);
 
-    // Create swarm with minimal behavior (no setup protocol)
     let mut minimal_swarm = libp2p::SwarmBuilder::with_existing_identity(minimal_transport_keypair)
         .with_tokio()
         .with_other_transport(|keypair| {
@@ -594,19 +577,15 @@ async fn test_setup_protocol_checking() -> anyhow::Result<()> {
         (connection_established, connection_closed)
     });
 
-    // Wait for connection attempt and potential disconnect
     sleep(Duration::from_secs(2)).await;
 
-    // Check the results
     let (conn_established, conn_closed) = minimal_handle.await?;
 
     info!(
         "Connection established: {}, Connection closed: {}",
         conn_established, conn_closed
     );
-    // We expect the connection to be established briefly but then closed due to protocol mismatch
-    // The main P2P node requires setup (byos feature enabled) but the minimal node doesn't support
-    // it
+
     assert!(
         conn_established,
         "Connection should be established initially"
