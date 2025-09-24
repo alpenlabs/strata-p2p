@@ -20,6 +20,7 @@ use super::common::init_tracing;
 ))]
 use crate::validator::DefaultP2PValidator;
 
+#[cfg(feature = "mem-conn-limits-abs")]
 const SIXTEEN_GIBIBYTES: usize = 16 * 1024 * 1024 * 1024;
 
 #[cfg(feature = "request-response")]
@@ -148,53 +149,7 @@ impl MinimalBehaviour {
     }
 }
 
-#[cfg(all(feature = "request-response", feature = "byos"))]
-#[derive(libp2p::swarm::NetworkBehaviour)]
-struct RequestResponseOnlyBehaviour {
-    /// Identification of peers, address to connect to, public keys, etc.
-    pub identify: Identify,
-
-    /// Request-response model for recursive discovery of lost or skipped info.
-    pub request_response: libp2p::request_response::Behaviour<TestCodec>,
-
-    /// Setup protocol for application key exchange.
-    pub setup: crate::swarm::setup::behavior::SetupBehaviour,
-}
-
-#[cfg(all(feature = "request-response", feature = "byos"))]
-impl RequestResponseOnlyBehaviour {
-    fn new(
-        protocol_name: &'static str,
-        transport_keypair: &Keypair,
-        app_public_key: &libp2p::identity::PublicKey,
-        signer: &std::sync::Arc<super::common::MockApplicationSigner>,
-    ) -> Self {
-        let request_response = libp2p::request_response::Behaviour::new(
-            [(
-                libp2p::StreamProtocol::new(protocol_name),
-                libp2p::request_response::ProtocolSupport::Full,
-            )],
-            libp2p::request_response::Config::default(),
-        );
-
-        let setup = crate::swarm::setup::behavior::SetupBehaviour::new(
-            app_public_key.clone(),
-            transport_keypair.public().to_peer_id(),
-            signer.clone(),
-        );
-
-        Self {
-            identify: Identify::new(Config::new(
-                protocol_name.to_string(),
-                transport_keypair.public(),
-            )),
-            request_response,
-            setup,
-        }
-    }
-}
-
-#[cfg(all(feature = "gossipsub", feature = "byos"))]
+#[cfg(all(feature = "gossipsub", feature = "byos", feature = "request-response"))]
 #[derive(libp2p::swarm::NetworkBehaviour)]
 struct GossipsubSetupOnlyBehaviour {
     /// Identification of peers, address to connect to, public keys, etc.
@@ -210,7 +165,7 @@ struct GossipsubSetupOnlyBehaviour {
     pub setup: crate::swarm::setup::behavior::SetupBehaviour,
 }
 
-#[cfg(all(feature = "gossipsub", feature = "byos"))]
+#[cfg(all(feature = "gossipsub", feature = "byos", feature = "request-response"))]
 impl GossipsubSetupOnlyBehaviour {
     fn new(
         protocol_name: &'static str,
