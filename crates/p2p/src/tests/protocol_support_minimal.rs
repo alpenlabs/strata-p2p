@@ -1,7 +1,4 @@
 //! Tests for protocol support checking functionality.
-//!
-//! This module tests that peers which don't support required protocols
-//! are disconnected during the identify handshake.
 
 use std::time::Duration;
 
@@ -23,13 +20,12 @@ use super::common::init_tracing;
 ))]
 use crate::validator::DefaultP2PValidator;
 
-pub(crate) const SIXTEEN_GIBIBYTES: usize = 16 * 1024 * 1024 * 1024;
+const SIXTEEN_GIBIBYTES: usize = 16 * 1024 * 1024 * 1024;
 
-/// Simple test codec for request-response that passes through raw bytes.
-/// Used in tests since the actual codec implementation is private.
 #[cfg(feature = "request-response")]
 #[derive(Debug, Clone, Default)]
-pub(crate) struct TestCodec(std::marker::PhantomData<Vec<u8>>);
+#[allow(dead_code)]
+struct TestCodec(std::marker::PhantomData<Vec<u8>>);
 
 #[cfg(feature = "request-response")]
 impl libp2p::request_response::Codec for TestCodec {
@@ -134,17 +130,16 @@ impl libp2p::request_response::Codec for TestCodec {
     }
 }
 
-/// Minimal behavior that supports only identify (no application protocols).
-/// Used to test that peers without required protocols get disconnected.
 #[derive(libp2p::swarm::NetworkBehaviour)]
-pub(crate) struct MinimalBehaviour {
+#[allow(dead_code)]
+struct MinimalBehaviour {
     /// Identification of peers, address to connect to, public keys, etc.
     pub identify: Identify,
 }
 
 impl MinimalBehaviour {
-    /// Creates a minimal behavior with only identify protocol.
-    pub(crate) fn new(protocol_name: &'static str, transport_keypair: &Keypair) -> Self {
+    #[allow(dead_code)]
+    fn new(protocol_name: &'static str, transport_keypair: &Keypair) -> Self {
         Self {
             identify: Identify::new(Config::new(
                 protocol_name.to_string(),
@@ -154,11 +149,10 @@ impl MinimalBehaviour {
     }
 }
 
-/// Test behavior that supports request-response and setup (missing gossipsub).
-/// Used to test that peers without gossipsub support get disconnected when gossipsub is enabled.
 #[cfg(all(feature = "request-response", feature = "byos"))]
 #[derive(libp2p::swarm::NetworkBehaviour)]
-pub(crate) struct RequestResponseOnlyBehaviour {
+#[allow(dead_code)]
+struct RequestResponseOnlyBehaviour {
     /// Identification of peers, address to connect to, public keys, etc.
     pub identify: Identify,
 
@@ -171,8 +165,8 @@ pub(crate) struct RequestResponseOnlyBehaviour {
 
 #[cfg(all(feature = "request-response", feature = "byos"))]
 impl RequestResponseOnlyBehaviour {
-    /// Creates a test behavior with identify, request-response, and setup protocols.
-    pub(crate) fn new(
+    #[allow(dead_code)]
+    fn new(
         protocol_name: &'static str,
         transport_keypair: &Keypair,
         app_public_key: &libp2p::identity::PublicKey,
@@ -203,12 +197,10 @@ impl RequestResponseOnlyBehaviour {
     }
 }
 
-/// Test behavior that supports gossipsub and setup (missing request-response).
-/// Used to test that peers without request-response support get disconnected when request-response
-/// is enabled.
 #[cfg(all(feature = "gossipsub", feature = "byos"))]
 #[derive(libp2p::swarm::NetworkBehaviour)]
-pub(crate) struct GossipsubSetupOnlyBehaviour {
+#[allow(dead_code)]
+struct GossipsubSetupOnlyBehaviour {
     /// Identification of peers, address to connect to, public keys, etc.
     pub identify: Identify,
 
@@ -224,8 +216,8 @@ pub(crate) struct GossipsubSetupOnlyBehaviour {
 
 #[cfg(all(feature = "gossipsub", feature = "byos"))]
 impl GossipsubSetupOnlyBehaviour {
-    /// Creates a test behavior with identify, gossipsub, and setup protocols.
-    pub(crate) fn new(
+    #[allow(dead_code)]
+    fn new(
         protocol_name: &'static str,
         transport_keypair: &Keypair,
         app_public_key: &libp2p::identity::PublicKey,
@@ -272,82 +264,11 @@ impl GossipsubSetupOnlyBehaviour {
     }
 }
 
-/// Test behavior that supports gossipsub and request-response but NOT setup.
-/// Used to test that peers without setup support get disconnected when byos is enabled.
-#[cfg(feature = "request-response")]
-#[derive(libp2p::swarm::NetworkBehaviour)]
-pub(crate) struct NoSetupBehaviour {
-    /// Identification of peers, address to connect to, public keys, etc.
-    pub identify: Identify,
-
-    /// Gossipsub - pub/sub model for messages distribution.
-    pub gossipsub: libp2p::gossipsub::Behaviour<
-        libp2p::gossipsub::IdentityTransform,
-        libp2p::gossipsub::WhitelistSubscriptionFilter,
-    >,
-
-    /// Request-response model for recursive discovery of lost or skipped info.
-    pub request_response: libp2p::request_response::Behaviour<TestCodec>,
-}
-
-#[cfg(feature = "request-response")]
-impl NoSetupBehaviour {
-    /// Creates a test behavior with gossipsub and request-response but no setup.
-    pub(crate) fn new(
-        protocol_name: &'static str,
-        transport_keypair: &Keypair,
-        topic: &libp2p::gossipsub::Sha256Topic,
-    ) -> Self {
-        use libp2p::gossipsub::{
-            Behaviour, MessageAuthenticity, ValidationMode, WhitelistSubscriptionFilter,
-        };
-
-        let mut filter = std::collections::HashSet::new();
-        filter.insert(topic.hash());
-
-        let gossipsub = Behaviour::new_with_subscription_filter(
-            MessageAuthenticity::Author(libp2p::PeerId::from_public_key(
-                &transport_keypair.public().clone(),
-            )),
-            libp2p::gossipsub::ConfigBuilder::default()
-                .validation_mode(ValidationMode::Permissive)
-                .validate_messages()
-                .max_transmit_size(524288)
-                .idontwant_on_publish(true)
-                .build()
-                .expect("gossipsub config should be valid"),
-            None,
-            WhitelistSubscriptionFilter(filter),
-        )
-        .expect("gossipsub should be created");
-
-        let request_response = libp2p::request_response::Behaviour::new(
-            [(
-                libp2p::StreamProtocol::new(protocol_name),
-                libp2p::request_response::ProtocolSupport::Full,
-            )],
-            libp2p::request_response::Config::default(),
-        );
-
-        Self {
-            identify: Identify::new(Config::new(
-                protocol_name.to_string(),
-                transport_keypair.public(),
-            )),
-            gossipsub,
-            request_response,
-        }
-    }
-}
-
-// Test that peers without gossipsub support are disconnected.
-// This test runs when gossipsub feature is enabled (main node requires gossipsub).
 #[cfg(feature = "gossipsub")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_gossipsub_protocol_checking() -> anyhow::Result<()> {
     init_tracing();
 
-    // Create a full P2P node with gossipsub enabled
     let cancel = CancellationToken::new();
     #[cfg(feature = "byos")]
     let app_keypair = Keypair::generate_ed25519();
@@ -364,7 +285,7 @@ async fn test_gossipsub_protocol_checking() -> anyhow::Result<()> {
         general_timeout: None,
         connection_check_interval: None,
         listening_addrs: vec![listen_addr.clone()],
-        connect_to: vec![], // Don't connect to anything initially
+        connect_to: vec![],
         protocol_name: None,
         #[cfg(feature = "gossipsub")]
         gossipsub_topic: None,
@@ -396,6 +317,8 @@ async fn test_gossipsub_protocol_checking() -> anyhow::Result<()> {
         max_allowed_ram_used_percent: 1.0,
         command_buffer_size: None,
         handle_default_timeout: None,
+        #[cfg(feature = "kad")]
+        kad_protocol_name: None,
     };
 
     #[cfg(feature = "byos")]
@@ -413,7 +336,7 @@ async fn test_gossipsub_protocol_checking() -> anyhow::Result<()> {
         cancel.child_token(),
         swarm,
         #[cfg(feature = "byos")]
-        vec![], // No initial allowlist
+        vec![],
         #[cfg(feature = "gossipsub")]
         None, // gossip channel size
         #[cfg(all(
@@ -428,31 +351,22 @@ async fn test_gossipsub_protocol_checking() -> anyhow::Result<()> {
         Some(Box::new(DefaultP2PValidator)),
     )?;
 
-    // Extract P2P instance from the result tuple (when request-response is enabled)
-    // or use directly (when request-response is disabled)
     #[cfg(feature = "request-response")]
     let p2p = p2p_config_result.0;
     #[cfg(not(feature = "request-response"))]
     let p2p = p2p_config_result;
 
-    // Start the full P2P node
     let p2p_handle = tokio::spawn(async move {
         p2p.listen().await;
     });
 
-    // Wait a bit for the P2P node to start listening
     sleep(Duration::from_millis(100)).await;
 
-    // Create a minimal node that has NO gossipsub (will be disconnected)
     let minimal_transport_keypair = Keypair::generate_ed25519();
     let minimal_addr: libp2p::Multiaddr = "/memory/20001".parse()?;
 
-    let minimal_behaviour = MinimalBehaviour::new(
-        "/strata", // Same protocol name so identify works
-        &minimal_transport_keypair,
-    );
+    let minimal_behaviour = MinimalBehaviour::new("/strata", &minimal_transport_keypair);
 
-    // Create swarm with minimal behavior (no gossipsub)
     let mut minimal_swarm = libp2p::SwarmBuilder::with_existing_identity(minimal_transport_keypair)
         .with_tokio()
         .with_other_transport(|keypair| {
@@ -467,17 +381,13 @@ async fn test_gossipsub_protocol_checking() -> anyhow::Result<()> {
         .unwrap()
         .build();
 
-    // Listen on the minimal address
     minimal_swarm.listen_on(minimal_addr)?;
 
-    // Dial the full P2P node
     minimal_swarm.dial(listen_addr)?;
 
-    // Track connection events
     let mut connection_established = false;
     let mut connection_closed = false;
 
-    // Start the minimal swarm and monitor events
     let minimal_handle = tokio::spawn(async move {
         use futures::StreamExt;
         use libp2p::swarm::SwarmEvent;
@@ -596,19 +506,15 @@ async fn test_request_response_protocol_checking() -> anyhow::Result<()> {
         Some(Box::new(DefaultP2PValidator)),
     )?;
 
-    // Extract P2P instance from the result tuple (when request-response is enabled)
-    // or use directly (when request-response is disabled)
     #[cfg(feature = "request-response")]
     let p2p = p2p_config_result.0;
     #[cfg(not(feature = "request-response"))]
     let p2p = p2p_config_result;
 
-    // Start the full P2P node
     let p2p_handle = tokio::spawn(async move {
         p2p.listen().await;
     });
 
-    // Wait a bit for the P2P node to start listening
     sleep(Duration::from_millis(100)).await;
 
     // Create a node with gossipsub and setup but NO request-response (will be disconnected)
@@ -616,7 +522,7 @@ async fn test_request_response_protocol_checking() -> anyhow::Result<()> {
     let no_req_resp_addr: libp2p::Multiaddr = "/memory/50001".parse()?;
 
     let gossipsub_setup_behaviour = GossipsubSetupOnlyBehaviour::new(
-        "/strata", // Same protocol name so identify works
+        "/strata",
         &no_req_resp_transport_keypair,
         &app_keypair.public(),
         &signer,
@@ -642,10 +548,8 @@ async fn test_request_response_protocol_checking() -> anyhow::Result<()> {
     // Listen on the no-request-response address
     no_req_resp_swarm.listen_on(no_req_resp_addr)?;
 
-    // Dial the full P2P node
     no_req_resp_swarm.dial(listen_addr)?;
 
-    // Track connection events
     let mut connection_established = false;
     let mut connection_closed = false;
 
@@ -783,29 +687,22 @@ async fn test_setup_protocol_checking() -> anyhow::Result<()> {
         Some(Box::new(DefaultP2PValidator)),
     )?;
 
-    // Extract P2P instance from the result tuple (when request-response is enabled)
-    // or use directly (when request-response is disabled)
     #[cfg(feature = "request-response")]
     let p2p = p2p_config_result.0;
     #[cfg(not(feature = "request-response"))]
     let p2p = p2p_config_result;
 
-    // Start the full P2P node
     let p2p_handle = tokio::spawn(async move {
         p2p.listen().await;
     });
 
-    // Wait a bit for the P2P node to start listening
     sleep(Duration::from_millis(100)).await;
 
     // Create a minimal node that has NO setup protocol (will be disconnected)
     let minimal_transport_keypair = Keypair::generate_ed25519();
     let minimal_addr: libp2p::Multiaddr = "/memory/40001".parse()?;
 
-    let minimal_behaviour = MinimalBehaviour::new(
-        "/strata", // Same protocol name so identify works
-        &minimal_transport_keypair,
-    );
+    let minimal_behaviour = MinimalBehaviour::new("/strata", &minimal_transport_keypair);
 
     // Create swarm with minimal behavior (no setup protocol)
     let mut minimal_swarm = libp2p::SwarmBuilder::with_existing_identity(minimal_transport_keypair)
@@ -822,17 +719,13 @@ async fn test_setup_protocol_checking() -> anyhow::Result<()> {
         .unwrap()
         .build();
 
-    // Listen on the minimal address
     minimal_swarm.listen_on(minimal_addr)?;
 
-    // Dial the full P2P node
     minimal_swarm.dial(listen_addr)?;
 
-    // Track connection events
     let mut connection_established = false;
     let mut connection_closed = false;
 
-    // Start the minimal swarm and monitor events
     let minimal_handle = tokio::spawn(async move {
         use futures::StreamExt;
         use libp2p::swarm::SwarmEvent;
