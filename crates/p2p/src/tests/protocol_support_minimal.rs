@@ -24,7 +24,6 @@ const SIXTEEN_GIBIBYTES: usize = 16 * 1024 * 1024 * 1024;
 
 #[cfg(feature = "request-response")]
 #[derive(Debug, Clone, Default)]
-#[allow(dead_code)]
 struct TestCodec(std::marker::PhantomData<Vec<u8>>);
 
 #[cfg(feature = "request-response")]
@@ -130,15 +129,15 @@ impl libp2p::request_response::Codec for TestCodec {
     }
 }
 
+#[cfg(any(feature = "gossipsub", feature = "byos"))]
 #[derive(libp2p::swarm::NetworkBehaviour)]
-#[allow(dead_code)]
 struct MinimalBehaviour {
     /// Identification of peers, address to connect to, public keys, etc.
     pub identify: Identify,
 }
 
+#[cfg(any(feature = "gossipsub", feature = "byos"))]
 impl MinimalBehaviour {
-    #[allow(dead_code)]
     fn new(protocol_name: &'static str, transport_keypair: &Keypair) -> Self {
         Self {
             identify: Identify::new(Config::new(
@@ -151,7 +150,6 @@ impl MinimalBehaviour {
 
 #[cfg(all(feature = "request-response", feature = "byos"))]
 #[derive(libp2p::swarm::NetworkBehaviour)]
-#[allow(dead_code)]
 struct RequestResponseOnlyBehaviour {
     /// Identification of peers, address to connect to, public keys, etc.
     pub identify: Identify,
@@ -165,7 +163,6 @@ struct RequestResponseOnlyBehaviour {
 
 #[cfg(all(feature = "request-response", feature = "byos"))]
 impl RequestResponseOnlyBehaviour {
-    #[allow(dead_code)]
     fn new(
         protocol_name: &'static str,
         transport_keypair: &Keypair,
@@ -199,7 +196,6 @@ impl RequestResponseOnlyBehaviour {
 
 #[cfg(all(feature = "gossipsub", feature = "byos"))]
 #[derive(libp2p::swarm::NetworkBehaviour)]
-#[allow(dead_code)]
 struct GossipsubSetupOnlyBehaviour {
     /// Identification of peers, address to connect to, public keys, etc.
     pub identify: Identify,
@@ -216,7 +212,6 @@ struct GossipsubSetupOnlyBehaviour {
 
 #[cfg(all(feature = "gossipsub", feature = "byos"))]
 impl GossipsubSetupOnlyBehaviour {
-    #[allow(dead_code)]
     fn new(
         protocol_name: &'static str,
         transport_keypair: &Keypair,
