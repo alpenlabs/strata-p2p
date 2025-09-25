@@ -42,9 +42,6 @@ jobs:
         feature_quic: ["quic",""]
         feature_mem-conn-limits-abs: ["mem-conn-limits-abs",""]
         feature_mem-conn-limits-rel: ["mem-conn-limits-rel",""]
-        exclude:
-          - feature_kad: "kad"
-            feature_byos: "byos"
 
     steps:
       - name: checkout
