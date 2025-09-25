@@ -14,20 +14,10 @@ use libp2p::{
 #[cfg(any(feature = "gossipsub", feature = "byos"))]
 use tokio::time::sleep;
 #[cfg(any(feature = "gossipsub", feature = "byos"))]
-use tokio_util::sync::CancellationToken;
-#[cfg(any(feature = "gossipsub", feature = "byos"))]
 use tracing::info;
 
 #[cfg(any(feature = "gossipsub", feature = "byos"))]
-use super::common::init_tracing;
-#[cfg(all(feature = "gossipsub", not(feature = "byos")))]
-use crate::validator::DefaultP2PValidator;
-
-#[cfg(all(
-    any(feature = "gossipsub", feature = "byos"),
-    feature = "mem-conn-limits-abs"
-))]
-const SIXTEEN_GIBIBYTES: usize = 16 * 1024 * 1024 * 1024;
+use super::common::{Setup, init_tracing};
 
 #[cfg(any(feature = "gossipsub", feature = "byos"))]
 #[derive(libp2p::swarm::NetworkBehaviour)]
@@ -118,98 +108,31 @@ impl GossipsubSetupOnlyBehaviour {
 async fn test_gossipsub_protocol_checking() -> anyhow::Result<()> {
     init_tracing();
 
-    let cancel = CancellationToken::new();
-    #[cfg(feature = "byos")]
-    let app_keypair = Keypair::generate_ed25519();
-    let transport_keypair = Keypair::generate_ed25519();
-    let listen_addr: libp2p::Multiaddr = "/memory/20000".parse()?;
+    let Setup {
+        cancel,
+        user_handles,
+        ..
+    } = Setup::all_to_all(1).await?;
 
-    let config = crate::swarm::P2PConfig {
-        #[cfg(feature = "byos")]
-        app_public_key: app_keypair.public(),
-        transport_keypair: transport_keypair.clone(),
-        idle_connection_timeout: Duration::from_secs(30),
-        max_retries: None,
-        dial_timeout: None,
-        general_timeout: None,
-        connection_check_interval: None,
-        listening_addrs: vec![listen_addr.clone()],
-        connect_to: vec![],
-        protocol_name: None,
-        #[cfg(feature = "gossipsub")]
-        gossipsub_topic: None,
-        #[cfg(feature = "gossipsub")]
-        gossipsub_max_transmit_size: None,
-        #[cfg(feature = "gossipsub")]
-        gossipsub_score_params: None,
-        #[cfg(feature = "gossipsub")]
-        gossipsub_score_thresholds: None,
-        #[cfg(feature = "gossipsub")]
-        gossip_event_buffer_size: None,
-        #[cfg(feature = "gossipsub")]
-        gossip_command_buffer_size: None,
-        #[cfg(feature = "request-response")]
-        channel_timeout: None,
-        #[cfg(feature = "request-response")]
-        req_resp_event_buffer_size: None,
-        #[cfg(feature = "request-response")]
-        request_max_bytes: None,
-        #[cfg(feature = "request-response")]
-        response_max_bytes: None,
-        envelope_max_age: None,
-        max_clock_skew: None,
-        conn_limits: libp2p::connection_limits::ConnectionLimits::default()
-            .with_max_established(Some(u32::MAX)),
-        #[cfg(feature = "mem-conn-limits-abs")]
-        max_allowed_ram_used: SIXTEEN_GIBIBYTES,
-        #[cfg(feature = "mem-conn-limits-rel")]
-        max_allowed_ram_used_percent: 1.0,
-        command_buffer_size: None,
-        handle_default_timeout: None,
-        #[cfg(feature = "kad")]
-        kad_protocol_name: None,
-    };
-
-    #[cfg(feature = "byos")]
-    let signer = std::sync::Arc::new(super::common::MockApplicationSigner::new(
-        app_keypair.clone(),
-    ));
-    let swarm = crate::swarm::with_inmemory_transport(
-        &config,
-        #[cfg(feature = "byos")]
-        signer.clone(),
-    )?;
-
-    let p2p_config_result = crate::swarm::P2P::from_config(
-        config,
-        cancel.child_token(),
-        swarm,
-        #[cfg(feature = "byos")]
-        vec![],
-        #[cfg(feature = "gossipsub")]
-        None, // gossip channel size
-        #[cfg(all(
-            feature = "byos",
-            any(feature = "gossipsub", feature = "request-response")
-        ))]
-        signer.clone(),
-        #[cfg(all(
-            any(feature = "gossipsub", feature = "request-response"),
-            not(feature = "byos")
-        ))]
-        Some(Box::new(DefaultP2PValidator)),
-    )?;
-
-    #[cfg(feature = "request-response")]
-    let p2p = p2p_config_result.0;
-    #[cfg(not(feature = "request-response"))]
-    let p2p = p2p_config_result;
-
-    let p2p_handle = tokio::spawn(async move {
-        p2p.listen().await;
-    });
+    let full_node_handle = &user_handles[0];
 
     sleep(Duration::from_millis(100)).await;
+
+    let (addr_sender, addr_receiver) = tokio::sync::oneshot::channel();
+    full_node_handle
+        .command
+        .send_command(
+            crate::commands::QueryP2PStateCommand::GetMyListeningAddresses {
+                response_sender: addr_sender,
+            },
+        )
+        .await;
+
+    let listening_addrs = addr_receiver.await?;
+    let listen_addr = listening_addrs
+        .into_iter()
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("No listening addresses found"))?;
 
     let minimal_transport_keypair = Keypair::generate_ed25519();
     let minimal_addr: libp2p::Multiaddr = "/memory/20001".parse()?;
@@ -280,7 +203,6 @@ async fn test_gossipsub_protocol_checking() -> anyhow::Result<()> {
     );
 
     cancel.cancel();
-    let _ = p2p_handle.await;
 
     Ok(())
 }
@@ -292,69 +214,37 @@ async fn test_gossipsub_protocol_checking() -> anyhow::Result<()> {
 async fn test_request_response_protocol_checking() -> anyhow::Result<()> {
     init_tracing();
 
-    let cancel = CancellationToken::new();
-    let app_keypair = Keypair::generate_ed25519();
-    let transport_keypair = Keypair::generate_ed25519();
-    let listen_addr: libp2p::Multiaddr = "/memory/50000".parse()?;
     let topic = libp2p::gossipsub::Sha256Topic::new("test-topic");
 
-    let config = crate::swarm::P2PConfig {
-        app_public_key: app_keypair.public(),
-        transport_keypair: transport_keypair.clone(),
-        idle_connection_timeout: Duration::from_secs(30),
-        max_retries: None,
-        dial_timeout: None,
-        general_timeout: None,
-        connection_check_interval: None,
-        listening_addrs: vec![listen_addr.clone()],
-        connect_to: vec![],
-        protocol_name: None,
-        gossipsub_topic: Some("test-topic".to_string()),
-        gossipsub_max_transmit_size: None,
-        gossipsub_score_params: None,
-        gossipsub_score_thresholds: None,
-        gossip_event_buffer_size: None,
-        gossip_command_buffer_size: None,
-        channel_timeout: None,
-        req_resp_event_buffer_size: None,
-        request_max_bytes: None,
-        response_max_bytes: None,
-        envelope_max_age: None,
-        max_clock_skew: None,
-        conn_limits: libp2p::connection_limits::ConnectionLimits::default()
-            .with_max_established(Some(u32::MAX)),
-        #[cfg(feature = "mem-conn-limits-abs")]
-        max_allowed_ram_used: SIXTEEN_GIBIBYTES,
-        #[cfg(feature = "mem-conn-limits-rel")]
-        max_allowed_ram_used_percent: 1.0,
-        command_buffer_size: None,
-        handle_default_timeout: None,
-    };
+    let Setup {
+        cancel,
+        user_handles,
+        ..
+    } = Setup::all_to_all(1).await?;
 
-    let signer = std::sync::Arc::new(super::common::MockApplicationSigner::new(
-        app_keypair.clone(),
-    ));
-    let swarm = crate::swarm::with_inmemory_transport(&config, signer.clone())?;
-
-    let p2p_config_result = crate::swarm::P2P::from_config(
-        config,
-        cancel.child_token(),
-        swarm,
-        vec![],
-        None, // gossip channel size
-        signer.clone(),
-    )?;
-
-    #[cfg(feature = "request-response")]
-    let p2p = p2p_config_result.0;
-    #[cfg(not(feature = "request-response"))]
-    let p2p = p2p_config_result;
-
-    let p2p_handle = tokio::spawn(async move {
-        p2p.listen().await;
-    });
+    let full_node_handle = &user_handles[0];
 
     sleep(Duration::from_millis(100)).await;
+
+    let (addr_sender, addr_receiver) = tokio::sync::oneshot::channel();
+    full_node_handle
+        .command
+        .send_command(
+            crate::commands::QueryP2PStateCommand::GetMyListeningAddresses {
+                response_sender: addr_sender,
+            },
+        )
+        .await;
+
+    let listening_addrs = addr_receiver.await?;
+    let listen_addr = listening_addrs
+        .into_iter()
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("No listening addresses found"))?;
+
+    let signer = std::sync::Arc::new(super::common::MockApplicationSigner::new(
+        full_node_handle.app_keypair.clone(),
+    ));
 
     let no_req_resp_transport_keypair = Keypair::generate_ed25519();
     let no_req_resp_addr: libp2p::Multiaddr = "/memory/50001".parse()?;
@@ -362,7 +252,7 @@ async fn test_request_response_protocol_checking() -> anyhow::Result<()> {
     let gossipsub_setup_behaviour = GossipsubSetupOnlyBehaviour::new(
         "/strata",
         &no_req_resp_transport_keypair,
-        &app_keypair.public(),
+        &full_node_handle.app_keypair.public(),
         &signer,
         &topic,
     );
@@ -432,7 +322,6 @@ async fn test_request_response_protocol_checking() -> anyhow::Result<()> {
     );
 
     cancel.cancel();
-    let _ = p2p_handle.await;
 
     Ok(())
 }
@@ -444,88 +333,31 @@ async fn test_request_response_protocol_checking() -> anyhow::Result<()> {
 async fn test_setup_protocol_checking() -> anyhow::Result<()> {
     init_tracing();
 
-    let cancel = CancellationToken::new();
-    let app_keypair = Keypair::generate_ed25519();
-    let transport_keypair = Keypair::generate_ed25519();
-    let listen_addr: libp2p::Multiaddr = "/memory/40000".parse()?;
+    let Setup {
+        cancel,
+        user_handles,
+        ..
+    } = Setup::all_to_all(1).await?;
 
-    let config = crate::swarm::P2PConfig {
-        app_public_key: app_keypair.public(),
-        transport_keypair: transport_keypair.clone(),
-        idle_connection_timeout: Duration::from_secs(30),
-        max_retries: None,
-        dial_timeout: None,
-        general_timeout: None,
-        connection_check_interval: None,
-        listening_addrs: vec![listen_addr.clone()],
-        connect_to: vec![],
-        protocol_name: None,
-        #[cfg(feature = "gossipsub")]
-        gossipsub_topic: None,
-        #[cfg(feature = "gossipsub")]
-        gossipsub_max_transmit_size: None,
-        #[cfg(feature = "gossipsub")]
-        gossipsub_score_params: None,
-        #[cfg(feature = "gossipsub")]
-        gossipsub_score_thresholds: None,
-        #[cfg(feature = "gossipsub")]
-        gossip_event_buffer_size: None,
-        #[cfg(feature = "gossipsub")]
-        gossip_command_buffer_size: None,
-        #[cfg(feature = "request-response")]
-        channel_timeout: None,
-        #[cfg(feature = "request-response")]
-        req_resp_event_buffer_size: None,
-        #[cfg(feature = "request-response")]
-        request_max_bytes: None,
-        #[cfg(feature = "request-response")]
-        response_max_bytes: None,
-        envelope_max_age: None,
-        max_clock_skew: None,
-        conn_limits: libp2p::connection_limits::ConnectionLimits::default()
-            .with_max_established(Some(u32::MAX)),
-        #[cfg(feature = "mem-conn-limits-abs")]
-        max_allowed_ram_used: SIXTEEN_GIBIBYTES,
-        #[cfg(feature = "mem-conn-limits-rel")]
-        max_allowed_ram_used_percent: 1.0,
-        command_buffer_size: None,
-        handle_default_timeout: None,
-    };
-
-    let signer = std::sync::Arc::new(super::common::MockApplicationSigner::new(
-        app_keypair.clone(),
-    ));
-    let swarm = crate::swarm::with_inmemory_transport(&config, signer.clone())?;
-
-    let p2p_config_result = crate::swarm::P2P::from_config(
-        config,
-        cancel.child_token(),
-        swarm,
-        vec![],
-        #[cfg(feature = "gossipsub")]
-        None, // gossip channel size
-        #[cfg(all(
-            feature = "byos",
-            any(feature = "gossipsub", feature = "request-response")
-        ))]
-        signer.clone(),
-        #[cfg(all(
-            any(feature = "gossipsub", feature = "request-response"),
-            not(feature = "byos")
-        ))]
-        Some(Box::new(DefaultP2PValidator)),
-    )?;
-
-    #[cfg(feature = "request-response")]
-    let p2p = p2p_config_result.0;
-    #[cfg(not(feature = "request-response"))]
-    let p2p = p2p_config_result;
-
-    let p2p_handle = tokio::spawn(async move {
-        p2p.listen().await;
-    });
+    let full_node_handle = &user_handles[0];
 
     sleep(Duration::from_millis(100)).await;
+
+    let (addr_sender, addr_receiver) = tokio::sync::oneshot::channel();
+    full_node_handle
+        .command
+        .send_command(
+            crate::commands::QueryP2PStateCommand::GetMyListeningAddresses {
+                response_sender: addr_sender,
+            },
+        )
+        .await;
+
+    let listening_addrs = addr_receiver.await?;
+    let listen_addr = listening_addrs
+        .into_iter()
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("No listening addresses found"))?;
 
     let minimal_transport_keypair = Keypair::generate_ed25519();
     let minimal_addr: libp2p::Multiaddr = "/memory/40001".parse()?;
@@ -596,7 +428,6 @@ async fn test_setup_protocol_checking() -> anyhow::Result<()> {
     );
 
     cancel.cancel();
-    let _ = p2p_handle.await;
 
     Ok(())
 }
