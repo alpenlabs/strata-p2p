@@ -37,3 +37,6 @@ pub(crate) mod mem_abs_conn_limits;
 
 #[cfg(feature = "mem-conn-limits-rel")]
 pub(crate) mod mem_rel_conn_limits;
+
+#[cfg(any(feature = "gossipsub", feature = "request-response", feature = "byos"))]
+pub(crate) mod protocol_support_minimal;

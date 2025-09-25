@@ -26,6 +26,8 @@ use crate::{
     },
 };
 
+pub(crate) const SETUP_PROTOCOL_NAME: &str = "/handshake/1.0.0";
+
 /// Inbound upgrade for handling incoming setup requests.
 ///
 /// This upgrade processes incoming setup messages from remote peers.
@@ -43,7 +45,7 @@ impl UpgradeInfo for InboundSetupUpgrade {
     type InfoIter = iter::Once<Self::Info>;
 
     fn protocol_info(&self) -> Self::InfoIter {
-        iter::once("/handshake/1.0.0")
+        iter::once(SETUP_PROTOCOL_NAME)
     }
 }
 
