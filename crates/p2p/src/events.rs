@@ -1,5 +1,7 @@
 //! Events emitted from P2P.
 
+#[cfg(feature = "kad")]
+use libp2p::Multiaddr;
 /// Events emitted from P2P that needs to be handled by the user.
 #[cfg(feature = "request-response")]
 use tokio::sync::oneshot::Sender;
@@ -21,4 +23,12 @@ pub enum ReqRespEvent {
 
     /// Received a response from other peer.
     ReceivedResponse(Vec<u8>),
+}
+
+/// Events emitted from the command handler.
+#[derive(Debug, Clone)]
+pub enum CommandEvent {
+    /// Result of `FindMultiaddress`
+    #[cfg(feature = "kad")]
+    ResultFindMultiaddress(Option<Vec<Multiaddr>>),
 }

@@ -1,9 +1,7 @@
 //! Some structs that we use + serializing and deserializing.
 
-#![cfg(any(feature = "byos", feature = "gossipsub", feature = "request-response"))]
 use std::time::{SystemTime, UNIX_EPOCH};
 
-#[cfg(any(feature = "byos", feature = "gossipsub", feature = "request-response"))]
 use ::serde::{Deserialize, Serialize};
 
 /// Protocol identifiers for different message types.
@@ -46,7 +44,6 @@ impl TryFrom<u8> for ProtocolId {
     }
 }
 
-#[cfg(any(feature = "byos", feature = "gossipsub", feature = "request-response"))]
 fn get_timestamp() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -54,13 +51,11 @@ fn get_timestamp() -> u64 {
         .as_secs()
 }
 
-#[cfg(any(feature = "byos", feature = "gossipsub", feature = "request-response"))]
 pub mod serde;
 
 #[cfg(feature = "byos")]
 pub mod setup;
 
-#[cfg(any(feature = "byos", feature = "gossipsub", feature = "request-response"))]
 pub mod signed;
 
 #[cfg(feature = "gossipsub")]
@@ -68,3 +63,6 @@ pub mod gossipsub;
 
 #[cfg(feature = "request-response")]
 pub mod request_response;
+
+#[cfg(feature = "kad")]
+pub mod dht_record;

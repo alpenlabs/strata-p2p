@@ -10,7 +10,12 @@ pub mod swarm;
 ))]
 pub mod validator;
 
-#[cfg(any(feature = "gossipsub", feature = "request-response", feature = "byos"))]
+#[cfg(any(
+    feature = "gossipsub",
+    feature = "request-response",
+    feature = "byos",
+    feature = "kad"
+))]
 pub mod signer;
 
 #[cfg(all(
@@ -21,3 +26,6 @@ pub mod score_manager;
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+use tokio_stream as _;
