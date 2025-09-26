@@ -114,6 +114,7 @@ use crate::swarm::{dial_manager::DialManager, setup::events::SetupBehaviourEvent
 use crate::{
     commands::{Command, QueryP2PStateCommand},
     events::CommandEvent,
+    swarm::kad_republish::KadRepublishStream,
 };
 #[cfg(all(
     any(feature = "gossipsub", feature = "request-response"),
@@ -160,6 +161,8 @@ pub mod handle;
 pub mod message;
 #[cfg(feature = "byos")]
 pub mod setup;
+
+mod kad_republish;
 
 use libp2p::tcp;
 
@@ -383,7 +386,6 @@ pub struct P2PConfig {
     pub kad_protocol_name: Option<KadProtocol>,
 
     /// Kademlia TTL for our own record.
-    #[cfg(feature = "kad")]
     pub kad_record_ttl: Option<Duration>,
 
     /// Limits on number of concurrent connections.
@@ -488,8 +490,7 @@ pub struct P2P {
     kademlia_map_received_records: HashMap<QueryId, Vec<SignedRecord>>,
 
     /// It is used to check if we have put record with info about ourselves.
-    #[cfg(feature = "kad")]
-    kademlia_is_initial_record_already_posted: bool,
+    kademlia_republish_stream: KadRepublishStream,
 }
 
 /// Type alias that changes based on feature flags
@@ -636,7 +637,6 @@ impl P2P {
             cancellation_token: cancel,
             #[cfg(feature = "byos")]
             allowlist: HashSet::from_iter(allowlist),
-            config: cfg,
             #[cfg(any(feature = "gossipsub", feature = "request-response", feature = "kad"))]
             signer,
             #[cfg(feature = "byos")]
@@ -658,8 +658,10 @@ impl P2P {
             validator,
             #[cfg(feature = "kad")]
             kademlia_map_received_records: HashMap::new(),
-            #[cfg(feature = "kad")]
-            kademlia_is_initial_record_already_posted: false,
+            kademlia_republish_stream: KadRepublishStream::new(
+                cfg.kad_record_ttl.unwrap_or(DEFAULT_KAD_RECORD_TTL),
+            ),
+            config: cfg,
         };
 
         #[cfg(feature = "request-response")]
@@ -894,11 +896,6 @@ impl P2P {
         allow(unused_variables)
     )]
     pub async fn listen(mut self) {
-        #[cfg(feature = "kad")]
-        let mut interval =
-            tokio::time::interval(self.config.kad_record_ttl.unwrap_or(DEFAULT_KAD_RECORD_TTL));
-        #[cfg(not(feature = "kad"))]
-        let mut interval = tokio::time::interval(Duration::from_secs(60 * 24 * 365 * 1000000000)); // practically never
         loop {
             let cancel_fut = self.cancellation_token.cancelled();
             let swarm_fut = self.swarm.select_next_some();
@@ -915,7 +912,7 @@ impl P2P {
             let reqresp_fut = pending::<Option<()>>();
 
             let result = tokio::select! {
-                _ = interval.tick() => {
+                _ = self.kademlia_republish_stream.next() => {
                     #[cfg(feature="kad")]
                     let _ = self.ask_kademlia_put_record().await;
                     Ok(())
@@ -2349,8 +2346,6 @@ impl P2P {
             Quorum::Majority,
         );
 
-        self.kademlia_is_initial_record_already_posted = true;
-
         Ok(())
     }
 
@@ -2393,7 +2388,7 @@ impl P2P {
     /// Handles a [`KademliaEvent`] from the swarm.
     #[cfg(feature = "kad")]
     async fn handle_kademlia_event(&mut self, event: KademliaEvent) -> P2PResult<()> {
-        use libp2p::kad::InboundRequest;
+        use libp2p::kad::{InboundRequest, PutRecordError, PutRecordOk};
 
         use crate::swarm::message::dht_record::SignedRecord;
 
@@ -2556,6 +2551,34 @@ impl P2P {
                     );
                     self.finish_looking_for_dht_record(&id);
                 }
+                QueryResult::PutRecord(Ok(PutRecordOk { key })) => {
+                    debug!(%id, ?stats, ?step, ?key, "OutboundRequest(QueryResult::PutRecord(Ok(...)))");
+
+                    use crate::swarm::kad_republish::WhyThisIsPolled;
+
+                    let state =
+                        Arc::get_mut(&mut self.kademlia_republish_stream.why_this_has_been_polled);
+                    *state.unwrap().get_mut() = Some(WhyThisIsPolled::PutRecordOk);
+                    self.kademlia_republish_stream.waker.wake();
+                }
+                QueryResult::PutRecord(Err(PutRecordError::Timeout {
+                    key,
+                    success,
+                    quorum,
+                }))
+                | QueryResult::PutRecord(Err(PutRecordError::QuorumFailed {
+                    key,
+                    success,
+                    quorum,
+                })) => {
+                    debug!(%id, ?stats, ?step, ?key, ?success, %quorum, "OutboundRequest(QueryResult::PutRecord(Err(...)))");
+                    use crate::swarm::kad_republish::WhyThisIsPolled;
+
+                    let state =
+                        Arc::get_mut(&mut self.kademlia_republish_stream.why_this_has_been_polled);
+                    *state.unwrap().get_mut() = Some(WhyThisIsPolled::PutRecordError);
+                    self.kademlia_republish_stream.waker.wake();
+                }
                 _ => {}
             },
             KademliaEvent::RoutingUpdated {
@@ -2565,7 +2588,9 @@ impl P2P {
                 bucket_range,
                 old_peer,
             } => {
-                trace!(
+                use crate::swarm::kad_republish::WhyThisIsPolled;
+
+                debug!(
                     ?peer,
                     ?is_new_peer,
                     ?addresses,
@@ -2573,10 +2598,10 @@ impl P2P {
                     ?old_peer,
                     "KademliaEvent::RoutingUpdated"
                 );
-                if !self.kademlia_is_initial_record_already_posted {
-                    let _ = self.ask_kademlia_put_record().await;
-                    self.kademlia_is_initial_record_already_posted = true;
-                }
+                let state =
+                    Arc::get_mut(&mut self.kademlia_republish_stream.why_this_has_been_polled);
+                *state.unwrap().get_mut() = Some(WhyThisIsPolled::RoutingUpdated);
+                self.kademlia_republish_stream.waker.wake();
             }
             _ => {}
         }

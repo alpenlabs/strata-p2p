@@ -170,7 +170,6 @@ impl User {
             max_allowed_ram_used,
             #[cfg(feature = "mem-conn-limits-rel")]
             max_allowed_ram_used_percent,
-            #[cfg(feature = "kad")]
             kad_record_ttl: None,
         };
 
