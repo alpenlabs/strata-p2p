@@ -25,7 +25,7 @@ use errors::{P2PResult, ProtocolError};
 #[cfg(any(feature = "gossipsub", feature = "request-response"))]
 use flexbuffers;
 use futures::StreamExt as _;
-#[cfg(not(all(feature = "gossipsub", feature = "request-response")))]
+#[cfg(not(all(feature = "gossipsub", feature = "request-response", feature = "kad")))]
 use futures::future::pending;
 use handle::CommandHandle;
 #[cfg(feature = "byos")]
@@ -106,6 +106,8 @@ use crate::signer::TransportKeypairSigner;
 #[cfg(feature = "request-response")]
 use crate::swarm::codec_raw::{set_request_max_bytes, set_response_max_bytes};
 #[cfg(feature = "kad")]
+use crate::swarm::kad_republish::KadRepublishStream;
+#[cfg(feature = "kad")]
 use crate::swarm::message::dht_record::SignedRecord;
 #[cfg(feature = "gossipsub")]
 use crate::swarm::message::{ProtocolId, gossipsub::GossipSubProtocolVersion};
@@ -114,7 +116,6 @@ use crate::swarm::{dial_manager::DialManager, setup::events::SetupBehaviourEvent
 use crate::{
     commands::{Command, QueryP2PStateCommand},
     events::CommandEvent,
-    swarm::kad_republish::KadRepublishStream,
 };
 #[cfg(all(
     any(feature = "gossipsub", feature = "request-response"),
@@ -162,6 +163,7 @@ pub mod message;
 #[cfg(feature = "byos")]
 pub mod setup;
 
+#[cfg(feature = "kad")]
 mod kad_republish;
 
 use libp2p::tcp;
@@ -386,6 +388,7 @@ pub struct P2PConfig {
     pub kad_protocol_name: Option<KadProtocol>,
 
     /// Kademlia TTL for our own record.
+    #[cfg(feature = "kad")]
     pub kad_record_ttl: Option<Duration>,
 
     /// Limits on number of concurrent connections.
@@ -490,6 +493,7 @@ pub struct P2P {
     kademlia_map_received_records: HashMap<QueryId, Vec<SignedRecord>>,
 
     /// It is used to check if we have put record with info about ourselves.
+    #[cfg(feature = "kad")]
     kademlia_republish_stream: KadRepublishStream,
 }
 
@@ -658,6 +662,7 @@ impl P2P {
             validator,
             #[cfg(feature = "kad")]
             kademlia_map_received_records: HashMap::new(),
+            #[cfg(feature = "kad")]
             kademlia_republish_stream: KadRepublishStream::new(
                 cfg.kad_record_ttl.unwrap_or(DEFAULT_KAD_RECORD_TTL),
             ),
@@ -911,12 +916,12 @@ impl P2P {
             #[cfg(not(feature = "request-response"))]
             let reqresp_fut = pending::<Option<()>>();
 
+            #[cfg(feature = "kad")]
+            let kademlia_republish_stream = self.kademlia_republish_stream.next();
+            #[cfg(not(feature = "kad"))]
+            let kademlia_republish_stream = pending::<Option<()>>();
+
             let result = tokio::select! {
-                _ = self.kademlia_republish_stream.next() => {
-                    #[cfg(feature="kad")]
-                    let _ = self.ask_kademlia_put_record().await;
-                    Ok(())
-                }
                 _ = cancel_fut => {
                     debug!("Received cancellation, stopping listening");
                     return;
@@ -950,6 +955,11 @@ impl P2P {
                         #[allow(unreachable_code)]
                         Ok(())
                     }
+                }
+                _ = kademlia_republish_stream => {
+                    #[cfg(feature="kad")]
+                    let _ = self.ask_kademlia_put_record().await;
+                    Ok(())
                 }
             };
 

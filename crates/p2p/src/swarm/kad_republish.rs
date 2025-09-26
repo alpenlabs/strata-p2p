@@ -13,13 +13,10 @@ use tracing::{debug, warn};
 pub(crate) enum WhyThisIsPolled {
     FirstTime,
 
-    #[cfg_attr(not(feature = "kad"), expect(dead_code))]
     RoutingUpdated,
 
-    #[cfg_attr(not(feature = "kad"), expect(dead_code))]
     PutRecordOk,
 
-    #[cfg_attr(not(feature = "kad"), expect(dead_code))]
     PutRecordError,
 
     IntervalTriggered,
