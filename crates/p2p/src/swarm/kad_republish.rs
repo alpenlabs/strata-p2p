@@ -76,17 +76,21 @@ pub(crate) struct KadRepublishStream {
     waker: Arc<AtomicWaker>,
     interval: Option<Interval>,
     dur: Duration,
+    dur_fail: Duration,
     is_routing_updated_first_time: bool,
     previous_event: Option<WhyThisIsPolled>,
     pub(crate) why_this_has_been_polled: Arc<Mutex<Option<WhyThisIsPolled>>>,
 }
 
 impl KadRepublishStream {
-    pub(crate) fn new(dur: Duration) -> Self {
+    /// dur      - duration of timer in case of PutRecordOk
+    /// dur_fail - duration of timer in case of PutRecordError
+    pub(crate) fn new(dur: Duration, dur_fail: Duration) -> Self {
         KadRepublishStream {
             waker: Arc::new(AtomicWaker::new()),
             interval: None,
             dur,
+            dur_fail,
             is_routing_updated_first_time: true,
             previous_event: None,
             why_this_has_been_polled: Arc::new(Mutex::new(Some(WhyThisIsPolled::FirstTime))),
@@ -164,8 +168,8 @@ impl Stream for KadRepublishStream {
                 *state.get_mut() = Some(WhyThisIsPolled::IntervalTriggered);
 
                 self_mut.interval = Some(interval_at(
-                    Instant::now() + Duration::from_secs(60),
-                    self_mut.dur,
+                    Instant::now() + self_mut.dur_fail,
+                    self_mut.dur_fail,
                 ));
                 let is_interval_says_it_should_be_triggered =
                     self_mut.interval.as_mut().unwrap().poll_tick(cx);

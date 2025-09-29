@@ -194,7 +194,12 @@ pub const DEFAULT_CHANNEL_TIMEOUT: Duration = Duration::from_secs(5);
 pub const DEFAULT_HANDLE_TIMEOUT: Duration = Duration::from_secs(1);
 
 /// Default Kademlia's record TTL.
+#[cfg(feature = "kad")]
 pub const DEFAULT_KAD_RECORD_TTL: Duration = Duration::from_hours(1);
+
+/// Default time for republishing timer in case of PutRecordError.
+#[cfg(feature = "kad")]
+pub const DEFAULT_KAD_TIMER_PUTRECORDERROR: Duration = Duration::from_mins(5);
 
 /// Global, runtime-configurable default handle timeout (milliseconds).
 static HANDLE_DEFAULT_TIMEOUT_MS: std::sync::atomic::AtomicU64 =
@@ -390,6 +395,10 @@ pub struct P2PConfig {
     /// Kademlia TTL for our own record.
     #[cfg(feature = "kad")]
     pub kad_record_ttl: Option<Duration>,
+
+    /// If in case of failed republishing of record, after what time to try again?
+    #[cfg(feature = "kad")]
+    pub kad_timer_putrecorderror: Option<Duration>,
 
     /// Limits on number of concurrent connections.
     pub conn_limits: ConnectionLimits,
@@ -665,6 +674,8 @@ impl P2P {
             #[cfg(feature = "kad")]
             kademlia_republish_stream: KadRepublishStream::new(
                 cfg.kad_record_ttl.unwrap_or(DEFAULT_KAD_RECORD_TTL),
+                cfg.kad_timer_putrecorderror
+                    .unwrap_or(DEFAULT_KAD_TIMER_PUTRECORDERROR),
             ),
             config: cfg,
         };

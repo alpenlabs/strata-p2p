@@ -172,6 +172,8 @@ impl User {
             max_allowed_ram_used_percent,
             #[cfg(feature = "kad")]
             kad_record_ttl: None,
+            #[cfg(feature = "kad")]
+            kad_timer_putrecorderror: None,
         };
 
         // Determine transport type based on the first listening address
