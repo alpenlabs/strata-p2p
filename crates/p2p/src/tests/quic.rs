@@ -63,6 +63,10 @@ async fn test_quic_and_tcp_connectivity_ipv4_ipv6() {
         SIXTEEN_GIBIBYTES,
         #[cfg(feature = "mem-conn-limits-rel")]
         1.0, // 100 %
+        #[cfg(feature = "kad")]
+        None,
+        #[cfg(feature = "kad")]
+        None,
     )
     .expect("Failed to create listening node A");
 
@@ -87,6 +91,10 @@ async fn test_quic_and_tcp_connectivity_ipv4_ipv6() {
         SIXTEEN_GIBIBYTES,
         #[cfg(feature = "mem-conn-limits-rel")]
         1.0, // 100 %
+        #[cfg(feature = "kad")]
+        None,
+        #[cfg(feature = "kad")]
+        None,
     )
     .expect("Failed to create connecting node B");
 
@@ -210,6 +218,10 @@ async fn test_tcp_fallback_on_quic_failure() {
         SIXTEEN_GIBIBYTES,
         #[cfg(feature = "mem-conn-limits-rel")]
         1.0, // 100 %
+        #[cfg(feature = "kad")]
+        None,
+        #[cfg(feature = "kad")]
+        None,
     )
     .expect("Failed to create listening node");
 
@@ -234,6 +246,10 @@ async fn test_tcp_fallback_on_quic_failure() {
         SIXTEEN_GIBIBYTES,
         #[cfg(feature = "mem-conn-limits-rel")]
         1.0, // 100 %
+        #[cfg(feature = "kad")]
+        None,
+        #[cfg(feature = "kad")]
+        None,
     )
     .expect("Failed to create connecting node");
 

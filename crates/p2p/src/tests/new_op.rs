@@ -102,6 +102,10 @@ async fn gossip_new_user() -> anyhow::Result<()> {
         SIXTEEN_GIBIBYTES,
         #[cfg(feature = "mem-conn-limits-rel")]
         1.0, // 100 %
+        #[cfg(feature = "kad")]
+        None,
+        #[cfg(feature = "kad")]
+        None,
     )?;
 
     // Run the new user in a separate task - this call will handle connections
