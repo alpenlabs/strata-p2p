@@ -210,14 +210,15 @@ pub(crate) enum GossipsubVersion {
 
 #[cfg(feature = "gossipsub")]
 impl GossipsubVersion {
-    /// Returns a slice of all supported gossipsub versions.
-    pub(crate) fn all() -> &'static [GossipsubVersion] {
+    pub(crate) fn get_supported_versions() -> &'static [GossipsubVersion] {
         &[Self::V1_2_0, Self::V1_1_0, Self::V1_0_0]
     }
+}
 
-    /// Returns the corresponding [`StreamProtocol`] for this gossipsub version.
-    pub(crate) fn protocol(&self) -> StreamProtocol {
-        match self {
+#[cfg(feature = "gossipsub")]
+impl From<&GossipsubVersion> for StreamProtocol {
+    fn from(protocol: &GossipsubVersion) -> Self {
+        match protocol {
             GossipsubVersion::V1_2_0 => StreamProtocol::new("/meshsub/1.2.0"),
             GossipsubVersion::V1_1_0 => StreamProtocol::new("/meshsub/1.1.0"),
             GossipsubVersion::V1_0_0 => StreamProtocol::new("/meshsub/1.0.0"),
@@ -1140,9 +1141,9 @@ impl P2P {
             BehaviourEvent::Identify(IdentifyEvent::Received { peer_id, info, .. }) => {
                 #[cfg(feature = "gossipsub")]
                 {
-                    let supported: Vec<StreamProtocol> = GossipsubVersion::all()
+                    let supported: Vec<StreamProtocol> = GossipsubVersion::get_supported_versions()
                         .iter()
-                        .map(|v| v.protocol())
+                        .map(|v| v.into())
                         .collect();
                     let supports_gossip = info.protocols.iter().any(|p| supported.contains(p));
 
