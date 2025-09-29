@@ -956,7 +956,8 @@ impl P2P {
                         Ok(())
                     }
                 }
-                _ = kademlia_republish_stream => {
+                Some(()) = kademlia_republish_stream => {
+                    debug!("We got inside kademlia_republish_stream handle");
                     #[cfg(feature="kad")]
                     let _ = self.ask_kademlia_put_record().await;
                     Ok(())
@@ -2316,6 +2317,8 @@ impl P2P {
     async fn ask_kademlia_put_record(&mut self) -> P2PResult<()> {
         use crate::swarm::message::dht_record::RecordData;
 
+        debug!("We are inside 'ask_kademlia_put_record'");
+
         let res_signed_record_data = SignedRecord::new(
             RecordData::new(
                 #[cfg(feature = "byos")]
@@ -2566,10 +2569,8 @@ impl P2P {
 
                     use crate::swarm::kad_republish::WhyThisIsPolled;
 
-                    let state =
-                        Arc::get_mut(&mut self.kademlia_republish_stream.why_this_has_been_polled);
-                    *state.unwrap().get_mut() = Some(WhyThisIsPolled::PutRecordOk);
-                    self.kademlia_republish_stream.waker.wake();
+                    self.kademlia_republish_stream
+                        .send_event(WhyThisIsPolled::PutRecordOk);
                 }
                 QueryResult::PutRecord(Err(PutRecordError::Timeout {
                     key,
@@ -2584,10 +2585,8 @@ impl P2P {
                     debug!(%id, ?stats, ?step, ?key, ?success, %quorum, "OutboundRequest(QueryResult::PutRecord(Err(...)))");
                     use crate::swarm::kad_republish::WhyThisIsPolled;
 
-                    let state =
-                        Arc::get_mut(&mut self.kademlia_republish_stream.why_this_has_been_polled);
-                    *state.unwrap().get_mut() = Some(WhyThisIsPolled::PutRecordError);
-                    self.kademlia_republish_stream.waker.wake();
+                    self.kademlia_republish_stream
+                        .send_event(WhyThisIsPolled::PutRecordError);
                 }
                 _ => {}
             },
@@ -2608,10 +2607,8 @@ impl P2P {
                     ?old_peer,
                     "KademliaEvent::RoutingUpdated"
                 );
-                let state =
-                    Arc::get_mut(&mut self.kademlia_republish_stream.why_this_has_been_polled);
-                *state.unwrap().get_mut() = Some(WhyThisIsPolled::RoutingUpdated);
-                self.kademlia_republish_stream.waker.wake();
+                self.kademlia_republish_stream
+                    .send_event(WhyThisIsPolled::RoutingUpdated);
             }
             _ => {}
         }

@@ -1,3 +1,52 @@
+//! This is essentialy a coroutine written in terms of `Stream`.
+//! The task is to republish our own record.
+//! The logic for when to do is fully in this file.
+//!
+//! Here's a diagram of logic, without some details of implementation:
+//!
+//! ┌───────────────────────────────┐                                   
+//! │                               │                                   
+//! │                            ┌──┴──┐                                
+//! │┌───────────────────────────┼─────┼──────────────┐                 
+//! ││         Kademlia's Events │     │              │                 
+//! ││┌──────────────┐ ┌─────────▼─┐ ┌─▼────────────┐ │                 
+//! │││RoutingUpdated│ │PutRecordOk│ │PutRecordError│ │                 
+//! ││└──────────────┘ └─────┬─────┘ └──────┬───────┘ │                 
+//! │└───────┬───────────────┼──────────────┼─────────┘                 
+//! │        │               │              │                           
+//! │        │               │              │                           
+//! │        │               │              │                           
+//! │        └────────┐      │              │                           
+//! │                 │      │              │                           
+//! │  ┌─────────────────────┼──────────────┼──────────────────────────┐
+//! │  │Internal      │      │              │                          │
+//! │  │states        │      └────────────────┐                        │
+//! │  │              │                     │ │                        │
+//! │  │┌─────────┐   ▼     ┌──────────────┐│ ▼   ┌───────────┐        │
+//! │  ││FirstTime├────────►│RoutingUpdated┼─────►│PutRecordOk├──┐     │
+//! │  │└─────────┘         └──────┬─────┬─┘│     └───┬───────┘  │     │
+//! │  │                           │     │◄─┘         │          │     │
+//! │  │                           │ ┌───▼──────────┐ │          │     │
+//! │  │                           │ │PutRecordError│ │          │     │
+//! │  └───────────────────────┐   │ └───────┬──────┘ │          │     │
+//! │ ┌──────────────────┐     │   │         │  │     │          │     │
+//! │ │flag:is_first_time┼─────│──►│         │  │     │          │     │
+//! │ └──────────────────┘     │   │         │  │     │          │     │
+//! │ ┌────────┐               │   │         │  │     │          │     │
+//! │ │interval│ set to i.e. 1h│   │         │  │     │          │     │
+//! │ └────────┘◄──────────────┼───┼─────────┼────────┘          │     │
+//! │         ▲  set to i.e. 5m│   │         │  │                │     │
+//! │         └────────────────┼───┼─────────┘  │                │     │
+//! │                          │   │            │                │     │
+//! │                          │   │            │                │     │
+//! │ if interval triggered    │   │ ┌──────────▼────┐           │     │
+//! │    ┌─────────────────────│───│─│IntervalUpdated◄───────────┘     │
+//! │    │                     │   │ └───────────────┘                 │
+//! │    ▼                     └───┼───────────────────────────────────┘
+//! │  ┌──────────────────┐        │                                    
+//! └──┼action: put record│  ◄─────┘                                    
+//!    └──────────────────┘                                             
+
 use std::{
     pin::Pin,
     sync::Arc,
@@ -7,7 +56,7 @@ use std::{
 
 use futures::{Stream, lock::Mutex, task::AtomicWaker};
 use tokio::time::{Instant, Interval, interval_at};
-use tracing::{debug, warn};
+use tracing::{trace, warn};
 
 #[derive(Debug, Clone)]
 pub(crate) enum WhyThisIsPolled {
@@ -24,7 +73,7 @@ pub(crate) enum WhyThisIsPolled {
 
 // Stream because it's the closest to coroutines.
 pub(crate) struct KadRepublishStream {
-    pub(crate) waker: Arc<AtomicWaker>,
+    waker: Arc<AtomicWaker>,
     interval: Option<Interval>,
     dur: Duration,
     is_routing_updated_first_time: bool,
@@ -43,6 +92,32 @@ impl KadRepublishStream {
             why_this_has_been_polled: Arc::new(Mutex::new(Some(WhyThisIsPolled::FirstTime))),
         }
     }
+
+    pub(crate) fn send_event(&mut self, event: WhyThisIsPolled) {
+        match event {
+            WhyThisIsPolled::RoutingUpdated => {
+                if self.is_routing_updated_first_time {
+                    trace!("RoutingUpdated first time");
+                    self.waker.wake();
+                    let state = Arc::get_mut(&mut self.why_this_has_been_polled).unwrap();
+                    *state.get_mut() = Some(WhyThisIsPolled::RoutingUpdated);
+                } else {
+                    trace!("RoutingUpdated not first time");
+                }
+            }
+            WhyThisIsPolled::PutRecordOk => {
+                self.waker.wake();
+                let state = Arc::get_mut(&mut self.why_this_has_been_polled).unwrap();
+                *state.get_mut() = Some(WhyThisIsPolled::PutRecordOk);
+            }
+            WhyThisIsPolled::PutRecordError => {
+                self.waker.wake();
+                let state = Arc::get_mut(&mut self.why_this_has_been_polled).unwrap();
+                *state.get_mut() = Some(WhyThisIsPolled::PutRecordError);
+            }
+            _ => {}
+        }
+    }
 }
 
 // This is essentially a state machine...
@@ -54,25 +129,23 @@ impl Stream for KadRepublishStream {
         let state = Arc::get_mut(&mut self_mut.why_this_has_been_polled).unwrap();
         match state.get_mut() {
             Some(WhyThisIsPolled::FirstTime) => {
-                debug!("FirstTime");
+                trace!("FirstTime");
                 self_mut.waker.register(cx.waker());
                 self_mut.previous_event = Some(state.get_mut().as_ref().unwrap().clone());
                 Poll::Pending
             }
             Some(WhyThisIsPolled::RoutingUpdated) => {
-                debug!("RoutingUpdated");
                 if self_mut.is_routing_updated_first_time {
-                    debug!("RoutingUpdated first time");
-                    self_mut.waker.register(cx.waker());
+                    trace!("RoutingUpdated first time");
                     self_mut.is_routing_updated_first_time = false;
                     Poll::Ready(Some(()))
                 } else {
-                    debug!("RoutingUpdated not first time");
+                    trace!("RoutingUpdated not first time");
                     Poll::Pending
                 }
             }
             Some(WhyThisIsPolled::PutRecordOk) => {
-                debug!("PutRecordOk");
+                trace!("PutRecordOk");
                 self_mut.previous_event = Some(state.get_mut().as_ref().unwrap().clone());
                 *state.get_mut() = Some(WhyThisIsPolled::IntervalTriggered);
 
@@ -86,7 +159,7 @@ impl Stream for KadRepublishStream {
                 }
             }
             Some(WhyThisIsPolled::PutRecordError) => {
-                debug!("PutRecordError");
+                trace!("PutRecordError");
                 self_mut.previous_event = Some(state.get_mut().as_ref().unwrap().clone());
                 *state.get_mut() = Some(WhyThisIsPolled::IntervalTriggered);
 
@@ -103,7 +176,7 @@ impl Stream for KadRepublishStream {
                 }
             }
             Some(WhyThisIsPolled::IntervalTriggered) => {
-                debug!("IntervalTriggered");
+                trace!("IntervalTriggered");
                 self_mut.previous_event = Some(state.get_mut().as_ref().unwrap().clone());
 
                 let is_interval_says_it_should_be_triggered =
