@@ -23,13 +23,14 @@ use futures::future::pending;
 use handle::CommandHandle;
 #[cfg(any(feature = "gossipsub", feature = "kad"))]
 use libp2p::StreamProtocol;
+#[cfg(any(feature = "gossipsub", feature = "request-response", feature = "byos"))]
+use libp2p::identify::Event as IdentifyEvent;
 #[cfg(feature = "byos")]
 use libp2p::identity::PublicKey;
 use libp2p::{
     Multiaddr, PeerId, Swarm, SwarmBuilder, Transport,
     connection_limits::ConnectionLimits,
     core::{ConnectedPoint, muxing::StreamMuxerBox, transport::MemoryTransport},
-    identify::Event as IdentifyEvent,
     identity::Keypair,
     noise,
     swarm::{NetworkBehaviour, SwarmEvent, dial_opts::DialOpts},
@@ -210,7 +211,7 @@ pub(crate) enum GossipsubVersion {
 
 #[cfg(feature = "gossipsub")]
 impl GossipsubVersion {
-    pub(crate) fn get_supported_versions() -> &'static [GossipsubVersion] {
+    pub(crate) const fn get_supported_versions() -> &'static [GossipsubVersion] {
         &[Self::V1_2_0, Self::V1_1_0, Self::V1_0_0]
     }
 }
