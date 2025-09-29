@@ -29,6 +29,7 @@ use libp2p::{
     Multiaddr, PeerId, Swarm, SwarmBuilder, Transport,
     connection_limits::ConnectionLimits,
     core::{ConnectedPoint, muxing::StreamMuxerBox, transport::MemoryTransport},
+    identify::Event as IdentifyEvent,
     identity::Keypair,
     noise,
     swarm::{NetworkBehaviour, SwarmEvent, dial_opts::DialOpts},
@@ -198,12 +199,35 @@ pub const DEFAULT_REQ_RESP_EVENT_BUFFER_SIZE: usize = 64;
 pub const DEFAULT_GOSSIP_COMMAND_BUFFER_SIZE: usize = 64;
 
 /// All supported gossipsub versions.
+#[non_exhaustive]
+#[derive(Debug, Clone)]
 #[cfg(feature = "gossipsub")]
-pub const GOSSIPSUB_VERSIONS: [StreamProtocol; 3] = [
-    StreamProtocol::new("/meshsub/1.2.0"),
-    StreamProtocol::new("/meshsub/1.1.0"),
-    StreamProtocol::new("/meshsub/1.0.0"),
-];
+pub enum GossipsubVersion {
+    /// Version 1.2.0
+    V1_2_0,
+    /// Version 1.1.0
+    V1_1_0,
+    /// Version 1.0.0
+    V1_0_0,
+}
+
+#[cfg(feature = "gossipsub")]
+#[cfg(feature = "gossipsub")]
+impl GossipsubVersion {
+    /// Returns a slice of all supported gossipsub versions.
+    pub fn all() -> &'static [GossipsubVersion] {
+        &[Self::V1_2_0, Self::V1_1_0, Self::V1_0_0]
+    }
+
+    /// Returns the corresponding [`StreamProtocol`] for this gossipsub version.
+    pub fn protocol(&self) -> StreamProtocol {
+        match self {
+            GossipsubVersion::V1_2_0 => StreamProtocol::new("/meshsub/1.2.0"),
+            GossipsubVersion::V1_1_0 => StreamProtocol::new("/meshsub/1.1.0"),
+            GossipsubVersion::V1_0_0 => StreamProtocol::new("/meshsub/1.0.0"),
+        }
+    }
+}
 
 /// Configuration options for [`P2P`].
 #[derive(Debug, Clone)]
@@ -1117,15 +1141,16 @@ impl P2P {
             #[cfg(feature = "byos")]
             behavior::BehaviourEvent::Setup(event) => self.handle_setup_event(event).await,
             #[cfg(any(feature = "gossipsub", feature = "request-response", feature = "byos"))]
-            BehaviourEvent::Identify(libp2p::identify::Event::Received {
-                peer_id, info, ..
-            }) => {
+            BehaviourEvent::Identify(IdentifyEvent::Received { peer_id, info, .. }) => {
                 #[cfg(feature = "gossipsub")]
                 {
+                    let supported_gossip_version = GossipsubVersion::V1_1_0.protocol();
+
                     let supports_gossip = info
                         .protocols
                         .iter()
-                        .any(|p| GOSSIPSUB_VERSIONS.contains(p));
+                        .any(|p| supported_gossip_version == *p);
+
                     if !supports_gossip {
                         info!(%peer_id, "Peer does not support gossipsub. Disconnecting.");
                         let _ = self.swarm.disconnect_peer_id(peer_id);
