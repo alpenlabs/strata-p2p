@@ -1,4 +1,4 @@
-//! This is essentialy a coroutine written in terms of `Stream`.
+//! This is essentially a coroutine written in terms of `Stream`.
 //! The task is to republish our own record.
 //! The logic for when to do is fully in this file.
 //!
