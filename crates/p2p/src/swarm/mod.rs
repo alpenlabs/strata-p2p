@@ -194,7 +194,7 @@ pub const DEFAULT_KAD_RECORD_TTL: Duration = Duration::from_hours(1);
 
 /// Default time for republishing timer in case of PutRecordError.
 #[cfg(feature = "kad")]
-pub const DEFAULT_KAD_TIMER_PUTRECORDERROR: Duration = Duration::from_mins(5);
+pub const DEFAULT_KAD_TIMER_PUT_RECORD_ERROR: Duration = Duration::from_mins(5);
 
 /// Global, runtime-configurable default handle timeout (milliseconds).
 static HANDLE_DEFAULT_TIMEOUT_MS: std::sync::atomic::AtomicU64 =
@@ -2601,7 +2601,7 @@ impl P2P {
                     let dur_fail = self
                         .config
                         .kad_timer_putrecorderror
-                        .unwrap_or(DEFAULT_KAD_TIMER_PUTRECORDERROR);
+                        .unwrap_or(DEFAULT_KAD_TIMER_PUT_RECORD_ERROR);
 
                     let _join_handler_that_we_do_not_await = tokio::task::spawn(async move {
                         tokio::time::sleep(dur_fail).await;
