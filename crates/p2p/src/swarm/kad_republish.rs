@@ -1,6 +1,6 @@
 //! This is essentially a coroutine written in terms of `Stream`.
 //! The task is to republish our own record.
-//! The logic for when to do is fully in this file.
+//! The logic for when to do that is entirely in this file.
 //!
 //! Here's a diagram of logic, without some details of implementation:
 //!
@@ -71,14 +71,15 @@ pub(crate) enum WhyThisIsPolled {
     IntervalTriggered,
 }
 
-// Stream because it's the closest to coroutines.
+// Apparently it seems we need P2P to be Send, because its task can
+// run on different threads, therefore some Arcs and Mutexes are used.
 pub(crate) struct KadRepublishStream {
     waker: Arc<AtomicWaker>,
+    why_this_has_been_polled: Arc<Mutex<Option<WhyThisIsPolled>>>,
     interval: Option<Interval>,
     dur: Duration,
     dur_fail: Duration,
     is_routing_updated_first_time: bool,
-    pub(crate) why_this_has_been_polled: Arc<Mutex<Option<WhyThisIsPolled>>>,
 }
 
 impl KadRepublishStream {
@@ -122,7 +123,10 @@ impl KadRepublishStream {
     }
 }
 
-// This is essentially a state machine...
+// This is a state machine.
+//
+// Logic behind implementation: either waker.wake() will trigger tokio to poll this, or interval's
+// waker via "forwarding" context inside of `interval.poll_tick(cx)`.
 impl Stream for KadRepublishStream {
     type Item = ();
 
