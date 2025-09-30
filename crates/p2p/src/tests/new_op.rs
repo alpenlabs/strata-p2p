@@ -120,7 +120,7 @@ async fn gossip_new_user() -> anyhow::Result<()> {
     });
 
     // Wait for existing users to fully initialize
-    sleep(Duration::from_secs(3)).await;
+    sleep(Duration::from_secs(5)).await;
 
     // Connect the old users to the new one
     for (index, addr) in connect_addrs.iter().enumerate() {
@@ -148,7 +148,7 @@ async fn gossip_new_user() -> anyhow::Result<()> {
     }
 
     // Give time for the new user to establish connections
-    sleep(Duration::from_secs(1)).await;
+    sleep(Duration::from_secs(3)).await;
 
     let message_from_inside = b"Hello my friends!".to_vec();
     let message_from_outsider = b"Hi, I'm new here.".to_vec();
