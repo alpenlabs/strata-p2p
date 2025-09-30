@@ -106,8 +106,6 @@ use crate::signer::TransportKeypairSigner;
 #[cfg(feature = "request-response")]
 use crate::swarm::codec_raw::{set_request_max_bytes, set_response_max_bytes};
 #[cfg(feature = "kad")]
-use crate::swarm::kad_republish::KadRepublishStream;
-#[cfg(feature = "kad")]
 use crate::swarm::message::dht_record::SignedRecord;
 #[cfg(feature = "gossipsub")]
 use crate::swarm::message::{ProtocolId, gossipsub::GossipSubProtocolVersion};
@@ -162,9 +160,6 @@ pub mod handle;
 pub mod message;
 #[cfg(feature = "byos")]
 pub mod setup;
-
-#[cfg(feature = "kad")]
-mod kad_republish;
 
 use libp2p::tcp;
 
@@ -503,7 +498,10 @@ pub struct P2P {
 
     /// It is used to check if we have put record with info about ourselves.
     #[cfg(feature = "kad")]
-    kademlia_republish_stream: KadRepublishStream,
+    kademlia_republish_stream: (
+        tokio::sync::mpsc::Sender<()>,
+        tokio::sync::mpsc::Receiver<()>,
+    ),
 }
 
 /// Type alias that changes based on feature flags
@@ -672,11 +670,7 @@ impl P2P {
             #[cfg(feature = "kad")]
             kademlia_map_received_records: HashMap::new(),
             #[cfg(feature = "kad")]
-            kademlia_republish_stream: KadRepublishStream::new(
-                cfg.kad_record_ttl.unwrap_or(DEFAULT_KAD_RECORD_TTL),
-                cfg.kad_timer_putrecorderror
-                    .unwrap_or(DEFAULT_KAD_TIMER_PUTRECORDERROR),
-            ),
+            kademlia_republish_stream: tokio::sync::mpsc::channel(10),
             config: cfg,
         };
 
@@ -928,9 +922,9 @@ impl P2P {
             let reqresp_fut = pending::<Option<()>>();
 
             #[cfg(feature = "kad")]
-            let kademlia_republish_stream = self.kademlia_republish_stream.next();
+            let kademlia_republish_stream = self.kademlia_republish_stream.1.recv();
             #[cfg(not(feature = "kad"))]
-            let kademlia_republish_stream = pending::<Option<()>>();
+            let kademlia_republish_stream = pending::<()>();
 
             let result = tokio::select! {
                 _ = cancel_fut => {
@@ -967,7 +961,7 @@ impl P2P {
                         Ok(())
                     }
                 }
-                Some(()) = kademlia_republish_stream => {
+                _ = kademlia_republish_stream => {
                     debug!("We got inside kademlia_republish_stream handle");
                     #[cfg(feature="kad")]
                     let _ = self.ask_kademlia_put_record().await;
@@ -2578,10 +2572,18 @@ impl P2P {
                 QueryResult::PutRecord(Ok(PutRecordOk { key })) => {
                     debug!(%id, ?stats, ?step, ?key, "OutboundRequest(QueryResult::PutRecord(Ok(...)))");
 
-                    use crate::swarm::kad_republish::WhyThisIsPolled;
+                    let sender_copy = self.kademlia_republish_stream.0.clone();
+                    let dur = self
+                        .config
+                        .kad_timer_putrecorderror
+                        .unwrap_or(DEFAULT_KAD_RECORD_TTL);
 
-                    self.kademlia_republish_stream
-                        .send_event(WhyThisIsPolled::PutRecordOk);
+                    let _join_handler_that_we_do_not_await = tokio::task::spawn(async move {
+                        tokio::time::sleep(dur).await;
+                        if let Err(error) = sender_copy.send(()).await {
+                            error!(%error, "Failed to send request to put kademlia's record. Has mpsc channel broken?")
+                        };
+                    });
                 }
                 QueryResult::PutRecord(Err(PutRecordError::Timeout {
                     key,
@@ -2594,10 +2596,19 @@ impl P2P {
                     quorum,
                 })) => {
                     debug!(%id, ?stats, ?step, ?key, ?success, %quorum, "OutboundRequest(QueryResult::PutRecord(Err(...)))");
-                    use crate::swarm::kad_republish::WhyThisIsPolled;
 
-                    self.kademlia_republish_stream
-                        .send_event(WhyThisIsPolled::PutRecordError);
+                    let sender_copy = self.kademlia_republish_stream.0.clone();
+                    let dur_fail = self
+                        .config
+                        .kad_timer_putrecorderror
+                        .unwrap_or(DEFAULT_KAD_TIMER_PUTRECORDERROR);
+
+                    let _join_handler_that_we_do_not_await = tokio::task::spawn(async move {
+                        tokio::time::sleep(dur_fail).await;
+                        if let Err(error) = sender_copy.send(()).await {
+                            error!(%error, "Failed to send request to put kademlia's record. Has mpsc channel broken?")
+                        };
+                    });
                 }
                 _ => {}
             },
@@ -2608,8 +2619,6 @@ impl P2P {
                 bucket_range,
                 old_peer,
             } => {
-                use crate::swarm::kad_republish::WhyThisIsPolled;
-
                 debug!(
                     ?peer,
                     ?is_new_peer,
@@ -2618,8 +2627,9 @@ impl P2P {
                     ?old_peer,
                     "KademliaEvent::RoutingUpdated"
                 );
-                self.kademlia_republish_stream
-                    .send_event(WhyThisIsPolled::RoutingUpdated);
+                if let Err(error) = self.kademlia_republish_stream.0.send(()).await {
+                    error!(%error, "Failed to send request to put kademlia's record. Has mpsc channel broken?")
+                };
             }
             _ => {}
         }
