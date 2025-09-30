@@ -78,7 +78,6 @@ pub(crate) struct KadRepublishStream {
     dur: Duration,
     dur_fail: Duration,
     is_routing_updated_first_time: bool,
-    previous_event: Option<WhyThisIsPolled>,
     pub(crate) why_this_has_been_polled: Arc<Mutex<Option<WhyThisIsPolled>>>,
 }
 
@@ -92,7 +91,6 @@ impl KadRepublishStream {
             dur,
             dur_fail,
             is_routing_updated_first_time: true,
-            previous_event: None,
             why_this_has_been_polled: Arc::new(Mutex::new(Some(WhyThisIsPolled::FirstTime))),
         }
     }
@@ -135,7 +133,6 @@ impl Stream for KadRepublishStream {
             Some(WhyThisIsPolled::FirstTime) => {
                 trace!("FirstTime");
                 self_mut.waker.register(cx.waker());
-                self_mut.previous_event = Some(state.get_mut().as_ref().unwrap().clone());
                 Poll::Pending
             }
             Some(WhyThisIsPolled::RoutingUpdated) => {
@@ -150,7 +147,6 @@ impl Stream for KadRepublishStream {
             }
             Some(WhyThisIsPolled::PutRecordOk) => {
                 trace!("PutRecordOk");
-                self_mut.previous_event = Some(state.get_mut().as_ref().unwrap().clone());
                 *state.get_mut() = Some(WhyThisIsPolled::IntervalTriggered);
 
                 self_mut.interval = Some(interval_at(Instant::now() + self_mut.dur, self_mut.dur));
@@ -164,7 +160,6 @@ impl Stream for KadRepublishStream {
             }
             Some(WhyThisIsPolled::PutRecordError) => {
                 trace!("PutRecordError");
-                self_mut.previous_event = Some(state.get_mut().as_ref().unwrap().clone());
                 *state.get_mut() = Some(WhyThisIsPolled::IntervalTriggered);
 
                 self_mut.interval = Some(interval_at(
@@ -181,7 +176,6 @@ impl Stream for KadRepublishStream {
             }
             Some(WhyThisIsPolled::IntervalTriggered) => {
                 trace!("IntervalTriggered");
-                self_mut.previous_event = Some(state.get_mut().as_ref().unwrap().clone());
 
                 let is_interval_says_it_should_be_triggered =
                     self_mut.interval.as_mut().unwrap().poll_tick(cx);
