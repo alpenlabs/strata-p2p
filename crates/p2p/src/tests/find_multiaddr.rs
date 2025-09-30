@@ -15,10 +15,10 @@ use crate::{
 };
 
 // Test in which we test command [`Command::FindMultiaddr`].
-#[tokio::test(flavor = "multi_thread", worker_threads = 10)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 22)]
 async fn test_find_multiaddr() -> anyhow::Result<()> {
     init_tracing();
-    const USERS_NUM: usize = 9;
+    const USERS_NUM: usize = 21;
 
     info!(
         users = USERS_NUM,
