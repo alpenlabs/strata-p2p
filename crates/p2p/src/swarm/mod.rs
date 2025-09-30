@@ -502,6 +502,10 @@ pub struct P2P {
         tokio::sync::mpsc::Sender<()>,
         tokio::sync::mpsc::Receiver<()>,
     ),
+
+    /// It is used to check if we have put record already because of RoutingUpdated event.
+    #[cfg(feature = "kad")]
+    kademlia_is_routing_updated_first_time: bool,
 }
 
 /// Type alias that changes based on feature flags
@@ -671,6 +675,8 @@ impl P2P {
             kademlia_map_received_records: HashMap::new(),
             #[cfg(feature = "kad")]
             kademlia_republish_stream: tokio::sync::mpsc::channel(10),
+            #[cfg(feature = "kad")]
+            kademlia_is_routing_updated_first_time: true,
             config: cfg,
         };
 
@@ -2627,9 +2633,12 @@ impl P2P {
                     ?old_peer,
                     "KademliaEvent::RoutingUpdated"
                 );
-                if let Err(error) = self.kademlia_republish_stream.0.send(()).await {
-                    error!(%error, "Failed to send request to put kademlia's record. Has mpsc channel broken?")
-                };
+                if self.kademlia_is_routing_updated_first_time {
+                    self.kademlia_is_routing_updated_first_time = false;
+                    if let Err(error) = self.kademlia_republish_stream.0.send(()).await {
+                        error!(%error, "Failed to send request to put kademlia's record. Has mpsc channel broken?")
+                    };
+                }
             }
             _ => {}
         }
