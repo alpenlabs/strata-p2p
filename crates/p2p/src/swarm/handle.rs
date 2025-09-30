@@ -9,8 +9,8 @@ use std::{
 };
 
 use futures::Sink;
-#[cfg(any(feature = "gossipsub", feature = "request-response"))]
-use futures::{FutureExt, Stream};
+#[cfg(feature = "request-response")]
+use futures::Stream;
 #[cfg(not(feature = "byos"))]
 use libp2p::PeerId;
 #[cfg(feature = "byos")]

@@ -34,6 +34,10 @@ use libp2p::StreamProtocol;
 use libp2p::identify::Event as IdentifyEvent;
 #[cfg(feature = "byos")]
 use libp2p::identity::PublicKey;
+#[cfg(feature = "kad")]
+use libp2p::kad::{
+    Event as KademliaEvent, QueryId, QueryResult, Quorum, Record, store::RecordStore,
+};
 use libp2p::{
     Multiaddr, PeerId, Swarm, SwarmBuilder, Transport,
     connection_limits::ConnectionLimits,
@@ -42,11 +46,6 @@ use libp2p::{
     noise,
     swarm::{NetworkBehaviour, SwarmEvent, dial_opts::DialOpts},
     yamux,
-};
-#[cfg(feature = "kad")]
-use libp2p::{
-    StreamProtocol,
-    kad::{Event as KademliaEvent, QueryId, QueryResult, Quorum, Record, store::RecordStore},
 };
 #[cfg(feature = "request-response")]
 use tokio::sync::oneshot;
@@ -115,10 +114,12 @@ use crate::swarm::message::dht_record::SignedRecord;
 use crate::swarm::message::{ProtocolId, gossipsub::GossipSubProtocolVersion};
 #[cfg(feature = "byos")]
 use crate::swarm::{
-    commands::{Command, QueryP2PStateCommand},
-    events::CommandEvent,
     dial_manager::DialManager,
     setup::{events::SetupBehaviourEvent, upgrade::SETUP_PROTOCOL_NAME},
+};
+use crate::{
+    commands::{Command, QueryP2PStateCommand},
+    events::CommandEvent,
 };
 #[cfg(all(
     any(feature = "gossipsub", feature = "request-response"),
