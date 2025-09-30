@@ -2584,7 +2584,7 @@ impl P2P {
                         .kad_timer_putrecorderror
                         .unwrap_or(DEFAULT_KAD_RECORD_TTL);
 
-                    let _ = tokio::task::spawn(async move {
+                    tokio::task::spawn(async move {
                         tokio::time::sleep(dur).await;
                         if let Err(error) = sender_copy.send(()).await {
                             error!(%error, "Failed to send request to put kademlia's record. Has mpsc channel broken?")
@@ -2609,7 +2609,7 @@ impl P2P {
                         .kad_timer_putrecorderror
                         .unwrap_or(DEFAULT_KAD_TIMER_PUT_RECORD_ERROR);
 
-                    let _ = tokio::task::spawn(async move {
+                    tokio::task::spawn(async move {
                         tokio::time::sleep(dur_fail).await;
                         if let Err(error) = sender_copy.send(()).await {
                             error!(%error, "Failed to send request to put kademlia's record. Has mpsc channel broken?")
