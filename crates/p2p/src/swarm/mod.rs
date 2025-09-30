@@ -28,6 +28,10 @@ use futures::StreamExt as _;
 #[cfg(not(all(feature = "gossipsub", feature = "request-response", feature = "kad")))]
 use futures::future::pending;
 use handle::CommandHandle;
+#[cfg(any(feature = "gossipsub", feature = "kad"))]
+use libp2p::StreamProtocol;
+#[cfg(any(feature = "gossipsub", feature = "request-response", feature = "byos"))]
+use libp2p::identify::Event as IdentifyEvent;
 #[cfg(feature = "byos")]
 use libp2p::identity::PublicKey;
 use libp2p::{
@@ -110,10 +114,11 @@ use crate::swarm::message::dht_record::SignedRecord;
 #[cfg(feature = "gossipsub")]
 use crate::swarm::message::{ProtocolId, gossipsub::GossipSubProtocolVersion};
 #[cfg(feature = "byos")]
-use crate::swarm::{dial_manager::DialManager, setup::events::SetupBehaviourEvent};
-use crate::{
+use crate::swarm::{
     commands::{Command, QueryP2PStateCommand},
     events::CommandEvent,
+    dial_manager::DialManager,
+    setup::{events::SetupBehaviourEvent, upgrade::SETUP_PROTOCOL_NAME},
 };
 #[cfg(all(
     any(feature = "gossipsub", feature = "request-response"),
@@ -236,6 +241,34 @@ pub const DEFAULT_REQ_RESP_COMMAND_BUFFER_SIZE: usize = 64;
 /// Default buffer size for gossip command channels.
 #[cfg(feature = "gossipsub")]
 pub const DEFAULT_GOSSIP_COMMAND_BUFFER_SIZE: usize = 64;
+
+/// All supported gossipsub versions.
+#[non_exhaustive]
+#[derive(Debug, Clone)]
+#[cfg(feature = "gossipsub")]
+pub(crate) enum GossipsubVersion {
+    V1_2_0,
+    V1_1_0,
+    V1_0_0,
+}
+
+#[cfg(feature = "gossipsub")]
+impl GossipsubVersion {
+    pub(crate) const fn get_supported_versions() -> &'static [GossipsubVersion] {
+        &[Self::V1_2_0, Self::V1_1_0, Self::V1_0_0]
+    }
+}
+
+#[cfg(feature = "gossipsub")]
+impl From<&GossipsubVersion> for StreamProtocol {
+    fn from(protocol: &GossipsubVersion) -> Self {
+        match protocol {
+            GossipsubVersion::V1_2_0 => StreamProtocol::new("/meshsub/1.2.0"),
+            GossipsubVersion::V1_1_0 => StreamProtocol::new("/meshsub/1.1.0"),
+            GossipsubVersion::V1_0_0 => StreamProtocol::new("/meshsub/1.0.0"),
+        }
+    }
+}
 
 /// Configuration options for [`P2P`].
 #[derive(Debug, Clone)]
@@ -1222,6 +1255,55 @@ impl P2P {
             behavior::BehaviourEvent::Setup(event) => self.handle_setup_event(event).await,
             #[cfg(feature = "kad")]
             BehaviourEvent::Kademlia(event) => self.handle_kademlia_event(event).await,
+            #[cfg(any(feature = "gossipsub", feature = "request-response", feature = "byos"))]
+            BehaviourEvent::Identify(IdentifyEvent::Received { peer_id, info, .. }) => {
+                #[cfg(feature = "gossipsub")]
+                {
+                    let supported: Vec<StreamProtocol> = GossipsubVersion::get_supported_versions()
+                        .iter()
+                        .map(|v| v.into())
+                        .collect();
+                    let supports_gossip = info.protocols.iter().any(|p| supported.contains(p));
+
+                    if !supports_gossip {
+                        info!(%peer_id, "Peer does not support gossipsub. Disconnecting.");
+                        let _ = self.swarm.disconnect_peer_id(peer_id);
+                        return Ok(());
+                    }
+                }
+
+                #[cfg(feature = "request-response")]
+                {
+                    let reqresp_name = self
+                        .config
+                        .protocol_name
+                        .as_deref()
+                        .unwrap_or(PROTOCOL_NAME);
+                    let supports_reqresp = info
+                        .protocols
+                        .iter()
+                        .any(|p| *p.to_string() == *reqresp_name);
+                    if !supports_reqresp {
+                        info!(%peer_id, "Peer does not support request-response. Disconnecting.");
+                        let _ = self.swarm.disconnect_peer_id(peer_id);
+                        return Ok(());
+                    }
+                }
+
+                #[cfg(feature = "byos")]
+                {
+                    let supports_setup = info
+                        .protocols
+                        .iter()
+                        .any(|p| *p.to_string() == *SETUP_PROTOCOL_NAME);
+                    if !supports_setup {
+                        info!(%peer_id, "Peer does not support setup. Disconnecting.");
+                        let _ = self.swarm.disconnect_peer_id(peer_id);
+                        return Ok(());
+                    }
+                }
+                Ok(())
+            }
             _ => Ok(()),
         }
     }
@@ -1236,6 +1318,11 @@ impl P2P {
             } => {
                 self.handle_gossip_msg(propagation_source, message_id, message)
                     .await
+            }
+            GossipsubEvent::GossipsubNotSupported { peer_id } => {
+                info!(%peer_id, "Peer does not support gossipsub. Disconnecting.");
+                let _ = self.swarm.disconnect_peer_id(peer_id);
+                Ok(())
             }
             _ => Ok(()),
         }
@@ -1920,7 +2007,11 @@ impl P2P {
                 error,
                 ..
             } => {
-                error!(%peer, %error, %request_id, "Outbound failure")
+                error!(%peer, %error, %request_id, "Outbound failure");
+                if let request_response::OutboundFailure::UnsupportedProtocols = error {
+                    info!(%peer, "Peer does not support gossipsub. Disconnecting.");
+                    let _ = self.swarm.disconnect_peer_id(peer);
+                }
             }
             RequestResponseEvent::InboundFailure {
                 peer,

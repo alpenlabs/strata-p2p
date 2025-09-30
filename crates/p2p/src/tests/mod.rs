@@ -48,3 +48,6 @@ pub(crate) mod find_multiaddr;
     not(any(feature = "byos", feature = "gossipsub", feature = "request-response"))
 ))]
 pub(crate) mod kad_invalid_record;
+
+#[cfg(any(feature = "gossipsub", feature = "request-response", feature = "byos"))]
+pub(crate) mod protocol_support_minimal;
