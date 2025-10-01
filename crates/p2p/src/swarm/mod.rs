@@ -36,7 +36,12 @@ use libp2p::identify::Event as IdentifyEvent;
 use libp2p::identity::PublicKey;
 #[cfg(feature = "kad")]
 use libp2p::kad::{
-    Event as KademliaEvent, QueryId, QueryResult, Quorum, Record, store::RecordStore,
+    Event as KademliaEvent,
+    GetRecordError::{NotFound, QuorumFailed, Timeout},
+    GetRecordOk::FinishedWithNoAdditionalRecord,
+    GetRecordOk::FoundRecord,
+    InboundRequest, PutRecordError, PutRecordOk, QueryId, QueryResult, Quorum, Record, RecordKey,
+    store::RecordStore,
 };
 use libp2p::{
     Multiaddr, PeerId, Swarm, SwarmBuilder, Transport,
@@ -82,9 +87,8 @@ use {
     errors::SwarmError,
     handle::ReqRespHandle,
     libp2p::request_response::{self, Event as RequestResponseEvent},
-};
+}; // NOTE: BYOS uses an allowlist, making scoring system useless.
 
-// NOTE: BYOS uses an allowlist, making scoring system useless.
 #[cfg(all(
     any(feature = "gossipsub", feature = "request-response"),
     not(feature = "byos")
@@ -108,6 +112,8 @@ use crate::signer::ApplicationSigner;
 use crate::signer::TransportKeypairSigner;
 #[cfg(feature = "request-response")]
 use crate::swarm::codec_raw::{set_request_max_bytes, set_response_max_bytes};
+#[cfg(feature = "kad")]
+use crate::swarm::message::dht_record::RecordData;
 #[cfg(feature = "kad")]
 use crate::swarm::message::dht_record::SignedRecord;
 #[cfg(feature = "gossipsub")]
@@ -2394,8 +2400,6 @@ impl P2P {
         #[cfg(feature = "byos")] app_public_key: &PublicKey,
         #[cfg(not(feature = "byos"))] transport_id: &PeerId,
     ) {
-        use libp2p::kad::RecordKey;
-
         let queryid = self
             .swarm
             .behaviour_mut()
@@ -2418,8 +2422,6 @@ impl P2P {
 
     #[cfg(feature = "kad")]
     async fn ask_kademlia_put_record(&mut self) -> P2PResult<()> {
-        use crate::swarm::message::dht_record::RecordData;
-
         debug!("We are inside 'ask_kademlia_put_record'");
 
         let res_signed_record_data = SignedRecord::new(
@@ -2504,10 +2506,6 @@ impl P2P {
     /// Handles a [`KademliaEvent`] from the swarm.
     #[cfg(feature = "kad")]
     async fn handle_kademlia_event(&mut self, event: KademliaEvent) -> P2PResult<()> {
-        use libp2p::kad::{InboundRequest, PutRecordError, PutRecordOk};
-
-        use crate::swarm::message::dht_record::SignedRecord;
-
         match event {
             KademliaEvent::InboundRequest {
                 request:
@@ -2592,7 +2590,7 @@ impl P2P {
                 stats,
                 step,
             } => match result {
-                QueryResult::GetRecord(Ok(libp2p::kad::GetRecordOk::FoundRecord(peer_record))) => {
+                QueryResult::GetRecord(Ok(FoundRecord(peer_record))) => {
                     debug!(
                         %id, ?stats, ?step, query_to_vec = ?self.kademlia_map_received_records, "QueryResult::GetRecord(Ok(libp2p::kad::GetRecordOk::FoundRecord"
                     );
@@ -2654,14 +2652,10 @@ impl P2P {
                     vec_records.push(signed_record);
                     debug!(?id, "Presumably pushed record in corresponding vector...");
                 }
-                QueryResult::GetRecord(Ok(
-                    libp2p::kad::GetRecordOk::FinishedWithNoAdditionalRecord { .. },
-                ))
-                | QueryResult::GetRecord(Err(libp2p::kad::GetRecordError::Timeout { .. }))
-                | QueryResult::GetRecord(Err(libp2p::kad::GetRecordError::NotFound { .. }))
-                | QueryResult::GetRecord(Err(libp2p::kad::GetRecordError::QuorumFailed {
-                    ..
-                })) => {
+                QueryResult::GetRecord(Ok(FinishedWithNoAdditionalRecord { .. }))
+                | QueryResult::GetRecord(Err(Timeout { .. }))
+                | QueryResult::GetRecord(Err(NotFound { .. }))
+                | QueryResult::GetRecord(Err(QuorumFailed { .. })) => {
                     debug!(
                         %id, ?stats, ?step, "QueryResult::GetRecord Finished query."
                     );
