@@ -243,8 +243,7 @@ impl Behaviour {
             all(
                 feature = "byos",
                 feature = "kad",
-                feature = "mem-conn-limits-abs",
-                feature = "mem-conn-limits-rel"
+                any(feature = "mem-conn-limits-abs", feature = "mem-conn-limits-rel")
             )
         ),
         expect(
