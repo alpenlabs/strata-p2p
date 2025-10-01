@@ -2516,7 +2516,7 @@ impl P2P {
                     },
             } => {
                 debug!(
-                    %source, %connection, ?opt_record, "InboundRequest::PutRecord"
+                    %source, %connection, ?opt_record, "Got a record"
                 );
                 if opt_record.is_none() {
                     info!("Someone asked us to put empty record. Refusing to keep it.");
@@ -2592,7 +2592,7 @@ impl P2P {
             } => match result {
                 QueryResult::GetRecord(Ok(FoundRecord(peer_record))) => {
                     debug!(
-                        %id, ?stats, ?step, query_to_vec = ?self.kademlia_map_received_records, "QueryResult::GetRecord(Ok(libp2p::kad::GetRecordOk::FoundRecord"
+                        %id, ?stats, ?step, query_to_vec = ?self.kademlia_map_received_records, "We got a record we asked for."
                     );
                     if !self.kademlia_map_received_records.contains_key(&id) {
                         warn!(
@@ -2657,18 +2657,15 @@ impl P2P {
                 | QueryResult::GetRecord(Err(NotFound { .. }))
                 | QueryResult::GetRecord(Err(QuorumFailed { .. })) => {
                     debug!(
-                        %id, ?stats, ?step, "QueryResult::GetRecord Finished query."
+                        %id, ?stats, ?step, "Finished query of finding a record."
                     );
                     self.finish_looking_for_dht_record(&id);
                 }
                 QueryResult::PutRecord(Ok(PutRecordOk { key })) => {
-                    debug!(%id, ?stats, ?step, ?key, "OutboundRequest(QueryResult::PutRecord(Ok(...)))");
+                    let dur = self.config.kad_record_ttl.unwrap_or(DEFAULT_KAD_RECORD_TTL);
+                    debug!(%id, ?stats, ?step, ?key, ?dur, "Our request to put our record has failed in a way. Republishing in 'dur'...");
 
                     let sender_copy = self.kademlia_republish_stream.0.clone();
-                    let dur = self
-                        .config
-                        .kad_timer_putrecorderror
-                        .unwrap_or(DEFAULT_KAD_RECORD_TTL);
 
                     tokio::task::spawn(async move {
                         tokio::time::sleep(dur).await;
@@ -2687,13 +2684,12 @@ impl P2P {
                     success,
                     quorum,
                 })) => {
-                    debug!(%id, ?stats, ?step, ?key, ?success, %quorum, "OutboundRequest(QueryResult::PutRecord(Err(...)))");
-
-                    let sender_copy = self.kademlia_republish_stream.0.clone();
                     let dur_fail = self
                         .config
                         .kad_timer_putrecorderror
                         .unwrap_or(DEFAULT_KAD_TIMER_PUT_RECORD_ERROR);
+                    debug!(%id, ?stats, ?step, ?key, ?success, %quorum, ?dur_fail, "Our request to put our record has failed in a way. Republishing in 'dur_fail'...");
+                    let sender_copy = self.kademlia_republish_stream.0.clone();
 
                     tokio::task::spawn(async move {
                         tokio::time::sleep(dur_fail).await;
@@ -2717,7 +2713,7 @@ impl P2P {
                     ?addresses,
                     ?bucket_range,
                     ?old_peer,
-                    "KademliaEvent::RoutingUpdated"
+                    "KademliaEvent::RoutingUpdated: something in local buckets of peers has changed."
                 );
                 if self.kademlia_is_routing_updated_first_time {
                     self.kademlia_is_routing_updated_first_time = false;

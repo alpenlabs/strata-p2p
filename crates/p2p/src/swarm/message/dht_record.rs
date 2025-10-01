@@ -1,4 +1,4 @@
-//! Our DHT record type.
+//! Strata-P2P DHT record type.
 
 use libp2p::{Multiaddr, identity::PublicKey};
 use serde::{Deserialize, Serialize};

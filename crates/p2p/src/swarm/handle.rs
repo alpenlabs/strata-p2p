@@ -108,7 +108,7 @@ impl GossipHandle {
         self.events.is_empty()
     }
 
-    /// Get a new Gossipsub event receiver. Useful if it is necessary to get a receiver for
+    /// Gets a new Gossipsub event receiver. Useful if it is necessary to get a receiver for
     /// `tokio_stream::BroadcastStream`.
     pub fn get_new_receiver(&self) -> broadcast::Receiver<GossipEvent> {
         self.events.resubscribe()
@@ -145,7 +145,7 @@ impl CommandHandle {
         let _ = self.commands.send(command.into()).await;
     }
 
-    /// Get a new Command event receiver. Useful if it is necessary to get a receiver for
+    /// Gets a new command event receiver. Useful if it is necessary to get a receiver for
     /// `tokio_stream::BroadcastStream`.
     pub fn get_new_receiver(&self) -> broadcast::Receiver<CommandEvent> {
         self.events.resubscribe()
