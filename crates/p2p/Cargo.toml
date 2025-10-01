@@ -10,8 +10,10 @@ default = [
   "gossipsub",
   "mem-conn-limits-abs",
   "mem-conn-limits-rel",
+  "kad",
+  "byos",
 ]
-kad = ["libp2p/kad"]
+kad = ["libp2p/kad", "dep:flexbuffers", "dep:serde"]
 byos = ["dep:asynchronous-codec", "dep:flexbuffers", "dep:serde", "dep:bytes"]
 gossipsub = ["libp2p/gossipsub", "dep:flexbuffers", "dep:serde"]
 quic = ["libp2p/quic"]

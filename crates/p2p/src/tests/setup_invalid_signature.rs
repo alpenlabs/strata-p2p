@@ -75,6 +75,10 @@ async fn test_setup_with_invalid_signature() {
         SIXTEEN_GIBIBYTES,
         #[cfg(feature = "mem-conn-limits-rel")]
         1.0, // 100 %
+        #[cfg(feature = "kad")]
+        None,
+        #[cfg(feature = "kad")]
+        None,
     )
     .unwrap();
 
@@ -91,6 +95,10 @@ async fn test_setup_with_invalid_signature() {
         SIXTEEN_GIBIBYTES,
         #[cfg(feature = "mem-conn-limits-rel")]
         1.0, // 100 %
+        #[cfg(feature = "kad")]
+        None,
+        #[cfg(feature = "kad")]
+        None,
     )
     .unwrap();
 
@@ -127,6 +135,10 @@ async fn test_setup_with_invalid_signature() {
         SIXTEEN_GIBIBYTES,
         #[cfg(feature = "mem-conn-limits-rel")]
         1.0, // 100 %
+        #[cfg(feature = "kad")]
+        None,
+        #[cfg(feature = "kad")]
+        None,
     )
     .unwrap();
 

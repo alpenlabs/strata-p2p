@@ -54,6 +54,10 @@ async fn mem_conn_limits_rel() -> anyhow::Result<()> {
         SIXTEEN_GIBIBYTES,
         #[cfg(feature = "mem-conn-limits-rel")]
         0.0, // 0 %
+        #[cfg(feature = "kad")]
+        None,
+        #[cfg(feature = "kad")]
+        None,
     )?;
 
     let mut user2 = User::new(
@@ -77,6 +81,10 @@ async fn mem_conn_limits_rel() -> anyhow::Result<()> {
         SIXTEEN_GIBIBYTES,
         #[cfg(feature = "mem-conn-limits-rel")]
         0.0, // 0 %
+        #[cfg(feature = "kad")]
+        None,
+        #[cfg(feature = "kad")]
+        None,
     )?;
 
     let task1 = spawn(async move {

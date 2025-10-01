@@ -1,16 +1,13 @@
 //! Entity to control P2P implementation, spawned in another async task,
 //! and listen to its events and send commands through channels.
 
-#[cfg(feature = "gossipsub")]
-use std::fmt::{self, Display};
-use std::time::Duration;
-#[cfg(any(feature = "gossipsub", feature = "request-response"))]
 use std::{
+    fmt::{self, Display},
     pin::Pin,
     task::{Context, Poll},
+    time::Duration,
 };
 
-#[cfg(any(feature = "gossipsub", feature = "request-response"))]
 use futures::Sink;
 #[cfg(feature = "request-response")]
 use futures::Stream;
@@ -18,14 +15,14 @@ use futures::Stream;
 use libp2p::PeerId;
 #[cfg(feature = "byos")]
 use libp2p::identity::PublicKey;
-#[cfg(feature = "gossipsub")]
 use thiserror::Error;
-#[cfg(feature = "gossipsub")]
-use tokio::sync::broadcast::{self, error::RecvError};
-#[cfg(any(feature = "gossipsub", feature = "request-response"))]
-use tokio::sync::mpsc::error::SendError;
 use tokio::{
-    sync::{mpsc, oneshot},
+    sync::{
+        broadcast::{self, error::RecvError},
+        mpsc,
+        mpsc::error::SendError,
+        oneshot,
+    },
     time::timeout,
 };
 
@@ -37,6 +34,7 @@ use crate::events::ReqRespEvent;
 use crate::{commands::GossipCommand, events::GossipEvent};
 use crate::{
     commands::{Command, QueryP2PStateCommand},
+    events::CommandEvent,
     swarm::default_handle_timeout,
 };
 
@@ -44,11 +42,9 @@ use crate::{
 /// return the oldest message still retained by the channel.
 ///
 /// Includes the number of skipped messages.
-#[cfg(feature = "gossipsub")]
 #[derive(Debug, Clone, Error)]
 pub struct ErrDroppedMsgs(u64);
 
-#[cfg(feature = "gossipsub")]
 impl Display for ErrDroppedMsgs {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "GossipHandle dropped {} messages", self.0)
@@ -112,7 +108,7 @@ impl GossipHandle {
         self.events.is_empty()
     }
 
-    /// Get a new Gossipsub event receiver. Useful if it is necessary to get a receiver for
+    /// Gets a new Gossipsub event receiver. Useful if it is necessary to get a receiver for
     /// `tokio_stream::BroadcastStream`.
     pub fn get_new_receiver(&self) -> broadcast::Receiver<GossipEvent> {
         self.events.resubscribe()
@@ -122,17 +118,37 @@ impl GossipHandle {
 /// Handle to sends commands to P2P.
 #[derive(Debug)]
 pub struct CommandHandle {
+    events: broadcast::Receiver<CommandEvent>,
     commands: mpsc::Sender<Command>,
 }
 
 impl CommandHandle {
-    pub(crate) const fn new(commands: mpsc::Sender<Command>) -> Self {
-        Self { commands }
+    pub(crate) const fn new(
+        events: broadcast::Receiver<CommandEvent>,
+        commands: mpsc::Sender<Command>,
+    ) -> Self {
+        Self { commands, events }
+    }
+
+    /// Gets the next event from P2P from events channel.
+    pub async fn next_event(&mut self) -> Result<CommandEvent, RecvError> {
+        self.events.recv().await
+    }
+
+    /// Checks if the event's channel is empty or not.
+    pub fn events_is_empty(&self) -> bool {
+        self.events.is_empty()
     }
 
     /// Sends command to P2P.
     pub async fn send_command(&self, command: impl Into<Command>) {
         let _ = self.commands.send(command.into()).await;
+    }
+
+    /// Gets a new command event receiver. Useful if it is necessary to get a receiver for
+    /// `tokio_stream::BroadcastStream`.
+    pub fn get_new_receiver(&self) -> broadcast::Receiver<CommandEvent> {
+        self.events.resubscribe()
     }
 
     /// Checks if the P2P node is connected to the specified peer.
@@ -252,7 +268,7 @@ impl Clone for GossipHandle {
 
 impl Clone for CommandHandle {
     fn clone(&self) -> Self {
-        Self::new(self.commands.clone())
+        Self::new(self.events.resubscribe(), self.commands.clone())
     }
 }
 
@@ -297,6 +313,28 @@ impl Sink<RequestResponseCommand> for ReqRespHandle {
     }
 
     fn start_send(self: Pin<&mut Self>, item: RequestResponseCommand) -> Result<(), Self::Error> {
+        self.commands
+            .try_send(item)
+            .map_err(|e| SendError(e.into_inner()))
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        Poll::Ready(Ok(()))
+    }
+
+    fn poll_close(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        Poll::Ready(Ok(()))
+    }
+}
+
+impl Sink<Command> for CommandHandle {
+    type Error = SendError<Command>;
+
+    fn poll_ready(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        Poll::Ready(Ok(()))
+    }
+
+    fn start_send(self: Pin<&mut Self>, item: Command) -> Result<(), Self::Error> {
         self.commands
             .try_send(item)
             .map_err(|e| SendError(e.into_inner()))

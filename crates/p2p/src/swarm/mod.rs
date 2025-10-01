@@ -1,8 +1,15 @@
 //! Swarm implementation for P2P.
 
+#[cfg(feature = "kad")]
+use std::collections::HashMap;
 #[cfg(not(feature = "byos"))]
 use std::num::NonZeroU8;
-#[cfg(any(feature = "gossipsub", feature = "request-response", feature = "byos"))]
+#[cfg(any(
+    feature = "gossipsub",
+    feature = "request-response",
+    feature = "byos",
+    feature = "kad"
+))]
 use std::sync::Arc;
 #[cfg(any(feature = "gossipsub", feature = "request-response"))]
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -18,7 +25,7 @@ use errors::{P2PResult, ProtocolError};
 #[cfg(any(feature = "gossipsub", feature = "request-response"))]
 use flexbuffers;
 use futures::StreamExt as _;
-#[cfg(not(all(feature = "gossipsub", feature = "request-response")))]
+#[cfg(not(all(feature = "gossipsub", feature = "request-response", feature = "kad")))]
 use futures::future::pending;
 use handle::CommandHandle;
 #[cfg(any(feature = "gossipsub", feature = "kad"))]
@@ -27,6 +34,15 @@ use libp2p::StreamProtocol;
 use libp2p::identify::Event as IdentifyEvent;
 #[cfg(feature = "byos")]
 use libp2p::identity::PublicKey;
+#[cfg(feature = "kad")]
+use libp2p::kad::{
+    Event as KademliaEvent,
+    GetRecordError::{NotFound, QuorumFailed, Timeout},
+    GetRecordOk::FinishedWithNoAdditionalRecord,
+    GetRecordOk::FoundRecord,
+    InboundRequest, PutRecordError, PutRecordOk, QueryId, QueryResult, Quorum, Record, RecordKey,
+    store::RecordStore,
+};
 use libp2p::{
     Multiaddr, PeerId, Swarm, SwarmBuilder, Transport,
     connection_limits::ConnectionLimits,
@@ -38,7 +54,10 @@ use libp2p::{
 };
 #[cfg(feature = "request-response")]
 use tokio::sync::oneshot;
-use tokio::{sync::mpsc, time::timeout};
+use tokio::{
+    sync::{broadcast, mpsc},
+    time::timeout,
+};
 use tokio_util::sync::CancellationToken;
 #[cfg(any(feature = "gossipsub", feature = "request-response"))]
 use tracing::instrument;
@@ -55,7 +74,6 @@ use {
         Event as GossipsubEvent, Message, MessageAcceptance, MessageId, PeerScoreParams,
         PeerScoreThresholds, PublishError, Sha256Topic,
     },
-    tokio::sync::broadcast,
 };
 #[cfg(feature = "request-response")]
 use {
@@ -69,34 +87,45 @@ use {
     errors::SwarmError,
     handle::ReqRespHandle,
     libp2p::request_response::{self, Event as RequestResponseEvent},
-};
+}; // NOTE: BYOS uses an allowlist, making scoring system useless.
 
-// NOTE: BYOS uses an allowlist, making scoring system useless.
 #[cfg(all(
     any(feature = "gossipsub", feature = "request-response"),
     not(feature = "byos")
 ))]
 use crate::commands::UnpenaltyType;
-use crate::commands::{Command, QueryP2PStateCommand};
 #[cfg(all(feature = "gossipsub", not(feature = "byos")))]
 use crate::score_manager::DEFAULT_GOSSIP_APP_SCORE;
 #[cfg(all(feature = "request-response", not(feature = "byos")))]
 use crate::score_manager::DEFAULT_REQ_RESP_APP_SCORE;
-#[cfg(any(feature = "gossipsub", feature = "request-response", feature = "byos"))]
+#[cfg(any(
+    feature = "kad",
+    feature = "gossipsub",
+    feature = "request-response",
+    feature = "byos"
+))]
 use crate::signer::ApplicationSigner;
 #[cfg(all(
-    any(feature = "gossipsub", feature = "request-response"),
+    any(feature = "kad", feature = "gossipsub", feature = "request-response"),
     not(feature = "byos")
 ))]
 use crate::signer::TransportKeypairSigner;
 #[cfg(feature = "request-response")]
 use crate::swarm::codec_raw::{set_request_max_bytes, set_response_max_bytes};
+#[cfg(feature = "kad")]
+use crate::swarm::message::dht_record::RecordData;
+#[cfg(feature = "kad")]
+use crate::swarm::message::dht_record::SignedRecord;
 #[cfg(feature = "gossipsub")]
 use crate::swarm::message::{ProtocolId, gossipsub::GossipSubProtocolVersion};
 #[cfg(feature = "byos")]
 use crate::swarm::{
     dial_manager::DialManager,
     setup::{events::SetupBehaviourEvent, upgrade::SETUP_PROTOCOL_NAME},
+};
+use crate::{
+    commands::{Command, QueryP2PStateCommand},
+    events::CommandEvent,
 };
 #[cfg(all(
     any(feature = "gossipsub", feature = "request-response"),
@@ -134,6 +163,12 @@ mod codec_raw;
 pub mod dial_manager;
 pub mod errors;
 pub mod handle;
+#[cfg(any(
+    feature = "byos",
+    feature = "gossipsub",
+    feature = "request-response",
+    feature = "kad"
+))]
 pub mod message;
 #[cfg(feature = "byos")]
 pub mod setup;
@@ -165,6 +200,14 @@ pub const DEFAULT_CHANNEL_TIMEOUT: Duration = Duration::from_secs(5);
 /// Default timeout used by [`CommandHandle`].
 pub const DEFAULT_HANDLE_TIMEOUT: Duration = Duration::from_secs(1);
 
+/// Default Kademlia's record TTL.
+#[cfg(feature = "kad")]
+pub const DEFAULT_KAD_RECORD_TTL: Duration = Duration::from_hours(1);
+
+/// Default time for republishing timer in case of PutRecordError.
+#[cfg(feature = "kad")]
+pub const DEFAULT_KAD_TIMER_PUT_RECORD_ERROR: Duration = Duration::from_mins(5);
+
 /// Global, runtime-configurable default handle timeout (milliseconds).
 static HANDLE_DEFAULT_TIMEOUT_MS: std::sync::atomic::AtomicU64 =
     std::sync::atomic::AtomicU64::new(1_000);
@@ -188,12 +231,19 @@ pub const DEFAULT_ENVELOPE_MAX_AGE: Duration = Duration::from_secs(300);
 #[cfg(feature = "gossipsub")]
 pub const DEFAULT_GOSSIP_EVENT_BUFFER_SIZE: usize = 256;
 
+/// Default buffer size for command's event broadcast channels.
+pub const DEFAULT_COMMAND_EVENT_BUFFER_SIZE: usize = 256;
+
 /// Default buffer size for command channels.
 pub const DEFAULT_COMMAND_BUFFER_SIZE: usize = 64;
 
 /// Default buffer size for request-response event channels.
 #[cfg(feature = "request-response")]
 pub const DEFAULT_REQ_RESP_EVENT_BUFFER_SIZE: usize = 64;
+
+/// Default buffer size for request-response command channel.
+#[cfg(feature = "request-response")]
+pub const DEFAULT_REQ_RESP_COMMAND_BUFFER_SIZE: usize = 64;
 
 /// Default buffer size for gossip command channels.
 #[cfg(feature = "gossipsub")]
@@ -311,6 +361,12 @@ pub struct P2PConfig {
     #[cfg(feature = "gossipsub")]
     pub gossip_event_buffer_size: Option<usize>,
 
+    /// Buffer size for command's event broadcast channels.
+    ///
+    /// If [`None`], the default buffer size will be used.
+    /// The default is [`DEFAULT_COMMAND_EVENT_BUFFER_SIZE`].
+    pub commands_event_buffer_size: Option<usize>,
+
     /// Buffer size for core command channels.
     ///
     /// If [`None`], the default buffer size will be used.
@@ -328,6 +384,13 @@ pub struct P2PConfig {
     /// The default is [`DEFAULT_REQ_RESP_EVENT_BUFFER_SIZE`].
     #[cfg(feature = "request-response")]
     pub req_resp_event_buffer_size: Option<usize>,
+
+    /// Buffer size for request-response command channels.
+    ///
+    /// If [`None`], the default buffer size will be used.
+    /// The default is [`DEFAULT_REQ_RESP_COMMAND_BUFFER_SIZE`].
+    #[cfg(feature = "request-response")]
+    pub req_resp_command_buffer_size: Option<usize>,
 
     /// Maximum request size (bytes) for request-response codec.
     ///
@@ -360,9 +423,17 @@ pub struct P2PConfig {
     /// (no tolerance for future timestamps).
     pub max_clock_skew: Option<Duration>,
 
-    /// Kademlia protocol name
+    /// Kademlia protocol name.
     #[cfg(feature = "kad")]
     pub kad_protocol_name: Option<KadProtocol>,
+
+    /// Kademlia TTL for our own record.
+    #[cfg(feature = "kad")]
+    pub kad_record_ttl: Option<Duration>,
+
+    /// If in case of failed republishing of record, after what time to try again?
+    #[cfg(feature = "kad")]
+    pub kad_timer_putrecorderror: Option<Duration>,
 
     /// Limits on number of concurrent connections.
     pub conn_limits: ConnectionLimits,
@@ -405,6 +476,9 @@ pub struct P2P {
     #[cfg(feature = "request-response")]
     request_response_commands: mpsc::Receiver<RequestResponseCommand>,
 
+    /// Event channel for the commands.
+    commands_events: broadcast::Sender<CommandEvent>,
+
     /// ([`Clone`]able) Command channel for the swarm.
     ///
     /// # Implementation details
@@ -428,7 +502,7 @@ pub struct P2P {
     allowlist: HashSet<PublicKey>,
 
     /// Application signer for signing setup messages.
-    #[cfg(any(feature = "gossipsub", feature = "request-response"))]
+    #[cfg(any(feature = "gossipsub", feature = "request-response", feature = "kad"))]
     signer: Arc<dyn ApplicationSigner>,
 
     /// Manages dial sequences and address queues for multiaddress connections.
@@ -456,6 +530,22 @@ pub struct P2P {
         not(feature = "byos")
     ))]
     validator: Box<dyn Validator>,
+
+    /// When last event for specific query id is received, the most suitable record will be
+    /// returned. "Most suitable" in this context means with latest timestamp.
+    #[cfg(feature = "kad")]
+    kademlia_map_received_records: HashMap<QueryId, Vec<SignedRecord>>,
+
+    /// It is used to check if we have put record with info about ourselves.
+    #[cfg(feature = "kad")]
+    kademlia_republish_stream: (
+        tokio::sync::mpsc::Sender<()>,
+        tokio::sync::mpsc::Receiver<()>,
+    ),
+
+    /// It is used to check if we have put record already because of RoutingUpdated event.
+    #[cfg(feature = "kad")]
+    kademlia_is_routing_updated_first_time: bool,
 }
 
 /// Type alias that changes based on feature flags
@@ -476,7 +566,7 @@ impl P2P {
         #[cfg(feature = "gossipsub")] channel_size: Option<usize>,
         #[cfg(all(
             feature = "byos",
-            any(feature = "gossipsub", feature = "request-response")
+            any(feature = "gossipsub", feature = "request-response", feature = "kad")
         ))]
         signer: Arc<dyn ApplicationSigner>,
         #[cfg(all(
@@ -495,11 +585,18 @@ impl P2P {
                 .map_err(ProtocolError::Listen)?;
         }
 
-        // Core components setup
-        let command_buffer_size = cfg
-            .command_buffer_size
-            .unwrap_or(DEFAULT_COMMAND_BUFFER_SIZE);
-        let (cmds_tx, cmds_rx) = mpsc::channel(command_buffer_size);
+        let (commands_events_tx, cmds_tx, cmds_rx) = {
+            let commands_event_buffer_size = cfg
+                .commands_event_buffer_size
+                .unwrap_or(DEFAULT_COMMAND_EVENT_BUFFER_SIZE);
+            let (commands_events_tx, _commands_events_rx) =
+                broadcast::channel(commands_event_buffer_size);
+            let commands_command_buffer_size = cfg
+                .command_buffer_size
+                .unwrap_or(DEFAULT_COMMAND_BUFFER_SIZE);
+            let (commands_cmds_tx, commands_cmds_rx) = mpsc::channel(commands_command_buffer_size);
+            (commands_events_tx, commands_cmds_tx, commands_cmds_rx)
+        };
 
         #[cfg(all(
             any(feature = "gossipsub", feature = "request-response"),
@@ -513,7 +610,7 @@ impl P2P {
         let peer_penalty_storage = PenaltyPeerStorage::new();
 
         // Create signer - either provided (BYOS) or transport keypair signer (non-BYOS)
-        #[cfg(any(feature = "gossipsub", feature = "request-response"))]
+        #[cfg(any(feature = "gossipsub", feature = "request-response", feature = "kad"))]
         let signer: Arc<dyn ApplicationSigner> = {
             #[cfg(feature = "byos")]
             {
@@ -528,12 +625,15 @@ impl P2P {
         // Request-response setup (only when feature is enabled)
         #[cfg(feature = "request-response")]
         let (req_resp_event_tx, req_resp_event_rx, req_resp_cmds_tx, req_resp_cmds_rx) = {
+            let req_resp_command_buffer_size = cfg
+                .req_resp_command_buffer_size
+                .unwrap_or(DEFAULT_REQ_RESP_COMMAND_BUFFER_SIZE);
             let req_resp_event_buffer_size = cfg
                 .req_resp_event_buffer_size
                 .unwrap_or(DEFAULT_REQ_RESP_EVENT_BUFFER_SIZE);
             let (req_resp_event_tx, req_resp_event_rx) =
                 mpsc::channel::<ReqRespEvent>(req_resp_event_buffer_size);
-            let (req_resp_cmds_tx, req_resp_cmds_rx) = mpsc::channel(command_buffer_size);
+            let (req_resp_cmds_tx, req_resp_cmds_rx) = mpsc::channel(req_resp_command_buffer_size);
             (
                 req_resp_event_tx,
                 req_resp_event_rx,
@@ -588,11 +688,11 @@ impl P2P {
             topic,
             commands: cmds_rx,
             commands_sender: cmds_tx.clone(),
+            commands_events: commands_events_tx,
             cancellation_token: cancel,
             #[cfg(feature = "byos")]
             allowlist: HashSet::from_iter(allowlist),
-            config: cfg,
-            #[cfg(any(feature = "gossipsub", feature = "request-response"))]
+            #[cfg(any(feature = "gossipsub", feature = "request-response", feature = "kad"))]
             signer,
             #[cfg(feature = "byos")]
             dial_manager: DialManager::new(),
@@ -611,6 +711,13 @@ impl P2P {
                 not(feature = "byos")
             ))]
             validator,
+            #[cfg(feature = "kad")]
+            kademlia_map_received_records: HashMap::new(),
+            #[cfg(feature = "kad")]
+            kademlia_republish_stream: tokio::sync::mpsc::channel(10),
+            #[cfg(feature = "kad")]
+            kademlia_is_routing_updated_first_time: true,
+            config: cfg,
         };
 
         #[cfg(feature = "request-response")]
@@ -636,7 +743,10 @@ impl P2P {
 
     /// Creates new handle for commands.
     pub fn new_command_handle(&self) -> CommandHandle {
-        CommandHandle::new(self.commands_sender.clone())
+        CommandHandle::new(
+            self.commands_events.subscribe(),
+            self.commands_sender.clone(),
+        )
     }
 
     /// Waits until all connections are established and all peers are subscribed to
@@ -857,6 +967,11 @@ impl P2P {
             #[cfg(not(feature = "request-response"))]
             let reqresp_fut = pending::<Option<()>>();
 
+            #[cfg(feature = "kad")]
+            let kademlia_republish_stream = self.kademlia_republish_stream.1.recv();
+            #[cfg(not(feature = "kad"))]
+            let kademlia_republish_stream = pending::<()>();
+
             let result = tokio::select! {
                 _ = cancel_fut => {
                     debug!("Received cancellation, stopping listening");
@@ -891,6 +1006,12 @@ impl P2P {
                         #[allow(unreachable_code)]
                         Ok(())
                     }
+                }
+                _ = kademlia_republish_stream => {
+                    debug!("We got inside kademlia_republish_stream handle");
+                    #[cfg(feature="kad")]
+                    let _ = self.ask_kademlia_put_record().await;
+                    Ok(())
                 }
             };
 
@@ -1006,6 +1127,7 @@ impl P2P {
         &mut self,
         event: SwarmEvent<<Behaviour as NetworkBehaviour>::ToSwarm>,
     ) -> P2PResult<()> {
+        trace!(?event, "Received an event");
         match event {
             SwarmEvent::Behaviour(event) => self.handle_behaviour_event(event).await,
             SwarmEvent::ConnectionEstablished { .. }
@@ -1138,6 +1260,8 @@ impl P2P {
             }
             #[cfg(feature = "byos")]
             behavior::BehaviourEvent::Setup(event) => self.handle_setup_event(event).await,
+            #[cfg(feature = "kad")]
+            BehaviourEvent::Kademlia(event) => self.handle_kademlia_event(event).await,
             #[cfg(any(feature = "gossipsub", feature = "request-response", feature = "byos"))]
             BehaviourEvent::Identify(IdentifyEvent::Received { peer_id, info, .. }) => {
                 #[cfg(feature = "gossipsub")]
@@ -1670,6 +1794,21 @@ impl P2P {
                     Ok(())
                 }
             },
+            #[cfg(feature = "kad")]
+            Command::FindMultiaddr {
+                #[cfg(feature = "byos")]
+                app_public_key,
+                #[cfg(not(feature = "byos"))]
+                transport_id,
+            } => {
+                self.ask_kademlia_get_record(
+                    #[cfg(feature = "byos")]
+                    &app_public_key,
+                    #[cfg(not(feature = "byos"))]
+                    &transport_id,
+                );
+                Ok(())
+            }
         }
     }
 
@@ -2254,6 +2393,339 @@ impl P2P {
         }
         Ok(())
     }
+
+    #[cfg(feature = "kad")]
+    fn ask_kademlia_get_record(
+        &mut self,
+        #[cfg(feature = "byos")] app_public_key: &PublicKey,
+        #[cfg(not(feature = "byos"))] transport_id: &PeerId,
+    ) {
+        let queryid = self
+            .swarm
+            .behaviour_mut()
+            .kademlia
+            .get_record(RecordKey::new(
+                #[cfg(feature = "byos")]
+                &app_public_key.encode_protobuf(),
+                #[cfg(not(feature = "byos"))]
+                &transport_id.to_bytes(),
+            ));
+
+        self.kademlia_map_received_records
+            .insert(queryid, Vec::new());
+
+        #[cfg(feature = "byos")]
+        trace!(?app_public_key, "We inserted queryid -> empty vec");
+        #[cfg(not(feature = "byos"))]
+        trace!(%transport_id, "We inserted queryid -> empty vec");
+    }
+
+    #[cfg(feature = "kad")]
+    async fn ask_kademlia_put_record(&mut self) -> P2PResult<()> {
+        debug!("We are inside 'ask_kademlia_put_record'");
+
+        let res_signed_record_data = SignedRecord::new(
+            RecordData::new(
+                #[cfg(feature = "byos")]
+                self.config.app_public_key.clone(),
+                #[cfg(not(feature = "byos"))]
+                self.config.transport_keypair.public(),
+                #[cfg(test)]
+                self.swarm.listeners().cloned().collect::<Vec<_>>(),
+                #[cfg(not(test))]
+                self.swarm.external_addresses().cloned().collect::<Vec<_>>(),
+            ),
+            self.signer.as_ref(),
+        )
+        .await;
+
+        if let Err(error) = res_signed_record_data {
+            warn!(%error,
+                local_tid = %self.swarm.local_peer_id(),
+                external_addresses = ?self.swarm.external_addresses().cloned().collect::<Vec<_>>(),
+                "Failed to serialize our own signed record.");
+            return Ok(());
+        }
+
+        let signed_record_data = res_signed_record_data.unwrap();
+
+        let _ = self.swarm.behaviour_mut().kademlia.put_record(
+            Record::new(
+                #[cfg(feature = "byos")]
+                self.config.app_public_key.encode_protobuf(),
+                #[cfg(not(feature = "byos"))]
+                self.config
+                    .transport_keypair
+                    .public()
+                    .to_peer_id()
+                    .to_bytes(),
+                flexbuffers::to_vec(&signed_record_data).unwrap(),
+            ),
+            Quorum::Majority,
+        );
+
+        Ok(())
+    }
+
+    #[cfg(feature = "kad")]
+    fn finish_looking_for_dht_record(&mut self, id: &QueryId) {
+        if let Some(records) = self.kademlia_map_received_records.get(id) {
+            match records.len() {
+                0 => {
+                    info!(%id, "Finished query with no records.");
+                    let res_sending = self
+                        .commands_events
+                        .send(CommandEvent::ResultFindMultiaddress(None));
+                    if let Err(e) = res_sending {
+                        error!(
+                            %e, "Failed sending event to command handler's event channel."
+                        );
+                    }
+                }
+                _ => {
+                    let result = records
+                        .iter()
+                        .max_by(|x, y| x.message.date.cmp(&y.message.date));
+                    debug!(result = ?result.unwrap(), "Sending back event to command handler's event channel.");
+                    let res_sending =
+                        self.commands_events
+                            .send(CommandEvent::ResultFindMultiaddress(Some(
+                                result.unwrap().message.multiaddresses.clone(),
+                            )));
+                    if let Err(e) = res_sending {
+                        error!(
+                            %e, "Failed sending event to command handler's event channel."
+                        );
+                    }
+                }
+            }
+            let _ = self.kademlia_map_received_records.remove(id);
+        }
+    }
+
+    /// Handles a [`KademliaEvent`] from the swarm.
+    #[cfg(feature = "kad")]
+    async fn handle_kademlia_event(&mut self, event: KademliaEvent) -> P2PResult<()> {
+        match event {
+            KademliaEvent::InboundRequest {
+                request:
+                    InboundRequest::PutRecord {
+                        source,
+                        connection,
+                        record: opt_record,
+                    },
+            } => {
+                debug!(
+                    %source, %connection, ?opt_record, "Got a record"
+                );
+                if opt_record.is_none() {
+                    info!("Someone asked us to put empty record. Refusing to keep it.");
+                    return Ok(());
+                }
+
+                let record_data = &opt_record.unwrap();
+                let res_our_record_data: Result<SignedRecord, flexbuffers::DeserializationError> =
+                    flexbuffers::from_slice(&record_data.value);
+                if let Err(e) = res_our_record_data {
+                    info!(
+                        ?e,
+                        "Someone asked us to put either not valid or not properly signed record. Refusing to keep it."
+                    );
+                    return Ok(());
+                }
+                let signed_record = res_our_record_data.unwrap();
+                if let Err(error) = signed_record.verify() {
+                    info!(
+                        %error, "Someone asked us to put a record with invalid signature. Refusing to keep it."
+                    );
+                    return Ok(());
+                }
+
+                #[cfg(feature = "byos")]
+                {
+                    let res_deser_key = PublicKey::try_decode_protobuf(record_data.key.as_ref());
+                    if let Err(error) = res_deser_key {
+                        info!(%error, "Someone asked us to put a record with a key that is not deserializable into a public key.");
+                        return Ok(());
+                    }
+
+                    if signed_record.message.public_key != res_deser_key.unwrap() {
+                        info!(
+                            "Someone asked us to put a record with the application public key that does not corresponds to application public key in key field of DHT record."
+                        );
+                        return Ok(());
+                    }
+                }
+                #[cfg(not(feature = "byos"))]
+                {
+                    let res_deser_key = PeerId::from_bytes(record_data.key.as_ref());
+                    if let Err(error) = res_deser_key {
+                        info!(%error, "Someone asked us to put a record with a key that is not deserializable into a peer id.");
+                        return Ok(());
+                    }
+
+                    if signed_record.message.public_key.to_peer_id() != res_deser_key.unwrap() {
+                        info!(
+                            "Someone asked us to put a record with the transport public key that does not corresponds to transport id in key field of DHT record."
+                        );
+                        return Ok(());
+                    }
+                }
+
+                let res = self
+                    .swarm
+                    .behaviour_mut()
+                    .kademlia
+                    .store_mut()
+                    .put(record_data.clone());
+
+                if let Err(error) = res {
+                    info!(%error, "Someone has asked us to put a record that is too big. Refusing to do so.");
+                    return Ok(());
+                }
+            }
+            KademliaEvent::OutboundQueryProgressed {
+                id,
+                result,
+                stats,
+                step,
+            } => match result {
+                QueryResult::GetRecord(Ok(FoundRecord(peer_record))) => {
+                    debug!(
+                        %id, ?stats, ?step, query_to_vec = ?self.kademlia_map_received_records, "We got a record we asked for."
+                    );
+                    if !self.kademlia_map_received_records.contains_key(&id) {
+                        warn!(
+                            "We somehow got a record for a query with id we don't know about. If you use in code anything like `kad_behaviour.get_record()`, stop doing it and use our method `self.ask_kademlia_get_record(...)`"
+                        );
+                        return Ok(());
+                    }
+
+                    let res_record: Result<SignedRecord, flexbuffers::DeserializationError> =
+                        flexbuffers::from_slice(&peer_record.record.value);
+
+                    if let Err(error) = res_record {
+                        info!(%error, "Failed deserializing a record that we received.");
+                        return Ok(());
+                    }
+
+                    let signed_record = res_record.unwrap();
+
+                    #[cfg(feature = "byos")]
+                    {
+                        let res_deser_key =
+                            PublicKey::try_decode_protobuf(peer_record.record.key.as_ref());
+                        if let Err(error) = res_deser_key {
+                            info!(%error, "We got a record with a key that is not deserializable into a public key.");
+                            return Ok(());
+                        }
+
+                        if signed_record.message.public_key != res_deser_key.unwrap() {
+                            info!(
+                                "We got a record with the application public key that does not corresponds to application public key in key field of DHT record."
+                            );
+                            return Ok(());
+                        }
+                    }
+                    #[cfg(not(feature = "byos"))]
+                    {
+                        let res_deser_key = PeerId::from_bytes(peer_record.record.key.as_ref());
+                        if let Err(error) = res_deser_key {
+                            info!(%error, "We got a record with a key that is not deserializable into a peer id.");
+                            return Ok(());
+                        }
+
+                        if signed_record.message.public_key.to_peer_id() != res_deser_key.unwrap() {
+                            info!(
+                                "We got a record with the transport public key that does not corresponds to transport id in key field of DHT record."
+                            );
+                            return Ok(());
+                        }
+                    }
+
+                    if let Err(error) = signed_record.verify() {
+                        info!(%error, "Signature verification failed of a record that we received.");
+                        return Ok(());
+                    }
+
+                    let vec_records = self.kademlia_map_received_records.get_mut(&id).unwrap();
+                    vec_records.push(signed_record);
+                    debug!(?id, "Presumably pushed record in corresponding vector...");
+                }
+                QueryResult::GetRecord(Ok(FinishedWithNoAdditionalRecord { .. }))
+                | QueryResult::GetRecord(Err(Timeout { .. }))
+                | QueryResult::GetRecord(Err(NotFound { .. }))
+                | QueryResult::GetRecord(Err(QuorumFailed { .. })) => {
+                    debug!(
+                        %id, ?stats, ?step, "Finished query of finding a record."
+                    );
+                    self.finish_looking_for_dht_record(&id);
+                }
+                QueryResult::PutRecord(Ok(PutRecordOk { key })) => {
+                    let dur = self.config.kad_record_ttl.unwrap_or(DEFAULT_KAD_RECORD_TTL);
+                    debug!(%id, ?stats, ?step, ?key, ?dur, "Our request to put our record has failed in a way. Republishing in 'dur'...");
+
+                    let sender_copy = self.kademlia_republish_stream.0.clone();
+
+                    tokio::task::spawn(async move {
+                        tokio::time::sleep(dur).await;
+                        if let Err(error) = sender_copy.send(()).await {
+                            error!(%error, "Failed to send request to put kademlia's record. Has mpsc channel broken?")
+                        };
+                    });
+                }
+                QueryResult::PutRecord(Err(PutRecordError::Timeout {
+                    key,
+                    success,
+                    quorum,
+                }))
+                | QueryResult::PutRecord(Err(PutRecordError::QuorumFailed {
+                    key,
+                    success,
+                    quorum,
+                })) => {
+                    let dur_fail = self
+                        .config
+                        .kad_timer_putrecorderror
+                        .unwrap_or(DEFAULT_KAD_TIMER_PUT_RECORD_ERROR);
+                    debug!(%id, ?stats, ?step, ?key, ?success, %quorum, ?dur_fail, "Our request to put our record has failed in a way. Republishing in 'dur_fail'...");
+                    let sender_copy = self.kademlia_republish_stream.0.clone();
+
+                    tokio::task::spawn(async move {
+                        tokio::time::sleep(dur_fail).await;
+                        if let Err(error) = sender_copy.send(()).await {
+                            error!(%error, "Failed to send request to put kademlia's record. Has mpsc channel broken?")
+                        };
+                    });
+                }
+                _ => {}
+            },
+            KademliaEvent::RoutingUpdated {
+                peer,
+                is_new_peer,
+                addresses,
+                bucket_range,
+                old_peer,
+            } => {
+                debug!(
+                    ?peer,
+                    ?is_new_peer,
+                    ?addresses,
+                    ?bucket_range,
+                    ?old_peer,
+                    "KademliaEvent::RoutingUpdated: something in local buckets of peers has changed."
+                );
+                if self.kademlia_is_routing_updated_first_time {
+                    self.kademlia_is_routing_updated_first_time = false;
+                    if let Err(error) = self.kademlia_republish_stream.0.send(()).await {
+                        error!(%error, "Failed to send request to put kademlia's record. Has mpsc channel broken?")
+                    };
+                }
+            }
+            _ => {}
+        }
+        Ok(())
+    }
 }
 
 /// Constructs swarm builder with existing identity.
@@ -2324,6 +2796,8 @@ macro_rules! finish_swarm {
                     $signer.clone(),
                     #[cfg(feature = "kad")]
                     &$cfg.kad_protocol_name,
+                    #[cfg(feature = "kad")]
+                    $cfg.kad_record_ttl.unwrap_or(DEFAULT_KAD_RECORD_TTL),
                     $cfg.conn_limits.clone(),
                     #[cfg(feature = "mem-conn-limits-abs")]
                     $cfg.max_allowed_ram_used,
@@ -2424,6 +2898,8 @@ pub fn with_default_transport(
                 signer.clone(),
                 #[cfg(feature = "kad")]
                 &config.kad_protocol_name,
+                #[cfg(feature = "kad")]
+                config.kad_record_ttl.unwrap_or(DEFAULT_KAD_RECORD_TTL),
                 config.conn_limits.clone(),
                 #[cfg(feature = "mem-conn-limits-abs")]
                 config.max_allowed_ram_used,

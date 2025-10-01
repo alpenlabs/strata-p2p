@@ -118,6 +118,8 @@ impl User {
         conn_limits: ConnectionLimits,
         #[cfg(feature = "mem-conn-limits-abs")] max_allowed_ram_used: usize,
         #[cfg(feature = "mem-conn-limits-rel")] max_allowed_ram_used_percent: f64,
+        #[cfg(feature = "kad")] kad_record_ttl: Option<Duration>,
+        #[cfg(feature = "kad")] kad_timer_putrecorderror: Option<Duration>,
     ) -> anyhow::Result<Self> {
         debug!(
             ?listening_addrs,
@@ -151,9 +153,12 @@ impl User {
             #[cfg(feature = "gossipsub")]
             gossip_event_buffer_size: None,
             command_buffer_size: None,
+            commands_event_buffer_size: None,
             handle_default_timeout: None,
             #[cfg(feature = "request-response")]
             req_resp_event_buffer_size: None,
+            #[cfg(feature = "request-response")]
+            req_resp_command_buffer_size: None,
             #[cfg(feature = "request-response")]
             request_max_bytes: None,
             #[cfg(feature = "request-response")]
@@ -167,6 +172,10 @@ impl User {
             max_allowed_ram_used,
             #[cfg(feature = "mem-conn-limits-rel")]
             max_allowed_ram_used_percent,
+            #[cfg(feature = "kad")]
+            kad_record_ttl,
+            #[cfg(feature = "kad")]
+            kad_timer_putrecorderror,
         };
 
         // Determine transport type based on the first listening address
@@ -213,7 +222,7 @@ impl User {
             allowlist,
             #[cfg(feature = "gossipsub")]
             None,
-            #[cfg(all(feature = "byos", feature = "gossipsub"))]
+            #[cfg(all(feature = "byos", any(feature = "gossipsub", feature = "kad")))]
             signer,
             #[cfg(all(feature = "gossipsub", not(feature = "byos")))]
             Some(validator),
@@ -312,6 +321,10 @@ impl Setup {
                 SIXTEEN_GIBIBYTES,
                 #[cfg(feature = "mem-conn-limits-rel")]
                 1.0, // 100 %
+                #[cfg(feature = "kad")]
+                None,
+                #[cfg(feature = "kad")]
+                None,
             )?;
 
             users.push(user);
@@ -338,6 +351,10 @@ impl Setup {
                 SIXTEEN_GIBIBYTES,
                 #[cfg(feature = "mem-conn-limits-rel")]
                 1.0, // 100 %
+                #[cfg(feature = "kad")]
+                None,
+                #[cfg(feature = "kad")]
+                None,
             )?;
 
             users.push(user);
@@ -409,6 +426,10 @@ impl Setup {
                 SIXTEEN_GIBIBYTES,
                 #[cfg(feature = "mem-conn-limits-rel")]
                 1.0, // 100 %
+                #[cfg(feature = "kad")]
+                None,
+                #[cfg(feature = "kad")]
+                None,
             )?;
 
             users.push(user);
@@ -461,6 +482,105 @@ impl Setup {
                 SIXTEEN_GIBIBYTES,
                 #[cfg(feature = "mem-conn-limits-rel")]
                 1.0, // 100 %
+                #[cfg(feature = "kad")]
+                None,
+                #[cfg(feature = "kad")]
+                None,
+            )?;
+
+            users.push(user);
+        }
+
+        let (users, tasks) = Self::start_users(users).await;
+
+        Ok(Self {
+            cancel,
+            tasks,
+            user_handles: users,
+        })
+    }
+
+    /// all_to_all with custom timer for kad_republishing.
+    #[cfg(feature = "kad")]
+    pub(crate) async fn all_to_all_with_custom_timer(
+        n: usize,
+        kad_record_ttl: Option<Duration>,
+        kad_timer_putrecorderror: Option<Duration>,
+    ) -> anyhow::Result<Self> {
+        let SetupInitialData {
+            #[cfg(feature = "byos")]
+            app_keypairs,
+            transport_keypairs,
+            peer_ids,
+            multiaddresses,
+        } = Self::setup_keys_ids_addrs_of_n_users(n);
+
+        let cancel = CancellationToken::new();
+        let mut users = Vec::new();
+
+        #[cfg(feature = "byos")]
+        for (idx, ((app_keypair, transport_keypair), addr)) in app_keypairs
+            .iter()
+            .zip(&transport_keypairs)
+            .zip(&multiaddresses)
+            .enumerate()
+        {
+            let mut other_addrs = multiaddresses.clone();
+            other_addrs.remove(idx);
+            let mut other_peerids = peer_ids.clone();
+            other_peerids.remove(idx);
+            let mut other_app_pk = app_keypairs
+                .iter()
+                .map(|kp| kp.public())
+                .collect::<Vec<_>>();
+            other_app_pk.remove(idx);
+
+            let user = User::new(
+                app_keypair.clone(),
+                transport_keypair.clone(),
+                other_addrs,
+                other_app_pk,
+                vec![addr.clone()],
+                cancel.child_token(),
+                #[cfg(feature = "byos")]
+                Arc::new(MockApplicationSigner {
+                    app_keypair: app_keypair.clone(),
+                }),
+                ConnectionLimits::default().with_max_established(Some(u32::MAX)),
+                #[cfg(feature = "mem-conn-limits-abs")]
+                SIXTEEN_GIBIBYTES,
+                #[cfg(feature = "mem-conn-limits-rel")]
+                1.0, // 100 %
+                kad_record_ttl,
+                kad_timer_putrecorderror,
+            )?;
+
+            users.push(user);
+        }
+
+        #[cfg(not(feature = "byos"))]
+        for (idx, (transport_keypair, addr)) in
+            transport_keypairs.iter().zip(&multiaddresses).enumerate()
+        {
+            let mut other_addrs = multiaddresses.clone();
+            other_addrs.remove(idx);
+            let mut other_peerids = peer_ids.clone();
+            other_peerids.remove(idx);
+
+            let user = User::new(
+                transport_keypair.clone(),
+                other_addrs,
+                vec![addr.clone()],
+                cancel.child_token(),
+                #[cfg(any(feature = "gossipsub", feature = "request-response"))]
+                Box::new(DefaultP2PValidator),
+                ConnectionLimits::default().with_max_established(Some(u32::MAX)),
+                #[cfg(feature = "mem-conn-limits-abs")]
+                SIXTEEN_GIBIBYTES,
+                #[cfg(feature = "mem-conn-limits-rel")]
+                1.0, // 100 %
+                kad_record_ttl,
+                kad_timer_putrecorderror,
             )?;
 
             users.push(user);
