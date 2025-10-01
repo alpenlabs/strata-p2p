@@ -9,6 +9,8 @@
 use std::collections::HashSet;
 #[cfg(feature = "byos")]
 use std::sync::Arc;
+#[cfg(feature = "kad")]
+use std::time::Duration;
 
 #[cfg(feature = "request-response")]
 use libp2p::StreamProtocol;
@@ -163,6 +165,7 @@ fn create_gossipsub(
 fn create_kademlia_behaviour(
     transport_keypair: &Keypair,
     kad_protocol_name: &Option<KadProtocol>,
+    kad_record_ttl: Duration,
 ) -> libp2p::kad::Behaviour<MemoryStore> {
     let mut kad_cfg = kad::Config::new(
         kad_protocol_name
@@ -174,6 +177,10 @@ fn create_kademlia_behaviour(
 
     // it is expected that there's going to be manual validation of records
     kad_cfg.set_record_filtering(kad::StoreInserts::FilterBoth);
+
+    // `expires` field in our records. Added 5 minutes because our custom republishing should
+    // happen before kademlia's own republishing.
+    kad_cfg.set_record_ttl(Some(kad_record_ttl + Duration::from_mins(5)));
 
     // it is expected that there's going to be automatic filtering of peers based on their real
     // app_pk if feature="byos" when we received `SetupBehaviourEvent::AppKeyReceived` and if not
@@ -255,6 +262,7 @@ impl Behaviour {
         #[cfg(feature = "gossipsub")] gossipsub_max_transmit_size: usize,
         #[cfg(feature = "byos")] signer: Arc<dyn ApplicationSigner>,
         #[cfg(feature = "kad")] kad_protocol_name: &Option<KadProtocol>,
+        #[cfg(feature = "kad")] kad_record_ttl: Duration,
         connection_limits: ConnectionLimits,
         #[cfg(feature = "mem-conn-limits-abs")] max_allowed_bytes: usize,
         #[cfg(feature = "mem-conn-limits-rel")] max_percentage: f64,
@@ -269,7 +277,8 @@ impl Behaviour {
         )?;
 
         #[cfg(feature = "kad")]
-        let kademlia_behaviour = create_kademlia_behaviour(transport_keypair, kad_protocol_name);
+        let kademlia_behaviour =
+            create_kademlia_behaviour(transport_keypair, kad_protocol_name, kad_record_ttl);
 
         Ok(Self {
             identify: Identify::new(Config::new(

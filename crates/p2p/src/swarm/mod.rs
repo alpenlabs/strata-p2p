@@ -2796,6 +2796,8 @@ macro_rules! finish_swarm {
                     $signer.clone(),
                     #[cfg(feature = "kad")]
                     &$cfg.kad_protocol_name,
+                    #[cfg(feature = "kad")]
+                    $cfg.kad_record_ttl.unwrap_or(DEFAULT_KAD_RECORD_TTL),
                     $cfg.conn_limits.clone(),
                     #[cfg(feature = "mem-conn-limits-abs")]
                     $cfg.max_allowed_ram_used,
@@ -2896,6 +2898,8 @@ pub fn with_default_transport(
                 signer.clone(),
                 #[cfg(feature = "kad")]
                 &config.kad_protocol_name,
+                #[cfg(feature = "kad")]
+                config.kad_record_ttl.unwrap_or(DEFAULT_KAD_RECORD_TTL),
                 config.conn_limits.clone(),
                 #[cfg(feature = "mem-conn-limits-abs")]
                 config.max_allowed_ram_used,
