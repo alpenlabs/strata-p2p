@@ -18,7 +18,7 @@ or with an application‑provided signer (BYOS).
   - BYOS setup/handshake also uses JSON.
 - BYOS mode (bring your own signer) with an explicit handshake that exchanges application public keys and enforces an application‑key allowlist.
 - Request/response framing uses raw bytes at the transport layer; the content is the signed JSON envelope.
-- Optional Kademlia DHT (cannot be combined with BYOS for now).
+- Optional Kademlia DHT.
 - Configurable identifiers: protocol_name for identify/request-response (default `"/strata"`), and gossipsub_topic (default `"strata"`).
 - Tunables: `envelope_max_age` (drop stale envelopes; default 300s), `max_clock_skew` (reject future‑dated envelopes; default 0s), `gossipsub_max_transmit_size` (default 512 KiB), and logging via `RUST_LOG`.
 
@@ -29,7 +29,6 @@ or with an application‑provided signer (BYOS).
 - `quic` — QUIC transport (enabled by default).
 - `kad` — Kademlia DHT (server mode).
 - `byos` — Bring Your Own Signer: application‑key handshake + allowlist; messages are signed with your provided signer.
-- `kad` and `byos` cannot be enabled together (compile‑time guarded).
 
 Default features: `quic`, `gossipsub`, `request-response`.
 
@@ -84,20 +83,15 @@ BYOS lets your app control signing with its own keys and enforces an application
 1. Start `p2p.listen()`; the setup handshake will exchange/verify application public keys and enforce the allowlist before allowing traffic.
 1. Use gossip/request‑response handles as in non‑BYOS; the library will sign/verify envelopes using your signer and the peer’s app public key.
 
-<!-- Notes:
-
-- BYOS cannot be combined with Kademlia (`kad`) and is rejected at compile time if both features are enabled. -->
-
 ## Kademlia (DHT)
 
 - Enable the `kad` feature to include a Kademlia behaviour (server mode) for discovery.
-- Do not enable `kad` together with `byos` (mutually exclusive).
 - `P2PConfig` exposes a `kad_protocol_name` option (defaults to v1).
 
 Use cases:
 
-- Dynamic peer discovery (non‑BYOS deployments).
-- Combine with gossipsub and/or request‑response as needed.
+- Dynamic peer discovery.
+- Using `FindMultiaddress` command in CommandHandle to find peer's multiaddresses by application public key ( or in case of non-BYOS by transport id ). Result of using such command will be in event channel in command handle.
 
 ## License
 
