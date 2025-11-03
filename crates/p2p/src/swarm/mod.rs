@@ -1910,8 +1910,8 @@ impl P2P {
                 }
             });
 
-        if message_id.is_ok() {
-            debug!(message_id=%message_id.unwrap(), "Message published");
+        if let Ok(id) = message_id {
+            debug!(message_id=%id, "Message published");
         }
 
         Ok(())
