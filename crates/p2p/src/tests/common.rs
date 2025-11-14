@@ -121,6 +121,58 @@ impl User {
         #[cfg(feature = "kad")] kad_record_ttl: Option<Duration>,
         #[cfg(feature = "kad")] kad_timer_putrecorderror: Option<Duration>,
     ) -> anyhow::Result<Self> {
+        Self::new_with_timeouts(
+            #[cfg(feature = "byos")]
+            app_keypair,
+            transport_keypair,
+            connect_to,
+            #[cfg(feature = "byos")]
+            allowlist,
+            listening_addrs,
+            cancel,
+            #[cfg(feature = "byos")]
+            signer,
+            #[cfg(all(
+                any(feature = "gossipsub", feature = "request-response"),
+                not(feature = "byos")
+            ))]
+            validator,
+            conn_limits,
+            #[cfg(feature = "mem-conn-limits-abs")]
+            max_allowed_ram_used,
+            #[cfg(feature = "mem-conn-limits-rel")]
+            max_allowed_ram_used_percent,
+            #[cfg(feature = "kad")]
+            kad_record_ttl,
+            #[cfg(feature = "kad")]
+            kad_timer_putrecorderror,
+            None, // envelope_max_age - use default
+            None, // max_clock_skew - use default
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn new_with_timeouts(
+        #[cfg(feature = "byos")] app_keypair: Keypair,
+        transport_keypair: Keypair,
+        connect_to: Vec<Multiaddr>,
+        #[cfg(feature = "byos")] allowlist: Vec<PublicKey>,
+        listening_addrs: Vec<Multiaddr>,
+        cancel: CancellationToken,
+        #[cfg(feature = "byos")] signer: Arc<dyn ApplicationSigner>,
+        #[cfg(all(
+            any(feature = "gossipsub", feature = "request-response"),
+            not(feature = "byos")
+        ))]
+        validator: Box<dyn Validator>,
+        conn_limits: ConnectionLimits,
+        #[cfg(feature = "mem-conn-limits-abs")] max_allowed_ram_used: usize,
+        #[cfg(feature = "mem-conn-limits-rel")] max_allowed_ram_used_percent: f64,
+        #[cfg(feature = "kad")] kad_record_ttl: Option<Duration>,
+        #[cfg(feature = "kad")] kad_timer_putrecorderror: Option<Duration>,
+        envelope_max_age: Option<Duration>,
+        max_clock_skew: Option<Duration>,
+    ) -> anyhow::Result<Self> {
         debug!(
             ?listening_addrs,
             "Creating new user with listening addresses"
@@ -142,8 +194,8 @@ impl User {
             gossipsub_topic: None,
             #[cfg(feature = "gossipsub")]
             gossipsub_max_transmit_size: None,
-            envelope_max_age: None,
-            max_clock_skew: None,
+            envelope_max_age,
+            max_clock_skew,
             #[cfg(feature = "request-response")]
             channel_timeout: None,
             #[cfg(feature = "gossipsub")]
