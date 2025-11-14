@@ -2110,6 +2110,32 @@ impl P2P {
                     return Ok(());
                 }
 
+                // Allowlist validation (only for BYOS)
+                #[cfg(feature = "byos")]
+                {
+                    // Check if the public key is in the allowlist
+                    if !self.allowlist.contains(&request.public_key) {
+                        warn!(%peer_id, "Request from peer not in allowlist");
+                        return Ok(());
+                    }
+
+                    // Check if the public key matches the expected key for this peer_id
+                    if let Some(expected_key) = self
+                        .swarm
+                        .behaviour()
+                        .setup
+                        .get_app_public_key_by_transport_id(&peer_id)
+                    {
+                        if expected_key != request.public_key {
+                            warn!(%peer_id, "Request public key does not match stored key");
+                            return Ok(());
+                        }
+                    } else {
+                        warn!(%peer_id, "No stored public key for peer, rejecting request");
+                        return Ok(());
+                    }
+                }
+
                 // Validate protocol and version for request envelope
                 if request.protocol != crate::swarm::message::ProtocolId::RequestResponse {
                     warn!(%peer_id, "Request message with wrong protocol");
@@ -2271,6 +2297,35 @@ impl P2P {
                 if !is_valid {
                     warn!(%peer_id, "Invalid signature for response message");
                     return Ok(());
+                }
+
+                // Allowlist validation (only for BYOS)
+                #[cfg(feature = "byos")]
+                {
+                    // Check if the public key is in the allowlist
+                    if !self
+                        .allowlist
+                        .contains(&signed_response_message.message.app_public_key)
+                    {
+                        warn!(%peer_id, "Response from peer not in allowlist");
+                        return Ok(());
+                    }
+
+                    // Check if the public key matches the expected key for this peer_id
+                    if let Some(expected_key) = self
+                        .swarm
+                        .behaviour()
+                        .setup
+                        .get_app_public_key_by_transport_id(&peer_id)
+                    {
+                        if expected_key != signed_response_message.message.app_public_key {
+                            warn!(%peer_id, "Response public key does not match stored key");
+                            return Ok(());
+                        }
+                    } else {
+                        warn!(%peer_id, "No stored public key for peer, rejecting response");
+                        return Ok(());
+                    }
                 }
 
                 // Validate protocol and version for response envelope
