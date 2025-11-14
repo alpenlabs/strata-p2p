@@ -89,6 +89,15 @@ impl SetupBehaviour {
     pub fn get_transport_id_by_application_key(&self, app_pk: &PublicKey) -> Option<PeerId> {
         self.app_public_keys.get(app_pk).cloned()
     }
+
+    /// Returns the number of tracked peer mappings.
+    ///
+    /// This is useful for testing memory cleanup - the count should decrease when connections
+    /// close.
+    #[cfg(test)]
+    pub(crate) fn tracked_peer_count(&self) -> usize {
+        self.transport_ids.len()
+    }
 }
 
 impl NetworkBehaviour for SetupBehaviour {
@@ -130,7 +139,19 @@ impl NetworkBehaviour for SetupBehaviour {
         ))
     }
 
-    fn on_swarm_event(&mut self, _: FromSwarm<'_>) {}
+    fn on_swarm_event(&mut self, event: FromSwarm<'_>) {
+        if let FromSwarm::ConnectionClosed(connection_closed) = event {
+            // Only clean up if this was the last connection to the peer
+            if connection_closed.remaining_established == 0 {
+                let peer_id = connection_closed.peer_id;
+
+                // Remove the bidirectional mapping
+                if let Some(app_public_key) = self.transport_ids.remove(&peer_id) {
+                    self.app_public_keys.remove(&app_public_key);
+                }
+            }
+        }
+    }
 
     fn on_connection_handler_event(
         &mut self,

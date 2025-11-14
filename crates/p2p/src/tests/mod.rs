@@ -11,6 +11,9 @@ pub(crate) mod setup_invalid_signature;
 #[cfg(feature = "byos")]
 pub(crate) mod setup_replay_attack;
 
+#[cfg(feature = "byos")]
+pub(crate) mod setup_memory_cleanup;
+
 #[cfg(feature = "gossipsub")]
 pub(crate) mod gossipsub;
 
