@@ -732,6 +732,15 @@ impl P2P {
         *self.swarm.local_peer_id()
     }
 
+    /// Returns the number of tracked peer mappings in SetupBehaviour.
+    ///
+    /// This is only available in test builds for verifying memory cleanup.
+    #[cfg(all(test, feature = "byos"))]
+    #[allow(dead_code)]
+    pub(crate) fn setup_tracked_peer_count(&self) -> usize {
+        self.swarm.behaviour().setup.tracked_peer_count()
+    }
+
     /// Creates new handle for gossip.
     #[cfg(feature = "gossipsub")]
     pub fn new_gossip_handle(&self) -> GossipHandle {
@@ -1791,6 +1800,14 @@ impl P2P {
                     let multiaddresses =
                         self.swarm.listeners().cloned().collect::<Vec<Multiaddr>>();
                     let _ = response_sender.send(multiaddresses);
+                    Ok(())
+                }
+
+                #[cfg(all(test, feature = "byos"))]
+                QueryP2PStateCommand::GetSetupTrackedPeerCount { response_sender } => {
+                    info!("Querying SetupBehaviour tracked peer count (test only)");
+                    let count = self.swarm.behaviour().setup.tracked_peer_count();
+                    let _ = response_sender.send(count);
                     Ok(())
                 }
             },

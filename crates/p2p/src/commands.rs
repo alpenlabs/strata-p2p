@@ -183,6 +183,14 @@ pub enum QueryP2PStateCommand {
         /// Channel to send the response back.
         response_sender: oneshot::Sender<Vec<Multiaddr>>,
     },
+
+    /// Gets the number of tracked peer mappings in SetupBehaviour.
+    /// This is only available in test builds for verifying memory cleanup.
+    #[cfg(all(test, feature = "byos"))]
+    GetSetupTrackedPeerCount {
+        /// Channel to send the response back.
+        response_sender: oneshot::Sender<usize>,
+    },
 }
 
 impl From<QueryP2PStateCommand> for Command {
