@@ -180,7 +180,7 @@ fn create_kademlia_behaviour(
 
     // `expires` field in our records. Added 5 minutes because our custom republishing should
     // happen before kademlia's own republishing.
-    kad_cfg.set_record_ttl(Some(kad_record_ttl + Duration::from_mins(5)));
+    kad_cfg.set_record_ttl(Some(kad_record_ttl + Duration::from_secs(5 * 60))); // +5 minutes
 
     // it is expected that there's going to be automatic filtering of peers based on their real
     // app_pk if feature="byos" when we received `SetupBehaviourEvent::AppKeyReceived` and if not
@@ -229,28 +229,7 @@ impl Behaviour {
     /// # Returns
     ///
     /// Returns a configured [`Behaviour`] instance or an error string if configuration fails.
-    #[cfg_attr(
-        any(
-            all(
-                feature = "gossipsub",
-                any(
-                    feature = "byos",
-                    feature = "kad",
-                    feature = "mem-conn-limits-abs",
-                    feature = "mem-conn-limits-rel"
-                )
-            ),
-            all(
-                feature = "byos",
-                feature = "kad",
-                any(feature = "mem-conn-limits-abs", feature = "mem-conn-limits-rel")
-            )
-        ),
-        expect(
-            clippy::too_many_arguments,
-            reason = "This is a composite behaviour with multiple sub-behaviours"
-        )
-    )]
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         protocol_name: &'static str,
         transport_keypair: &Keypair,
@@ -260,8 +239,10 @@ impl Behaviour {
         #[cfg(feature = "gossipsub")] gossipsub_score_thresholds: &Option<PeerScoreThresholds>,
         #[cfg(feature = "gossipsub")] gossipsub_max_transmit_size: usize,
         #[cfg(feature = "byos")] signer: Arc<dyn ApplicationSigner>,
+        #[cfg(feature = "byos")] envelope_max_age: std::time::Duration,
+        #[cfg(feature = "byos")] max_clock_skew: std::time::Duration,
         #[cfg(feature = "kad")] kad_protocol_name: &Option<KadProtocol>,
-        #[cfg(feature = "kad")] kad_record_ttl: Duration,
+        #[cfg(feature = "kad")] kad_record_ttl: std::time::Duration,
         connection_limits: ConnectionLimits,
         #[cfg(feature = "mem-conn-limits-abs")] max_allowed_bytes: usize,
         #[cfg(feature = "mem-conn-limits-rel")] max_percentage: f64,
@@ -298,6 +279,8 @@ impl Behaviour {
                 app_public_key.clone(),
                 transport_keypair.public().to_peer_id(),
                 signer,
+                envelope_max_age,
+                max_clock_skew,
             ),
             conn_limits: ConnectionLimitsBehaviour::new(connection_limits),
             #[cfg(feature = "mem-conn-limits-abs")]

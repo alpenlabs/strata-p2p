@@ -9,6 +9,7 @@
 use std::{
     sync::Arc,
     task::{Context, Poll},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use libp2p::{
@@ -18,6 +19,7 @@ use libp2p::{
         ConnectionHandler, ConnectionHandlerEvent, SubstreamProtocol, handler::ConnectionEvent,
     },
 };
+use tracing::warn;
 
 use crate::{
     signer::ApplicationSigner,
@@ -39,6 +41,7 @@ use crate::{
 pub struct SetupHandler {
     outbound_substream:
         Option<SubstreamProtocol<OutboundSetupUpgrade<Arc<dyn ApplicationSigner>>, ()>>,
+
     pending_events: Vec<
         ConnectionHandlerEvent<
             OutboundSetupUpgrade<Arc<dyn ApplicationSigner>>,
@@ -46,6 +49,18 @@ pub struct SetupHandler {
             SetupHandlerEvent,
         >,
     >,
+
+    /// Our local transport ID (for validation).
+    local_transport_id: PeerId,
+
+    /// Remote peer's transport ID (for validation).
+    remote_transport_id: PeerId,
+
+    /// Maximum age for setup messages.
+    envelope_max_age: Duration,
+
+    /// Maximum allowed clock skew for future timestamps.
+    max_clock_skew: Duration,
 }
 
 impl SetupHandler {
@@ -54,6 +69,8 @@ impl SetupHandler {
         local_transport_id: PeerId,
         remote_transport_id: PeerId,
         signer: Arc<dyn ApplicationSigner>,
+        envelope_max_age: Duration,
+        max_clock_skew: Duration,
     ) -> Self {
         let upgrade = OutboundSetupUpgrade::new(
             app_public_key,
@@ -65,6 +82,10 @@ impl SetupHandler {
         Self {
             outbound_substream: Some(SubstreamProtocol::new(upgrade, ())),
             pending_events: Vec::new(),
+            local_transport_id,
+            remote_transport_id,
+            envelope_max_age,
+            max_clock_skew,
         }
     }
 }
@@ -112,9 +133,14 @@ impl ConnectionHandler for SetupHandler {
             ConnectionEvent::FullyNegotiatedInbound(inbound) => {
                 let signed_setup_msg = inbound.protocol;
 
+                // Verify signature
                 let signature_valid = signed_setup_msg.verify().unwrap_or(false);
 
                 if !signature_valid {
+                    warn!(
+                        remote_transport_id = %self.remote_transport_id,
+                        "Setup message signature verification failed"
+                    );
                     self.pending_events
                         .push(ConnectionHandlerEvent::NotifyBehaviour(
                             SetupHandlerEvent::ErrorDuringSetupHandshake(
@@ -126,6 +152,72 @@ impl ConnectionHandler for SetupHandler {
 
                 let setup_message = signed_setup_msg.message;
 
+                // Validate transport IDs match the actual connection
+                // The remote's local_transport_id should match our view of their
+                // remote_transport_id The remote's remote_transport_id should match
+                // our local_transport_id
+                if setup_message.remote_transport_id != self.local_transport_id
+                    || setup_message.local_transport_id != self.remote_transport_id
+                {
+                    warn!(
+                        remote_transport_id = %self.remote_transport_id,
+                        msg_local_transport_id = %setup_message.local_transport_id,
+                        msg_remote_transport_id = %setup_message.remote_transport_id,
+                        our_local_transport_id = %self.local_transport_id,
+                        "Transport ID mismatch in setup message"
+                    );
+                    self.pending_events
+                        .push(ConnectionHandlerEvent::NotifyBehaviour(
+                            SetupHandlerEvent::ErrorDuringSetupHandshake(
+                                SetupError::TransportIdMismatch,
+                            ),
+                        ));
+                    return;
+                }
+
+                // Validate message timestamp
+                let now_secs = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs();
+
+                // Check if message is too old
+                let age = Duration::from_secs(now_secs.saturating_sub(setup_message.date));
+                if age > self.envelope_max_age {
+                    warn!(
+                        remote_transport_id = %self.remote_transport_id,
+                        ?age,
+                        max_age = ?self.envelope_max_age,
+                        "Setup message is too old"
+                    );
+                    self.pending_events
+                        .push(ConnectionHandlerEvent::NotifyBehaviour(
+                            SetupHandlerEvent::ErrorDuringSetupHandshake(SetupError::StaleMessage),
+                        ));
+                    return;
+                }
+
+                // Check if message is too far in the future
+                if setup_message.date > now_secs {
+                    let future_delta = Duration::from_secs(setup_message.date - now_secs);
+                    if future_delta > self.max_clock_skew {
+                        warn!(
+                            remote_transport_id = %self.remote_transport_id,
+                            future_delta = ?future_delta,
+                            max_clock_skew = ?self.max_clock_skew,
+                            "Setup message timestamp too far in future"
+                        );
+                        self.pending_events
+                            .push(ConnectionHandlerEvent::NotifyBehaviour(
+                                SetupHandlerEvent::ErrorDuringSetupHandshake(
+                                    SetupError::FutureMessage,
+                                ),
+                            ));
+                        return;
+                    }
+                }
+
+                // All validation passed, accept the app key
                 self.pending_events
                     .push(ConnectionHandlerEvent::NotifyBehaviour(
                         SetupHandlerEvent::AppKeyReceived {

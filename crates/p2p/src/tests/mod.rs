@@ -8,6 +8,9 @@ pub(crate) mod setup;
 #[cfg(feature = "byos")]
 pub(crate) mod setup_invalid_signature;
 
+#[cfg(feature = "byos")]
+pub(crate) mod setup_replay_attack;
+
 #[cfg(feature = "gossipsub")]
 pub(crate) mod gossipsub;
 

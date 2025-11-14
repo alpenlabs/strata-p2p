@@ -202,11 +202,11 @@ pub const DEFAULT_HANDLE_TIMEOUT: Duration = Duration::from_secs(1);
 
 /// Default Kademlia's record TTL.
 #[cfg(feature = "kad")]
-pub const DEFAULT_KAD_RECORD_TTL: Duration = Duration::from_hours(1);
+pub const DEFAULT_KAD_RECORD_TTL: Duration = Duration::from_secs(60 * 60); // 1 hour
 
 /// Default time for republishing timer in case of PutRecordError.
 #[cfg(feature = "kad")]
-pub const DEFAULT_KAD_TIMER_PUT_RECORD_ERROR: Duration = Duration::from_mins(5);
+pub const DEFAULT_KAD_TIMER_PUT_RECORD_ERROR: Duration = Duration::from_secs(5 * 60); // 5 minutes
 
 /// Global, runtime-configurable default handle timeout (milliseconds).
 static HANDLE_DEFAULT_TIMEOUT_MS: std::sync::atomic::AtomicU64 =
@@ -2849,6 +2849,10 @@ macro_rules! finish_swarm {
                         .unwrap_or(MAX_TRANSMIT_SIZE),
                     #[cfg(feature = "byos")]
                     $signer.clone(),
+                    #[cfg(feature = "byos")]
+                    $cfg.envelope_max_age.unwrap_or(DEFAULT_ENVELOPE_MAX_AGE),
+                    #[cfg(feature = "byos")]
+                    $cfg.max_clock_skew.unwrap_or(Duration::ZERO),
                     #[cfg(feature = "kad")]
                     &$cfg.kad_protocol_name,
                     #[cfg(feature = "kad")]
@@ -2951,6 +2955,10 @@ pub fn with_default_transport(
                     .unwrap_or(MAX_TRANSMIT_SIZE),
                 #[cfg(feature = "byos")]
                 signer.clone(),
+                #[cfg(feature = "byos")]
+                config.envelope_max_age.unwrap_or(DEFAULT_ENVELOPE_MAX_AGE),
+                #[cfg(feature = "byos")]
+                config.max_clock_skew.unwrap_or(Duration::ZERO),
                 #[cfg(feature = "kad")]
                 &config.kad_protocol_name,
                 #[cfg(feature = "kad")]

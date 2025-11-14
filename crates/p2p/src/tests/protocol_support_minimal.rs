@@ -90,6 +90,8 @@ impl GossipsubSetupOnlyBehaviour {
             app_public_key.clone(),
             transport_keypair.public().to_peer_id(),
             signer.clone(),
+            std::time::Duration::from_secs(300),
+            std::time::Duration::from_secs(0),
         );
 
         Self {

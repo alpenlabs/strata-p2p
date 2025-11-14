@@ -29,6 +29,28 @@ pub enum SetupError {
     /// Error during receiving from remote peer.
     #[error("Inbound error: {0}")]
     InboundError(Box<dyn error::Error + Send + Sync>),
+
+    /// Transport ID mismatch in setup message.
+    ///
+    /// This error is returned when the transport IDs claimed in the setup
+    /// message do not match the actual connection endpoints, indicating
+    /// a potential replay attack.
+    #[error("Transport ID mismatch")]
+    TransportIdMismatch,
+
+    /// Setup message is too old.
+    ///
+    /// This error is returned when the message timestamp is older than
+    /// the maximum allowed age, indicating a potential replay attack.
+    #[error("Stale message")]
+    StaleMessage,
+
+    /// Setup message timestamp is too far in the future.
+    ///
+    /// This error is returned when the message timestamp exceeds the
+    /// allowed clock skew, indicating clock desynchronization or tampering.
+    #[error("Message timestamp too far in future")]
+    FutureMessage,
 }
 
 /// Swarm errors.
