@@ -1350,7 +1350,7 @@ impl P2P {
     /// be rejected without propagation, otherwise if wasn't handled before, send an [`Event`] to
     /// handles, store it and reset timeout.
     #[cfg(feature = "gossipsub")]
-    #[instrument(skip(self, message), fields(sender = %message.source.unwrap()))]
+    #[instrument(skip(self, message), fields(sender = %message.source.map(|s| s.to_string()).unwrap_or_else(|| "unknown".to_string())))]
     async fn handle_gossip_msg(
         &mut self,
         propagation_source: PeerId,
