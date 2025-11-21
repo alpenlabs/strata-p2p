@@ -58,5 +58,5 @@ pub(crate) mod find_multiaddr;
 ))]
 pub(crate) mod kad_invalid_record;
 
-#[cfg(any(feature = "gossipsub", feature = "request-response", feature = "byos"))]
-pub(crate) mod protocol_support_minimal;
+#[cfg(any(feature = "gossipsub", feature = "request-response"))]
+pub(crate) mod future_time;
