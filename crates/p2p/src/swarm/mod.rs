@@ -732,6 +732,15 @@ impl P2P {
         *self.swarm.local_peer_id()
     }
 
+    /// Returns a mutable reference to the underlying swarm.
+    ///
+    /// This is only available in test builds.
+    #[cfg(test)]
+    #[allow(dead_code)]
+    pub(crate) const fn swarm_mut(&mut self) -> &mut Swarm<Behaviour> {
+        &mut self.swarm
+    }
+
     /// Returns the number of tracked peer mappings in SetupBehaviour.
     ///
     /// This is only available in test builds for verifying memory cleanup.
@@ -1441,10 +1450,26 @@ impl P2P {
             .config
             .envelope_max_age
             .unwrap_or(DEFAULT_ENVELOPE_MAX_AGE);
+        let max_clock_skew = self.config.max_clock_skew.unwrap_or(Duration::from_secs(0));
         let now_secs = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs();
+
+        // Check for future dates
+        if signed_gossipsub_message.message.date > now_secs + max_clock_skew.as_secs() {
+            warn!(%propagation_source, "Gossipsub message from the future");
+            self.swarm
+                .behaviour_mut()
+                .gossipsub
+                .report_message_validation_result(
+                    &message_id,
+                    &propagation_source,
+                    MessageAcceptance::Reject,
+                );
+            return Ok(());
+        }
+
         let age =
             Duration::from_secs(now_secs.saturating_sub(signed_gossipsub_message.message.date));
         if age > max_age {
@@ -2153,6 +2178,18 @@ impl P2P {
                     }
                 }
 
+                // Validate message timestamp (future check)
+                let max_clock_skew = self.config.max_clock_skew.unwrap_or(Duration::from_secs(0));
+                let now_secs = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs();
+
+                if request.date > now_secs + max_clock_skew.as_secs() {
+                    warn!(%peer_id, "Request message from the future");
+                    return Ok(());
+                }
+
                 // Validate protocol and version for request envelope
                 if request.protocol != crate::swarm::message::ProtocolId::RequestResponse {
                     warn!(%peer_id, "Request message with wrong protocol");
@@ -2343,6 +2380,18 @@ impl P2P {
                         warn!(%peer_id, "No stored public key for peer, rejecting response");
                         return Ok(());
                     }
+                }
+
+                // Validate message timestamp (future check)
+                let max_clock_skew = self.config.max_clock_skew.unwrap_or(Duration::from_secs(0));
+                let now_secs = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs();
+
+                if signed_response_message.message.date > now_secs + max_clock_skew.as_secs() {
+                    warn!(%peer_id, "Response message from the future");
+                    return Ok(());
                 }
 
                 // Validate protocol and version for response envelope
