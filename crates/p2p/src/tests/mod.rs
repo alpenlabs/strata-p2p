@@ -8,6 +8,12 @@ pub(crate) mod setup;
 #[cfg(feature = "byos")]
 pub(crate) mod setup_invalid_signature;
 
+#[cfg(feature = "byos")]
+pub(crate) mod setup_replay_attack;
+
+#[cfg(feature = "byos")]
+pub(crate) mod setup_memory_cleanup;
+
 #[cfg(feature = "gossipsub")]
 pub(crate) mod gossipsub;
 
@@ -25,6 +31,9 @@ pub(crate) mod quic;
 
 #[cfg(feature = "request-response")]
 pub(crate) mod request_response;
+
+#[cfg(all(feature = "byos", feature = "request-response"))]
+pub(crate) mod reqresp_key_mismatch;
 
 #[cfg(any(feature = "kad", feature = "gossipsub", feature = "request-response"))]
 pub(crate) mod flexbuffers;
@@ -49,5 +58,5 @@ pub(crate) mod find_multiaddr;
 ))]
 pub(crate) mod kad_invalid_record;
 
-#[cfg(any(feature = "gossipsub", feature = "request-response", feature = "byos"))]
-pub(crate) mod protocol_support_minimal;
+#[cfg(any(feature = "gossipsub", feature = "request-response"))]
+pub(crate) mod future_time;

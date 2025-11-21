@@ -9,6 +9,7 @@ use std::{
     collections::HashMap,
     sync::Arc,
     task::{Context, Poll},
+    time::Duration,
 };
 
 use libp2p::{
@@ -34,16 +35,26 @@ use crate::{
 pub struct SetupBehaviour {
     /// Our Application public key.
     app_public_key: PublicKey,
+
     /// Our transport id.
     local_transport_id: PeerId,
+
     /// Object that can sign with Application private key.
     signer: Arc<dyn ApplicationSigner>,
+
     /// A bimap-like solution for transport_id <-> app_public_keys.
     transport_ids: HashMap<PeerId, PublicKey>,
     app_public_keys: HashMap<PublicKey, PeerId>,
+
     /// Internal vec of events. Pushed to it in `on_connection_handler_event` and pulled from it
     /// in `poll`.
     events: Vec<SetupBehaviourEvent>,
+
+    /// Maximum age for setup messages (prevents replay attacks).
+    envelope_max_age: Duration,
+
+    /// Maximum allowed clock skew for future timestamps.
+    max_clock_skew: Duration,
 }
 
 impl SetupBehaviour {
@@ -51,6 +62,8 @@ impl SetupBehaviour {
         app_public_key: PublicKey,
         transport_id: PeerId,
         signer: Arc<dyn ApplicationSigner>,
+        envelope_max_age: Duration,
+        max_clock_skew: Duration,
     ) -> Self {
         Self {
             app_public_key,
@@ -59,6 +72,8 @@ impl SetupBehaviour {
             transport_ids: HashMap::new(),
             app_public_keys: HashMap::new(),
             events: Vec::new(),
+            envelope_max_age,
+            max_clock_skew,
         }
     }
 
@@ -73,6 +88,15 @@ impl SetupBehaviour {
     /// happened).
     pub fn get_transport_id_by_application_key(&self, app_pk: &PublicKey) -> Option<PeerId> {
         self.app_public_keys.get(app_pk).cloned()
+    }
+
+    /// Returns the number of tracked peer mappings.
+    ///
+    /// This is useful for testing memory cleanup - the count should decrease when connections
+    /// close.
+    #[cfg(test)]
+    pub(crate) fn tracked_peer_count(&self) -> usize {
+        self.transport_ids.len()
     }
 }
 
@@ -92,6 +116,8 @@ impl NetworkBehaviour for SetupBehaviour {
             self.local_transport_id,
             remote_transport_id,
             self.signer.clone(),
+            self.envelope_max_age,
+            self.max_clock_skew,
         ))
     }
 
@@ -108,10 +134,24 @@ impl NetworkBehaviour for SetupBehaviour {
             self.local_transport_id,
             remote_transport_id,
             self.signer.clone(),
+            self.envelope_max_age,
+            self.max_clock_skew,
         ))
     }
 
-    fn on_swarm_event(&mut self, _: FromSwarm<'_>) {}
+    fn on_swarm_event(&mut self, event: FromSwarm<'_>) {
+        if let FromSwarm::ConnectionClosed(connection_closed) = event {
+            // Only clean up if this was the last connection to the peer
+            if connection_closed.remaining_established == 0 {
+                let peer_id = connection_closed.peer_id;
+
+                // Remove the bidirectional mapping
+                if let Some(app_public_key) = self.transport_ids.remove(&peer_id) {
+                    self.app_public_keys.remove(&app_public_key);
+                }
+            }
+        }
+    }
 
     fn on_connection_handler_event(
         &mut self,

@@ -202,11 +202,11 @@ pub const DEFAULT_HANDLE_TIMEOUT: Duration = Duration::from_secs(1);
 
 /// Default Kademlia's record TTL.
 #[cfg(feature = "kad")]
-pub const DEFAULT_KAD_RECORD_TTL: Duration = Duration::from_hours(1);
+pub const DEFAULT_KAD_RECORD_TTL: Duration = Duration::from_secs(60 * 60); // 1 hour
 
 /// Default time for republishing timer in case of PutRecordError.
 #[cfg(feature = "kad")]
-pub const DEFAULT_KAD_TIMER_PUT_RECORD_ERROR: Duration = Duration::from_mins(5);
+pub const DEFAULT_KAD_TIMER_PUT_RECORD_ERROR: Duration = Duration::from_secs(5 * 60); // 5 minutes
 
 /// Global, runtime-configurable default handle timeout (milliseconds).
 static HANDLE_DEFAULT_TIMEOUT_MS: std::sync::atomic::AtomicU64 =
@@ -730,6 +730,24 @@ impl P2P {
     /// Returns the [`PeerId`] of the local node.
     pub fn local_peer_id(&self) -> PeerId {
         *self.swarm.local_peer_id()
+    }
+
+    /// Returns a mutable reference to the underlying swarm.
+    ///
+    /// This is only available in test builds.
+    #[cfg(test)]
+    #[allow(dead_code)]
+    pub(crate) const fn swarm_mut(&mut self) -> &mut Swarm<Behaviour> {
+        &mut self.swarm
+    }
+
+    /// Returns the number of tracked peer mappings in SetupBehaviour.
+    ///
+    /// This is only available in test builds for verifying memory cleanup.
+    #[cfg(all(test, feature = "byos"))]
+    #[allow(dead_code)]
+    pub(crate) fn setup_tracked_peer_count(&self) -> usize {
+        self.swarm.behaviour().setup.tracked_peer_count()
     }
 
     /// Creates new handle for gossip.
@@ -1341,7 +1359,7 @@ impl P2P {
     /// be rejected without propagation, otherwise if wasn't handled before, send an [`Event`] to
     /// handles, store it and reset timeout.
     #[cfg(feature = "gossipsub")]
-    #[instrument(skip(self, message), fields(sender = %message.source.unwrap()))]
+    #[instrument(skip(self, message), fields(sender = %message.source.map(|s| s.to_string()).unwrap_or_else(|| "unknown".to_string())))]
     async fn handle_gossip_msg(
         &mut self,
         propagation_source: PeerId,
@@ -1432,10 +1450,26 @@ impl P2P {
             .config
             .envelope_max_age
             .unwrap_or(DEFAULT_ENVELOPE_MAX_AGE);
+        let max_clock_skew = self.config.max_clock_skew.unwrap_or(Duration::from_secs(0));
         let now_secs = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs();
+
+        // Check for future dates
+        if signed_gossipsub_message.message.date > now_secs + max_clock_skew.as_secs() {
+            warn!(%propagation_source, "Gossipsub message from the future");
+            self.swarm
+                .behaviour_mut()
+                .gossipsub
+                .report_message_validation_result(
+                    &message_id,
+                    &propagation_source,
+                    MessageAcceptance::Reject,
+                );
+            return Ok(());
+        }
+
         let age =
             Duration::from_secs(now_secs.saturating_sub(signed_gossipsub_message.message.date));
         if age > max_age {
@@ -1793,6 +1827,14 @@ impl P2P {
                     let _ = response_sender.send(multiaddresses);
                     Ok(())
                 }
+
+                #[cfg(all(test, feature = "byos"))]
+                QueryP2PStateCommand::GetSetupTrackedPeerCount { response_sender } => {
+                    info!("Querying SetupBehaviour tracked peer count (test only)");
+                    let count = self.swarm.behaviour().setup.tracked_peer_count();
+                    let _ = response_sender.send(count);
+                    Ok(())
+                }
             },
             #[cfg(feature = "kad")]
             Command::FindMultiaddr {
@@ -2110,6 +2152,44 @@ impl P2P {
                     return Ok(());
                 }
 
+                // Allowlist validation (only for BYOS)
+                #[cfg(feature = "byos")]
+                {
+                    // Check if the public key is in the allowlist
+                    if !self.allowlist.contains(&request.public_key) {
+                        warn!(%peer_id, "Request from peer not in allowlist");
+                        return Ok(());
+                    }
+
+                    // Check if the public key matches the expected key for this peer_id
+                    if let Some(expected_key) = self
+                        .swarm
+                        .behaviour()
+                        .setup
+                        .get_app_public_key_by_transport_id(&peer_id)
+                    {
+                        if expected_key != request.public_key {
+                            warn!(%peer_id, "Request public key does not match stored key");
+                            return Ok(());
+                        }
+                    } else {
+                        warn!(%peer_id, "No stored public key for peer, rejecting request");
+                        return Ok(());
+                    }
+                }
+
+                // Validate message timestamp (future check)
+                let max_clock_skew = self.config.max_clock_skew.unwrap_or(Duration::from_secs(0));
+                let now_secs = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs();
+
+                if request.date > now_secs + max_clock_skew.as_secs() {
+                    warn!(%peer_id, "Request message from the future");
+                    return Ok(());
+                }
+
                 // Validate protocol and version for request envelope
                 if request.protocol != crate::swarm::message::ProtocolId::RequestResponse {
                     warn!(%peer_id, "Request message with wrong protocol");
@@ -2270,6 +2350,47 @@ impl P2P {
 
                 if !is_valid {
                     warn!(%peer_id, "Invalid signature for response message");
+                    return Ok(());
+                }
+
+                // Allowlist validation (only for BYOS)
+                #[cfg(feature = "byos")]
+                {
+                    // Check if the public key is in the allowlist
+                    if !self
+                        .allowlist
+                        .contains(&signed_response_message.message.app_public_key)
+                    {
+                        warn!(%peer_id, "Response from peer not in allowlist");
+                        return Ok(());
+                    }
+
+                    // Check if the public key matches the expected key for this peer_id
+                    if let Some(expected_key) = self
+                        .swarm
+                        .behaviour()
+                        .setup
+                        .get_app_public_key_by_transport_id(&peer_id)
+                    {
+                        if expected_key != signed_response_message.message.app_public_key {
+                            warn!(%peer_id, "Response public key does not match stored key");
+                            return Ok(());
+                        }
+                    } else {
+                        warn!(%peer_id, "No stored public key for peer, rejecting response");
+                        return Ok(());
+                    }
+                }
+
+                // Validate message timestamp (future check)
+                let max_clock_skew = self.config.max_clock_skew.unwrap_or(Duration::from_secs(0));
+                let now_secs = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs();
+
+                if signed_response_message.message.date > now_secs + max_clock_skew.as_secs() {
+                    warn!(%peer_id, "Response message from the future");
                     return Ok(());
                 }
 
@@ -2794,6 +2915,10 @@ macro_rules! finish_swarm {
                         .unwrap_or(MAX_TRANSMIT_SIZE),
                     #[cfg(feature = "byos")]
                     $signer.clone(),
+                    #[cfg(feature = "byos")]
+                    $cfg.envelope_max_age.unwrap_or(DEFAULT_ENVELOPE_MAX_AGE),
+                    #[cfg(feature = "byos")]
+                    $cfg.max_clock_skew.unwrap_or(Duration::ZERO),
                     #[cfg(feature = "kad")]
                     &$cfg.kad_protocol_name,
                     #[cfg(feature = "kad")]
@@ -2896,6 +3021,10 @@ pub fn with_default_transport(
                     .unwrap_or(MAX_TRANSMIT_SIZE),
                 #[cfg(feature = "byos")]
                 signer.clone(),
+                #[cfg(feature = "byos")]
+                config.envelope_max_age.unwrap_or(DEFAULT_ENVELOPE_MAX_AGE),
+                #[cfg(feature = "byos")]
+                config.max_clock_skew.unwrap_or(Duration::ZERO),
                 #[cfg(feature = "kad")]
                 &config.kad_protocol_name,
                 #[cfg(feature = "kad")]

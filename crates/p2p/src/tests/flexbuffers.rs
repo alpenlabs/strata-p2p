@@ -115,6 +115,116 @@ fn test_codec_decode_invalid_reader_error() {
     assert_eq!(err.kind(), std::io::ErrorKind::InvalidData);
 }
 
+#[cfg(all(feature = "gossipsub", feature = "byos"))]
+#[test]
+fn test_codec_frame_size_limit_accepts_valid_size() {
+    init_tracing();
+
+    let keypair = Keypair::generate_ed25519();
+    let public_key = keypair.public();
+
+    // Create a message that's well within the 1MB limit
+    let gossip_msg = GossipMessage {
+        version: GossipSubProtocolVersion::V2,
+        protocol: ProtocolId::Gossip,
+        message: vec![0u8; 1024], // 1KB message
+        public_key: public_key.clone(),
+        date: 1234567890,
+    };
+
+    let signed_msg = SignedGossipsubMessage {
+        message: gossip_msg,
+        signature: [7u8; 64],
+    };
+
+    let mut codec: FlexbuffersCodec<SignedGossipsubMessage> = FlexbuffersCodec::new();
+    let mut buf = BytesMut::new();
+
+    // Encode the message
+    codec
+        .encode(signed_msg.clone(), &mut buf)
+        .expect("encode should succeed");
+
+    info!(buf_size = buf.len(), "encoded buffer size");
+    assert!(!buf.is_empty());
+
+    // Decode should succeed since it's within the limit
+    let decoded = codec
+        .decode(&mut buf)
+        .expect("decode should succeed for valid size");
+    assert_eq!(decoded, Some(signed_msg));
+    assert!(buf.is_empty());
+}
+
+#[cfg(all(feature = "gossipsub", feature = "byos"))]
+#[test]
+fn test_codec_frame_size_limit_rejects_oversized_frame() {
+    init_tracing();
+
+    // Create a buffer that exceeds the MAX_FRAME_SIZE (1MB)
+    const MAX_FRAME_SIZE: usize = 1_024 * 1_024; // 1MB
+    let oversized_data = vec![0u8; MAX_FRAME_SIZE + 1];
+    let mut buf = BytesMut::from(&oversized_data[..]);
+
+    info!(
+        buf_size = buf.len(),
+        max_size = MAX_FRAME_SIZE,
+        "testing oversized frame"
+    );
+
+    let mut codec: FlexbuffersCodec<SignedGossipsubMessage> = FlexbuffersCodec::new();
+
+    // Decode should fail with InvalidData error
+    let err = codec.decode(&mut buf).unwrap_err();
+
+    assert_eq!(err.kind(), std::io::ErrorKind::InvalidData);
+    assert!(
+        err.to_string().contains("exceeds maximum allowed size"),
+        "error message should mention size limit, got: {}",
+        err
+    );
+    info!(?err, "successfully rejected oversized frame");
+}
+
+#[cfg(all(feature = "gossipsub", feature = "byos"))]
+#[test]
+fn test_codec_frame_size_limit_boundary() {
+    init_tracing();
+
+    // Test at exactly the MAX_FRAME_SIZE boundary (1MB)
+    const MAX_FRAME_SIZE: usize = 1_024 * 1_024; // 1MB
+
+    // Create a buffer at exactly the max size - this should be accepted
+    let at_limit_data = vec![0u8; MAX_FRAME_SIZE];
+    let mut buf = BytesMut::from(&at_limit_data[..]);
+
+    info!(
+        buf_size = buf.len(),
+        max_size = MAX_FRAME_SIZE,
+        "testing boundary frame at max size"
+    );
+
+    let mut codec: FlexbuffersCodec<SignedGossipsubMessage> = FlexbuffersCodec::new();
+
+    // This will fail at deserialization (not valid flexbuffers), but should pass the size check
+    let result = codec.decode(&mut buf);
+
+    // Should get InvalidData due to flexbuffers parsing error, not size limit error
+    if let Err(err) = result {
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidData);
+        // The error should be about reader/deserialization, not size
+        assert!(
+            !err.to_string().contains("exceeds maximum allowed size"),
+            "should not fail on size check at boundary, got: {}",
+            err
+        );
+        info!(
+            ?err,
+            "boundary test passed - failed on parsing, not size check"
+        );
+    }
+}
+
 #[cfg(feature = "request-response")]
 #[tokio::test]
 async fn test_signed_request_message_serialization() {
