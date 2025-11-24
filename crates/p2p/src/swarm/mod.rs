@@ -11,7 +11,7 @@ use std::num::NonZeroU8;
     feature = "kad"
 ))]
 use std::sync::Arc;
-#[cfg(any(feature = "gossipsub", feature = "request-response"))]
+#[cfg(any(feature = "gossipsub", feature = "request-response", feature = "kad"))]
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::{
     collections::HashSet,
@@ -2624,6 +2624,40 @@ impl P2P {
         }
     }
 
+    #[cfg(feature = "kad")]
+    fn validate_record_date(&self, date: u64) -> Result<(), String> {
+        // Check u64::MAX to prevent dominance
+        if date == u64::MAX {
+            return Err("Record date is u64::MAX".to_string());
+        }
+
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|_| "Time went backwards".to_string())?
+            .as_secs();
+
+        let max_clock_skew = self.config.max_clock_skew.unwrap_or(Duration::from_secs(0));
+        if date > now + max_clock_skew.as_secs() {
+            let skew = max_clock_skew.as_secs();
+            return Err(format!(
+                "Record date {date} is in the future (now: {now}, skew: {skew})"
+            ));
+        }
+
+        let max_age = self
+            .config
+            .envelope_max_age
+            .unwrap_or(DEFAULT_ENVELOPE_MAX_AGE);
+        if now.saturating_sub(date) > max_age.as_secs() {
+            let max_age = max_age.as_secs();
+            return Err(format!(
+                "Record is too old (date: {date}, now: {now}, max_age: {max_age})"
+            ));
+        }
+
+        Ok(())
+    }
+
     /// Handles a [`KademliaEvent`] from the swarm.
     #[cfg(feature = "kad")]
     async fn handle_kademlia_event(&mut self, event: KademliaEvent) -> P2PResult<()> {
@@ -2640,7 +2674,7 @@ impl P2P {
                     %source, %connection, ?opt_record, "Got a record"
                 );
                 if opt_record.is_none() {
-                    info!("Someone asked us to put empty record. Refusing to keep it.");
+                    warn!("Someone asked us to put empty record. Refusing to keep it.");
                     return Ok(());
                 }
 
@@ -2648,16 +2682,35 @@ impl P2P {
                 let res_our_record_data: Result<SignedRecord, flexbuffers::DeserializationError> =
                     flexbuffers::from_slice(&record_data.value);
                 if let Err(e) = res_our_record_data {
-                    info!(
+                    warn!(
                         ?e,
                         "Someone asked us to put either not valid or not properly signed record. Refusing to keep it."
                     );
                     return Ok(());
                 }
                 let signed_record = res_our_record_data.unwrap();
-                if let Err(error) = signed_record.verify() {
-                    info!(
-                        %error, "Someone asked us to put a record with invalid signature. Refusing to keep it."
+                let is_valid = match signed_record.verify() {
+                    Ok(v) => v,
+                    Err(error) => {
+                        warn!(
+                            %error,
+                            "Someone asked us to put a record with invalid signature (verification error). Refusing to keep it."
+                        );
+                        return Ok(());
+                    }
+                };
+
+                if !is_valid {
+                    warn!(
+                        "Someone asked us to put a record with invalid signature. Refusing to keep it."
+                    );
+                    return Ok(());
+                }
+
+                if let Err(error) = self.validate_record_date(signed_record.message.date) {
+                    warn!(
+                        %error,
+                        "Someone asked us to put a record with invalid date. Refusing to keep it."
                     );
                     return Ok(());
                 }
@@ -2726,7 +2779,7 @@ impl P2P {
                         flexbuffers::from_slice(&peer_record.record.value);
 
                     if let Err(error) = res_record {
-                        info!(%error, "Failed deserializing a record that we received.");
+                        warn!(%error, "Failed deserializing a record that we received.");
                         return Ok(());
                     }
 
@@ -2764,8 +2817,24 @@ impl P2P {
                         }
                     }
 
-                    if let Err(error) = signed_record.verify() {
-                        info!(%error, "Signature verification failed of a record that we received.");
+                    let is_valid = match signed_record.verify() {
+                        Ok(v) => v,
+                        Err(error) => {
+                            warn!(%error, "Signature verification error of a record that we received.");
+                            return Ok(());
+                        }
+                    };
+
+                    if !is_valid {
+                        warn!("Signature verification failed of a record that we received.");
+                        return Ok(());
+                    }
+
+                    if let Err(error) = self.validate_record_date(signed_record.message.date) {
+                        warn!(
+                            %error,
+                            "Received record with invalid date. Refusing to keep it."
+                        );
                         return Ok(());
                     }
 

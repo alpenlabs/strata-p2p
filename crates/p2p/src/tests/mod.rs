@@ -52,6 +52,9 @@ pub(crate) mod mem_rel_conn_limits;
 #[cfg(feature = "kad")]
 pub(crate) mod find_multiaddr;
 
+#[cfg(feature = "kad")]
+pub(crate) mod dht_date_validation;
+
 #[cfg(all(
     feature = "kad",
     not(any(feature = "byos", feature = "gossipsub", feature = "request-response"))
