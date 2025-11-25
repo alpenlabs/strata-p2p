@@ -14,11 +14,17 @@ use crate::{commands::UnpenaltyType, score_manager::PeerScore};
 /// Default ban period for peer misbehavior. Hardcoded to 30 days.
 pub const DEFAULT_BAN_PERIOD: Duration = Duration::from_secs(60 * 60 * 24 * 30);
 
-/// Default linear decay rate applied per second when reducing/adjusting peer scores.
-///
-/// By default this is set to 0.0 to preserve existing behavior. Override by providing
-/// a custom `Validator` implementation if you want decay without introducing config yet.
+/// Default decay rate per second.
 pub const DEFAULT_DECAY_RATE_PER_SEC: f64 = 0.9;
+
+/// Default cost per message for rate limiting.
+pub const DEFAULT_MESSAGE_COST: f64 = 1.0;
+
+/// Default score threshold below which a peer is muted.
+pub const DEFAULT_MUTE_THRESHOLD: f64 = -100.0;
+
+/// Default duration to mute a peer when they cross the threshold.
+pub const DEFAULT_MUTE_DURATION: Duration = Duration::from_secs(60);
 
 /// Message types.
 #[derive(Debug)]
@@ -119,11 +125,27 @@ pub struct DefaultP2PValidator;
 impl Validator for DefaultP2PValidator {
     #[allow(unused_variables)]
     fn validate_msg(&self, msg: &Message, old_app_score: f64) -> f64 {
-        0.0
+        old_app_score - DEFAULT_MESSAGE_COST
     }
 
     #[allow(unused_variables)]
     fn get_penalty(&self, msg: &Message, peer_score: &PeerScore) -> Option<PenaltyType> {
+        match msg {
+            #[cfg(feature = "gossipsub")]
+            Message::Gossipsub(_) => {
+                if peer_score.app_score.gossipsub_app_score < DEFAULT_MUTE_THRESHOLD {
+                    return Some(PenaltyType::MuteGossip(DEFAULT_MUTE_DURATION));
+                }
+            }
+            #[cfg(feature = "request-response")]
+            Message::Request(_) | Message::Response(_) => {
+                if peer_score.app_score.req_resp_app_score < DEFAULT_MUTE_THRESHOLD {
+                    return Some(PenaltyType::MuteReqresp(DEFAULT_MUTE_DURATION));
+                }
+            }
+            #[allow(unreachable_patterns)]
+            _ => {}
+        }
         None
     }
 
@@ -294,5 +316,58 @@ impl PenaltyPeerStorage {
     /// Removes all penalty information for a peer.
     pub fn remove_peer(&mut self, peer_id: &PeerId) {
         self.penalties.remove(peer_id);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_default_validator_scoring() {
+        let validator = DefaultP2PValidator;
+
+        // Determine a message type available in current config
+        #[cfg(feature = "gossipsub")]
+        let msg = Message::Gossipsub(vec![]);
+        #[cfg(all(not(feature = "gossipsub"), feature = "request-response"))]
+        let msg = Message::Request(vec![]);
+
+        #[cfg(any(feature = "gossipsub", feature = "request-response"))]
+        {
+            // Test validate_msg
+            let initial_score = 0.0;
+            let new_score = validator.validate_msg(&msg, initial_score);
+            assert_eq!(new_score, initial_score - DEFAULT_MESSAGE_COST);
+
+            // Test decay
+            let decayed = validator.apply_decay(&new_score, &Duration::from_secs(1));
+            assert!((decayed - (new_score + DEFAULT_DECAY_RATE_PER_SEC)).abs() < 1e-6);
+
+            // Test penalty
+            let mut peer_score = PeerScore::default();
+
+            #[cfg(feature = "gossipsub")]
+            if matches!(msg, Message::Gossipsub(_)) {
+                peer_score.app_score.gossipsub_app_score = DEFAULT_MUTE_THRESHOLD - 1.0;
+                let penalty = validator.get_penalty(&msg, &peer_score);
+                if let Some(PenaltyType::MuteGossip(duration)) = penalty {
+                    assert_eq!(duration, DEFAULT_MUTE_DURATION);
+                } else {
+                    panic!("Expected MuteGossip penalty");
+                }
+            }
+
+            #[cfg(feature = "request-response")]
+            if matches!(msg, Message::Request(_)) {
+                peer_score.app_score.req_resp_app_score = DEFAULT_MUTE_THRESHOLD - 1.0;
+                let penalty = validator.get_penalty(&msg, &peer_score);
+                if let Some(PenaltyType::MuteReqresp(duration)) = penalty {
+                    assert_eq!(duration, DEFAULT_MUTE_DURATION);
+                } else {
+                    panic!("Expected MuteReqresp penalty");
+                }
+            }
+        }
     }
 }
