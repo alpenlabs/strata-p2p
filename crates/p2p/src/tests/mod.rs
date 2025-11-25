@@ -66,3 +66,6 @@ pub(crate) mod kad_invalid_record;
 
 #[cfg(any(feature = "gossipsub", feature = "request-response"))]
 pub(crate) mod future_time;
+
+#[cfg(feature = "kad")]
+pub(crate) mod kad_replay_attack;

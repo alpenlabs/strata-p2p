@@ -2779,6 +2779,31 @@ impl P2P {
                     }
                 }
 
+                // Check for replay attack: if we already have a record, check if the new one is
+                // newer.
+                {
+                    let store = self.swarm.behaviour_mut().kademlia.store_mut();
+                    if let Some(existing_record) = store.get(&record_data.key) {
+                        let res_existing_signed_record: Result<
+                            SignedRecord,
+                            flexbuffers::DeserializationError,
+                        > = flexbuffers::from_slice(&existing_record.value);
+
+                        match res_existing_signed_record {
+                            Ok(existing_signed_record)
+                                if signed_record.message.date
+                                    <= existing_signed_record.message.date =>
+                            {
+                                warn!(
+                                    "Someone asked us to put a record that is older or same age as the one we have. Refusing to update."
+                                );
+                                return Ok(());
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+
                 let res = self
                     .swarm
                     .behaviour_mut()
