@@ -61,6 +61,9 @@ pub struct SetupHandler {
 
     /// Maximum allowed clock skew for future timestamps.
     max_clock_skew: Duration,
+
+    /// Whether to keep the connection alive.
+    keep_alive: bool,
 }
 
 impl SetupHandler {
@@ -86,6 +89,7 @@ impl SetupHandler {
             remote_transport_id,
             envelope_max_age,
             max_clock_skew,
+            keep_alive: true,
         }
     }
 }
@@ -103,7 +107,7 @@ impl ConnectionHandler for SetupHandler {
     }
 
     fn connection_keep_alive(&self) -> bool {
-        true
+        self.keep_alive
     }
 
     fn poll(
@@ -131,6 +135,7 @@ impl ConnectionHandler for SetupHandler {
     ) {
         match event {
             ConnectionEvent::FullyNegotiatedInbound(inbound) => {
+                self.keep_alive = false;
                 let signed_setup_msg = inbound.protocol;
 
                 // Verify signature
@@ -226,6 +231,7 @@ impl ConnectionHandler for SetupHandler {
                     ));
             }
             ConnectionEvent::DialUpgradeError(e) => {
+                self.keep_alive = false;
                 let event = match e.error {
                     libp2p::swarm::StreamUpgradeError::NegotiationFailed => {
                         SetupHandlerEvent::NegotiationFailed

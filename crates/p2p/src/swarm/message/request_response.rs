@@ -1,6 +1,6 @@
 //! Message types for Request-response request and response messages.
 
-use libp2p::identity::PublicKey;
+use libp2p::{PeerId, identity::PublicKey};
 use serde::{Deserialize, Serialize};
 
 use crate::swarm::message::{
@@ -37,11 +37,13 @@ pub struct RequestMessage {
     pub public_key: PublicKey,
     /// Timestamp of message creation.
     pub date: u64,
+    /// The destination peer ID this request is intended for.
+    pub destination_peer_id: PeerId,
 }
 
 impl RequestMessage {
     /// Creates a new request-response message with the given parameters.
-    pub fn new(app_public_key: PublicKey, message: Vec<u8>) -> Self {
+    pub fn new(app_public_key: PublicKey, message: Vec<u8>, destination_peer_id: PeerId) -> Self {
         let timestamp = get_timestamp();
 
         Self {
@@ -50,6 +52,7 @@ impl RequestMessage {
             message,
             public_key: app_public_key,
             date: timestamp,
+            destination_peer_id,
         }
     }
 }

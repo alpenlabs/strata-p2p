@@ -741,6 +741,11 @@ impl P2P {
         &mut self.swarm
     }
 
+    /// Checks if the peer is connected.
+    pub fn is_connected(&self, peer_id: &PeerId) -> bool {
+        self.swarm.is_connected(peer_id)
+    }
+
     /// Returns the number of tracked peer mappings in SetupBehaviour.
     ///
     /// This is only available in test builds for verifying memory cleanup.
@@ -2000,7 +2005,13 @@ impl P2P {
             error!(
                 "Logic error: Request response is attempted on a peer we haven't done Setup yet."
             );
+            return Ok(());
         }
+
+        let peer_id = match target_peer_id {
+            Some(id) => id,
+            None => return Ok(()),
+        };
 
         trace!(?cmd.data, "Got request message");
 
@@ -2015,7 +2026,7 @@ impl P2P {
             }
         };
 
-        let request_message = RequestMessage::new(app_public_key, cmd.data);
+        let request_message = RequestMessage::new(app_public_key, cmd.data, peer_id);
 
         // Create and serialize signed message
         let signed_request_message =
@@ -2036,15 +2047,13 @@ impl P2P {
         };
 
         // Send request if peer is available and connected
-        if let Some(peer_id) = target_peer_id {
-            if self.swarm.is_connected(&peer_id) {
-                self.swarm
-                    .behaviour_mut()
-                    .request_response
-                    .send_request(&peer_id, signed_request_message_data);
-            } else {
-                debug!(%peer_id, "Peer not connected, cannot send request");
-            }
+        if self.swarm.is_connected(&peer_id) {
+            self.swarm
+                .behaviour_mut()
+                .request_response
+                .send_request(&peer_id, signed_request_message_data);
+        } else {
+            debug!(%peer_id, "Peer not connected, cannot send request");
         }
 
         Ok(())
@@ -2162,6 +2171,17 @@ impl P2P {
 
                 if !is_valid {
                     error!(%peer_id, "Invalid signature for request message");
+                    return Ok(());
+                }
+
+                // Check if the request is intended for us
+                if request.destination_peer_id != *self.swarm.local_peer_id() {
+                    warn!(
+                        %peer_id,
+                        destination_peer_id = %request.destination_peer_id,
+                        local_peer_id = %self.swarm.local_peer_id(),
+                        "Request message destination mismatch"
+                    );
                     return Ok(());
                 }
 
@@ -2756,6 +2776,31 @@ impl P2P {
                             "Someone asked us to put a record with the transport public key that does not corresponds to transport id in key field of DHT record."
                         );
                         return Ok(());
+                    }
+                }
+
+                // Check for replay attack: if we already have a record, check if the new one is
+                // newer.
+                {
+                    let store = self.swarm.behaviour_mut().kademlia.store_mut();
+                    if let Some(existing_record) = store.get(&record_data.key) {
+                        let res_existing_signed_record: Result<
+                            SignedRecord,
+                            flexbuffers::DeserializationError,
+                        > = flexbuffers::from_slice(&existing_record.value);
+
+                        match res_existing_signed_record {
+                            Ok(existing_signed_record)
+                                if signed_record.message.date
+                                    <= existing_signed_record.message.date =>
+                            {
+                                warn!(
+                                    "Someone asked us to put a record that is older or same age as the one we have. Refusing to update."
+                                );
+                                return Ok(());
+                            }
+                            _ => {}
+                        }
                     }
                 }
 

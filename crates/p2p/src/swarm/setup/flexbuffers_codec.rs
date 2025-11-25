@@ -1,7 +1,7 @@
 use std::io;
 
 use asynchronous_codec::{Decoder, Encoder};
-use bytes::{BufMut, BytesMut};
+use bytes::{Buf, BufMut, BytesMut};
 use serde::{Deserialize, Serialize};
 
 /// Maximum frame size for setup messages in bytes.
@@ -35,6 +35,7 @@ where
         let bytes = flexbuffers::to_vec(item).map_err(|e| {
             io::Error::new(io::ErrorKind::InvalidData, format!("Serialize error: {e}"))
         })?;
+        dst.put_u32(bytes.len() as u32);
         dst.put_slice(&bytes);
         Ok(())
     }
@@ -48,23 +49,33 @@ where
     type Error = io::Error;
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
-        if src.is_empty() {
+        if src.len() < 4 {
             return Ok(None);
         }
 
+        let mut length_bytes = [0u8; 4];
+        length_bytes.copy_from_slice(&src[..4]);
+        let length = u32::from_be_bytes(length_bytes) as usize;
+
         // Security: Reject frames exceeding MAX_FRAME_SIZE before processing
         // to prevent pre-authentication OOM attacks
-        if src.len() > MAX_FRAME_SIZE {
+        if length > MAX_FRAME_SIZE {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 format!(
-                    "Frame size {} exceeds maximum allowed size of {MAX_FRAME_SIZE} bytes",
-                    src.len()
+                    "Frame size {length} exceeds maximum allowed size of {MAX_FRAME_SIZE} bytes",
                 ),
             ));
         }
 
-        let reader = flexbuffers::Reader::get_root(src.as_ref()).map_err(|e| {
+        if src.len() < 4 + length {
+            return Ok(None);
+        }
+
+        src.advance(4);
+        let data = &src[..length];
+
+        let reader = flexbuffers::Reader::get_root(data).map_err(|e| {
             io::Error::new(io::ErrorKind::InvalidData, format!("Reader error: {e}"))
         })?;
         let item: T = Deserialize::deserialize(reader).map_err(|e| {
@@ -73,7 +84,7 @@ where
                 format!("Deserialize error: {e}"),
             )
         })?;
-        src.clear(); // clear the buffer to avoid re-reading the same data
+        src.advance(length);
         Ok(Some(item))
     }
 }
