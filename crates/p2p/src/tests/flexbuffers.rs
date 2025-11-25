@@ -4,6 +4,8 @@
 use asynchronous_codec::{Decoder, Encoder};
 #[cfg(all(feature = "byos", feature = "gossipsub"))]
 use bytes::BytesMut;
+#[cfg(feature = "request-response")]
+use libp2p::PeerId;
 use libp2p::identity::Keypair;
 use tracing::{error, info};
 
@@ -238,6 +240,7 @@ async fn test_signed_request_message_serialization() {
         message: b"test request message".to_vec(),
         public_key: public_key.clone(),
         date: 1234567890,
+        destination_peer_id: PeerId::random(),
     };
 
     let signed_msg = SignedRequestMessage {

@@ -35,6 +35,9 @@ pub(crate) mod request_response;
 #[cfg(all(feature = "byos", feature = "request-response"))]
 pub(crate) mod reqresp_key_mismatch;
 
+#[cfg(all(feature = "byos", feature = "request-response"))]
+pub(crate) mod reqresp_replay_attack;
+
 #[cfg(any(feature = "kad", feature = "gossipsub", feature = "request-response"))]
 pub(crate) mod flexbuffers;
 
