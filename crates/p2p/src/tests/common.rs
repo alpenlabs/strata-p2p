@@ -121,6 +121,58 @@ impl User {
         #[cfg(feature = "kad")] kad_record_ttl: Option<Duration>,
         #[cfg(feature = "kad")] kad_timer_putrecorderror: Option<Duration>,
     ) -> anyhow::Result<Self> {
+        Self::new_with_timeouts(
+            #[cfg(feature = "byos")]
+            app_keypair,
+            transport_keypair,
+            connect_to,
+            #[cfg(feature = "byos")]
+            allowlist,
+            listening_addrs,
+            cancel,
+            #[cfg(feature = "byos")]
+            signer,
+            #[cfg(all(
+                any(feature = "gossipsub", feature = "request-response"),
+                not(feature = "byos")
+            ))]
+            validator,
+            conn_limits,
+            #[cfg(feature = "mem-conn-limits-abs")]
+            max_allowed_ram_used,
+            #[cfg(feature = "mem-conn-limits-rel")]
+            max_allowed_ram_used_percent,
+            #[cfg(feature = "kad")]
+            kad_record_ttl,
+            #[cfg(feature = "kad")]
+            kad_timer_putrecorderror,
+            None, // envelope_max_age - use default
+            None, // max_clock_skew - use default
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn new_with_timeouts(
+        #[cfg(feature = "byos")] app_keypair: Keypair,
+        transport_keypair: Keypair,
+        connect_to: Vec<Multiaddr>,
+        #[cfg(feature = "byos")] allowlist: Vec<PublicKey>,
+        listening_addrs: Vec<Multiaddr>,
+        cancel: CancellationToken,
+        #[cfg(feature = "byos")] signer: Arc<dyn ApplicationSigner>,
+        #[cfg(all(
+            any(feature = "gossipsub", feature = "request-response"),
+            not(feature = "byos")
+        ))]
+        validator: Box<dyn Validator>,
+        conn_limits: ConnectionLimits,
+        #[cfg(feature = "mem-conn-limits-abs")] max_allowed_ram_used: usize,
+        #[cfg(feature = "mem-conn-limits-rel")] max_allowed_ram_used_percent: f64,
+        #[cfg(feature = "kad")] kad_record_ttl: Option<Duration>,
+        #[cfg(feature = "kad")] kad_timer_putrecorderror: Option<Duration>,
+        envelope_max_age: Option<Duration>,
+        max_clock_skew: Option<Duration>,
+    ) -> anyhow::Result<Self> {
         debug!(
             ?listening_addrs,
             "Creating new user with listening addresses"
@@ -142,8 +194,8 @@ impl User {
             gossipsub_topic: None,
             #[cfg(feature = "gossipsub")]
             gossipsub_max_transmit_size: None,
-            envelope_max_age: None,
-            max_clock_skew: None,
+            envelope_max_age,
+            max_clock_skew,
             #[cfg(feature = "request-response")]
             channel_timeout: None,
             #[cfg(feature = "gossipsub")]
@@ -277,6 +329,15 @@ impl Setup {
     /// Spawn `n` users that are connected "all-to-all" with handles to them, task tracker
     /// to stop control async tasks they are spawned in.
     pub(crate) async fn all_to_all(n: usize) -> anyhow::Result<Self> {
+        Self::all_to_all_with_timeouts(n, None, None).await
+    }
+
+    /// Spawn `n` users that are connected "all-to-all" with configurable timeouts.
+    pub(crate) async fn all_to_all_with_timeouts(
+        n: usize,
+        envelope_max_age: Option<Duration>,
+        max_clock_skew: Option<Duration>,
+    ) -> anyhow::Result<Self> {
         let SetupInitialData {
             #[cfg(feature = "byos")]
             app_keypairs,
@@ -305,7 +366,7 @@ impl Setup {
                 .collect::<Vec<_>>();
             other_app_pk.remove(idx);
 
-            let user = User::new(
+            let user = User::new_with_timeouts(
                 app_keypair.clone(),
                 transport_keypair.clone(),
                 other_addrs,
@@ -325,6 +386,8 @@ impl Setup {
                 None,
                 #[cfg(feature = "kad")]
                 None,
+                envelope_max_age,
+                max_clock_skew,
             )?;
 
             users.push(user);
@@ -339,7 +402,7 @@ impl Setup {
             let mut other_peerids = peer_ids.clone();
             other_peerids.remove(idx);
 
-            let user = User::new(
+            let user = User::new_with_timeouts(
                 transport_keypair.clone(),
                 other_addrs,
                 vec![addr.clone()],
@@ -355,6 +418,8 @@ impl Setup {
                 None,
                 #[cfg(feature = "kad")]
                 None,
+                envelope_max_age,
+                max_clock_skew,
             )?;
 
             users.push(user);
@@ -597,7 +662,7 @@ impl Setup {
 
     /// Create `n` random keypairs, transport ids from them and sequential in-memory
     /// addresses.
-    fn setup_keys_ids_addrs_of_n_users(n: usize) -> SetupInitialData {
+    pub(crate) fn setup_keys_ids_addrs_of_n_users(n: usize) -> SetupInitialData {
         #[cfg(feature = "byos")]
         let app_keypairs = (0..n)
             .map(|_| Keypair::generate_ed25519())
@@ -650,7 +715,7 @@ impl Setup {
     /// Waits for all users to establish connections and subscriptions, then spawns their listen
     /// tasks. Returns user handles for communication and a task tracker for managing the
     /// spawned tasks.
-    async fn start_users(mut users: Vec<User>) -> (Vec<UserHandle>, TaskTracker) {
+    pub(crate) async fn start_users(mut users: Vec<User>) -> (Vec<UserHandle>, TaskTracker) {
         // wait until all of them established connections and subscriptions
         join_all(
             users

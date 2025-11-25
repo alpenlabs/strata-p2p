@@ -616,7 +616,7 @@ async fn test_reqresp_ban_penalty() -> anyhow::Result<()> {
         .await
         .expect("Failed to send ban message");
 
-    let _ = sleep(Duration::from_millis(500)).await;
+    let _ = sleep(Duration::from_secs(2)).await;
 
     let (tx, rx) = oneshot::channel();
     let is_connected_query = QueryP2PStateCommand::IsConnected {

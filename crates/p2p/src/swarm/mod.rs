@@ -11,7 +11,7 @@ use std::num::NonZeroU8;
     feature = "kad"
 ))]
 use std::sync::Arc;
-#[cfg(any(feature = "gossipsub", feature = "request-response"))]
+#[cfg(any(feature = "gossipsub", feature = "request-response", feature = "kad"))]
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::{
     collections::HashSet,
@@ -202,11 +202,11 @@ pub const DEFAULT_HANDLE_TIMEOUT: Duration = Duration::from_secs(1);
 
 /// Default Kademlia's record TTL.
 #[cfg(feature = "kad")]
-pub const DEFAULT_KAD_RECORD_TTL: Duration = Duration::from_hours(1);
+pub const DEFAULT_KAD_RECORD_TTL: Duration = Duration::from_secs(60 * 60); // 1 hour
 
 /// Default time for republishing timer in case of PutRecordError.
 #[cfg(feature = "kad")]
-pub const DEFAULT_KAD_TIMER_PUT_RECORD_ERROR: Duration = Duration::from_mins(5);
+pub const DEFAULT_KAD_TIMER_PUT_RECORD_ERROR: Duration = Duration::from_secs(5 * 60); // 5 minutes
 
 /// Global, runtime-configurable default handle timeout (milliseconds).
 static HANDLE_DEFAULT_TIMEOUT_MS: std::sync::atomic::AtomicU64 =
@@ -732,6 +732,24 @@ impl P2P {
         *self.swarm.local_peer_id()
     }
 
+    /// Returns a mutable reference to the underlying swarm.
+    ///
+    /// This is only available in test builds.
+    #[cfg(test)]
+    #[allow(dead_code)]
+    pub(crate) const fn swarm_mut(&mut self) -> &mut Swarm<Behaviour> {
+        &mut self.swarm
+    }
+
+    /// Returns the number of tracked peer mappings in SetupBehaviour.
+    ///
+    /// This is only available in test builds for verifying memory cleanup.
+    #[cfg(all(test, feature = "byos"))]
+    #[allow(dead_code)]
+    pub(crate) fn setup_tracked_peer_count(&self) -> usize {
+        self.swarm.behaviour().setup.tracked_peer_count()
+    }
+
     /// Creates new handle for gossip.
     #[cfg(feature = "gossipsub")]
     pub fn new_gossip_handle(&self) -> GossipHandle {
@@ -1240,6 +1258,19 @@ impl P2P {
                 if let Some(cause) = cause {
                     warn!(%peer_id, %connection_id, ?endpoint, %num_established, error = %cause, "Connection closed with an error.");
                 }
+
+                if num_established == 0 {
+                    #[cfg(all(
+                        any(feature = "gossipsub", feature = "request-response"),
+                        not(feature = "byos")
+                    ))]
+                    {
+                        self.score_manager.remove_peer(&peer_id);
+                        if !self.peer_penalty_storage.has_active_penalties(&peer_id) {
+                            self.peer_penalty_storage.remove_peer(&peer_id);
+                        }
+                    }
+                }
                 Ok(())
             }
             _ => Ok(()),
@@ -1341,7 +1372,7 @@ impl P2P {
     /// be rejected without propagation, otherwise if wasn't handled before, send an [`Event`] to
     /// handles, store it and reset timeout.
     #[cfg(feature = "gossipsub")]
-    #[instrument(skip(self, message), fields(sender = %message.source.unwrap()))]
+    #[instrument(skip(self, message), fields(sender = %message.source.map(|s| s.to_string()).unwrap_or_else(|| "unknown".to_string())))]
     async fn handle_gossip_msg(
         &mut self,
         propagation_source: PeerId,
@@ -1432,10 +1463,26 @@ impl P2P {
             .config
             .envelope_max_age
             .unwrap_or(DEFAULT_ENVELOPE_MAX_AGE);
+        let max_clock_skew = self.config.max_clock_skew.unwrap_or(Duration::from_secs(0));
         let now_secs = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs();
+
+        // Check for future dates
+        if signed_gossipsub_message.message.date > now_secs + max_clock_skew.as_secs() {
+            warn!(%propagation_source, "Gossipsub message from the future");
+            self.swarm
+                .behaviour_mut()
+                .gossipsub
+                .report_message_validation_result(
+                    &message_id,
+                    &propagation_source,
+                    MessageAcceptance::Reject,
+                );
+            return Ok(());
+        }
+
         let age =
             Duration::from_secs(now_secs.saturating_sub(signed_gossipsub_message.message.date));
         if age > max_age {
@@ -1793,6 +1840,14 @@ impl P2P {
                     let _ = response_sender.send(multiaddresses);
                     Ok(())
                 }
+
+                #[cfg(all(test, feature = "byos"))]
+                QueryP2PStateCommand::GetSetupTrackedPeerCount { response_sender } => {
+                    info!("Querying SetupBehaviour tracked peer count (test only)");
+                    let count = self.swarm.behaviour().setup.tracked_peer_count();
+                    let _ = response_sender.send(count);
+                    Ok(())
+                }
             },
             #[cfg(feature = "kad")]
             Command::FindMultiaddr {
@@ -2110,6 +2165,44 @@ impl P2P {
                     return Ok(());
                 }
 
+                // Allowlist validation (only for BYOS)
+                #[cfg(feature = "byos")]
+                {
+                    // Check if the public key is in the allowlist
+                    if !self.allowlist.contains(&request.public_key) {
+                        warn!(%peer_id, "Request from peer not in allowlist");
+                        return Ok(());
+                    }
+
+                    // Check if the public key matches the expected key for this peer_id
+                    if let Some(expected_key) = self
+                        .swarm
+                        .behaviour()
+                        .setup
+                        .get_app_public_key_by_transport_id(&peer_id)
+                    {
+                        if expected_key != request.public_key {
+                            warn!(%peer_id, "Request public key does not match stored key");
+                            return Ok(());
+                        }
+                    } else {
+                        warn!(%peer_id, "No stored public key for peer, rejecting request");
+                        return Ok(());
+                    }
+                }
+
+                // Validate message timestamp (future check)
+                let max_clock_skew = self.config.max_clock_skew.unwrap_or(Duration::from_secs(0));
+                let now_secs = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs();
+
+                if request.date > now_secs + max_clock_skew.as_secs() {
+                    warn!(%peer_id, "Request message from the future");
+                    return Ok(());
+                }
+
                 // Validate protocol and version for request envelope
                 if request.protocol != crate::swarm::message::ProtocolId::RequestResponse {
                     warn!(%peer_id, "Request message with wrong protocol");
@@ -2270,6 +2363,47 @@ impl P2P {
 
                 if !is_valid {
                     warn!(%peer_id, "Invalid signature for response message");
+                    return Ok(());
+                }
+
+                // Allowlist validation (only for BYOS)
+                #[cfg(feature = "byos")]
+                {
+                    // Check if the public key is in the allowlist
+                    if !self
+                        .allowlist
+                        .contains(&signed_response_message.message.app_public_key)
+                    {
+                        warn!(%peer_id, "Response from peer not in allowlist");
+                        return Ok(());
+                    }
+
+                    // Check if the public key matches the expected key for this peer_id
+                    if let Some(expected_key) = self
+                        .swarm
+                        .behaviour()
+                        .setup
+                        .get_app_public_key_by_transport_id(&peer_id)
+                    {
+                        if expected_key != signed_response_message.message.app_public_key {
+                            warn!(%peer_id, "Response public key does not match stored key");
+                            return Ok(());
+                        }
+                    } else {
+                        warn!(%peer_id, "No stored public key for peer, rejecting response");
+                        return Ok(());
+                    }
+                }
+
+                // Validate message timestamp (future check)
+                let max_clock_skew = self.config.max_clock_skew.unwrap_or(Duration::from_secs(0));
+                let now_secs = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs();
+
+                if signed_response_message.message.date > now_secs + max_clock_skew.as_secs() {
+                    warn!(%peer_id, "Response message from the future");
                     return Ok(());
                 }
 
@@ -2503,6 +2637,40 @@ impl P2P {
         }
     }
 
+    #[cfg(feature = "kad")]
+    fn validate_record_date(&self, date: u64) -> Result<(), String> {
+        // Check u64::MAX to prevent dominance
+        if date == u64::MAX {
+            return Err("Record date is u64::MAX".to_string());
+        }
+
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|_| "Time went backwards".to_string())?
+            .as_secs();
+
+        let max_clock_skew = self.config.max_clock_skew.unwrap_or(Duration::from_secs(0));
+        if date > now + max_clock_skew.as_secs() {
+            let skew = max_clock_skew.as_secs();
+            return Err(format!(
+                "Record date {date} is in the future (now: {now}, skew: {skew})"
+            ));
+        }
+
+        let max_age = self
+            .config
+            .envelope_max_age
+            .unwrap_or(DEFAULT_ENVELOPE_MAX_AGE);
+        if now.saturating_sub(date) > max_age.as_secs() {
+            let max_age = max_age.as_secs();
+            return Err(format!(
+                "Record is too old (date: {date}, now: {now}, max_age: {max_age})"
+            ));
+        }
+
+        Ok(())
+    }
+
     /// Handles a [`KademliaEvent`] from the swarm.
     #[cfg(feature = "kad")]
     async fn handle_kademlia_event(&mut self, event: KademliaEvent) -> P2PResult<()> {
@@ -2519,7 +2687,7 @@ impl P2P {
                     %source, %connection, ?opt_record, "Got a record"
                 );
                 if opt_record.is_none() {
-                    info!("Someone asked us to put empty record. Refusing to keep it.");
+                    warn!("Someone asked us to put empty record. Refusing to keep it.");
                     return Ok(());
                 }
 
@@ -2527,16 +2695,35 @@ impl P2P {
                 let res_our_record_data: Result<SignedRecord, flexbuffers::DeserializationError> =
                     flexbuffers::from_slice(&record_data.value);
                 if let Err(e) = res_our_record_data {
-                    info!(
+                    warn!(
                         ?e,
                         "Someone asked us to put either not valid or not properly signed record. Refusing to keep it."
                     );
                     return Ok(());
                 }
                 let signed_record = res_our_record_data.unwrap();
-                if let Err(error) = signed_record.verify() {
-                    info!(
-                        %error, "Someone asked us to put a record with invalid signature. Refusing to keep it."
+                let is_valid = match signed_record.verify() {
+                    Ok(v) => v,
+                    Err(error) => {
+                        warn!(
+                            %error,
+                            "Someone asked us to put a record with invalid signature (verification error). Refusing to keep it."
+                        );
+                        return Ok(());
+                    }
+                };
+
+                if !is_valid {
+                    warn!(
+                        "Someone asked us to put a record with invalid signature. Refusing to keep it."
+                    );
+                    return Ok(());
+                }
+
+                if let Err(error) = self.validate_record_date(signed_record.message.date) {
+                    warn!(
+                        %error,
+                        "Someone asked us to put a record with invalid date. Refusing to keep it."
                     );
                     return Ok(());
                 }
@@ -2605,7 +2792,7 @@ impl P2P {
                         flexbuffers::from_slice(&peer_record.record.value);
 
                     if let Err(error) = res_record {
-                        info!(%error, "Failed deserializing a record that we received.");
+                        warn!(%error, "Failed deserializing a record that we received.");
                         return Ok(());
                     }
 
@@ -2643,8 +2830,24 @@ impl P2P {
                         }
                     }
 
-                    if let Err(error) = signed_record.verify() {
-                        info!(%error, "Signature verification failed of a record that we received.");
+                    let is_valid = match signed_record.verify() {
+                        Ok(v) => v,
+                        Err(error) => {
+                            warn!(%error, "Signature verification error of a record that we received.");
+                            return Ok(());
+                        }
+                    };
+
+                    if !is_valid {
+                        warn!("Signature verification failed of a record that we received.");
+                        return Ok(());
+                    }
+
+                    if let Err(error) = self.validate_record_date(signed_record.message.date) {
+                        warn!(
+                            %error,
+                            "Received record with invalid date. Refusing to keep it."
+                        );
                         return Ok(());
                     }
 
@@ -2794,6 +2997,10 @@ macro_rules! finish_swarm {
                         .unwrap_or(MAX_TRANSMIT_SIZE),
                     #[cfg(feature = "byos")]
                     $signer.clone(),
+                    #[cfg(feature = "byos")]
+                    $cfg.envelope_max_age.unwrap_or(DEFAULT_ENVELOPE_MAX_AGE),
+                    #[cfg(feature = "byos")]
+                    $cfg.max_clock_skew.unwrap_or(Duration::ZERO),
                     #[cfg(feature = "kad")]
                     &$cfg.kad_protocol_name,
                     #[cfg(feature = "kad")]
@@ -2896,6 +3103,10 @@ pub fn with_default_transport(
                     .unwrap_or(MAX_TRANSMIT_SIZE),
                 #[cfg(feature = "byos")]
                 signer.clone(),
+                #[cfg(feature = "byos")]
+                config.envelope_max_age.unwrap_or(DEFAULT_ENVELOPE_MAX_AGE),
+                #[cfg(feature = "byos")]
+                config.max_clock_skew.unwrap_or(Duration::ZERO),
                 #[cfg(feature = "kad")]
                 &config.kad_protocol_name,
                 #[cfg(feature = "kad")]

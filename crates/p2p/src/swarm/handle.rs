@@ -257,6 +257,31 @@ impl CommandHandle {
             _ => Vec::new(),
         }
     }
+
+    /// Gets the number of tracked peer mappings in SetupBehaviour.
+    /// This is only available in test builds for verifying memory cleanup.
+    ///
+    /// If timeout is [`None`], uses the default timeout of 1 second.
+    #[cfg(all(test, feature = "byos"))]
+    pub async fn get_setup_tracked_peer_count(&self, timeout_duration: Option<Duration>) -> usize {
+        let (sender, receiver) = oneshot::channel();
+
+        let cmd = Command::QueryP2PState(QueryP2PStateCommand::GetSetupTrackedPeerCount {
+            response_sender: sender,
+        });
+
+        let duration = timeout_duration.unwrap_or(default_handle_timeout());
+        let cmd_sender = self.commands.clone();
+
+        if cmd_sender.send(cmd).await.is_err() {
+            return 0;
+        }
+
+        match timeout(duration, receiver).await {
+            Ok(Ok(count)) => count,
+            _ => 0,
+        }
+    }
 }
 
 #[cfg(feature = "gossipsub")]

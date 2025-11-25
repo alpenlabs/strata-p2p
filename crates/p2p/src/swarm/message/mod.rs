@@ -44,7 +44,7 @@ impl TryFrom<u8> for ProtocolId {
     }
 }
 
-fn get_timestamp() -> u64 {
+pub(crate) fn get_timestamp() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("System time is before Unix epoch")
