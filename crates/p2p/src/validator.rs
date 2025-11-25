@@ -266,4 +266,33 @@ impl PenaltyPeerStorage {
             penalty.mute_req_resp_until = None;
         }
     }
+
+    /// Checks if the peer has any active penalties.
+    pub fn has_active_penalties(&self, peer_id: &PeerId) -> bool {
+        if let Some(penalty) = self.penalties.get(peer_id) {
+            if penalty.ban_until.is_some_and(|t| t > SystemTime::now()) {
+                return true;
+            }
+            #[cfg(feature = "gossipsub")]
+            if penalty
+                .mute_gossip_until
+                .is_some_and(|t| t > SystemTime::now())
+            {
+                return true;
+            }
+            #[cfg(feature = "request-response")]
+            if penalty
+                .mute_req_resp_until
+                .is_some_and(|t| t > SystemTime::now())
+            {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Removes all penalty information for a peer.
+    pub fn remove_peer(&mut self, peer_id: &PeerId) {
+        self.penalties.remove(peer_id);
+    }
 }

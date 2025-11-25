@@ -1258,6 +1258,19 @@ impl P2P {
                 if let Some(cause) = cause {
                     warn!(%peer_id, %connection_id, ?endpoint, %num_established, error = %cause, "Connection closed with an error.");
                 }
+
+                if num_established == 0 {
+                    #[cfg(all(
+                        any(feature = "gossipsub", feature = "request-response"),
+                        not(feature = "byos")
+                    ))]
+                    {
+                        self.score_manager.remove_peer(&peer_id);
+                        if !self.peer_penalty_storage.has_active_penalties(&peer_id) {
+                            self.peer_penalty_storage.remove_peer(&peer_id);
+                        }
+                    }
+                }
                 Ok(())
             }
             _ => Ok(()),

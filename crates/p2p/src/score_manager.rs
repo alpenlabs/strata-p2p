@@ -91,6 +91,18 @@ impl ScoreManager {
     ) -> Option<SystemTime> {
         self.last_scoring_decay_time.insert(peer_id, time)
     }
+
+    /// Removes all scores and tracking data for a specific peer.
+    pub fn remove_peer(&mut self, peer_id: &PeerId) {
+        #[cfg(feature = "gossipsub")]
+        self.gossipsub_app_score.remove(peer_id);
+
+        #[cfg(feature = "request-response")]
+        self.req_resp_app_score.remove(peer_id);
+
+        #[cfg(any(feature = "request-response", feature = "gossipsub"))]
+        self.last_scoring_decay_time.remove(peer_id);
+    }
 }
 
 /// All scores for a peer.
