@@ -210,7 +210,8 @@ impl PenaltyPeerStorage {
         if let Some(mute_until) = penalty.mute_gossip_until
             && mute_until > SystemTime::now()
         {
-            return Err("Peer is already muted for gossip");
+            penalty.mute_gossip_until = Some(mute_until.max(until));
+            return Ok(());
         }
 
         penalty.mute_gossip_until = Some(until);
@@ -237,7 +238,8 @@ impl PenaltyPeerStorage {
         if let Some(mute_until) = penalty.mute_req_resp_until
             && mute_until > SystemTime::now()
         {
-            return Err("Peer is already muted for request/response");
+            penalty.mute_req_resp_until = Some(mute_until.max(until));
+            return Ok(());
         }
 
         penalty.mute_req_resp_until = Some(until);
@@ -259,7 +261,8 @@ impl PenaltyPeerStorage {
         if let Some(ban_until) = penalty.ban_until
             && ban_until > SystemTime::now()
         {
-            return Err("Peer is already banned");
+            penalty.ban_until = Some(ban_until.max(until));
+            return Ok(());
         }
 
         penalty.ban_until = Some(until);
@@ -368,6 +371,47 @@ mod tests {
                     panic!("Expected MuteReqresp penalty");
                 }
             }
+        }
+    }
+
+    #[test]
+    fn test_penalty_extension() {
+        let mut storage = PenaltyPeerStorage::new();
+        let peer_id = PeerId::random();
+        let now = SystemTime::now();
+        let one_min = Duration::from_secs(60);
+        let two_mins = Duration::from_secs(120);
+
+        // Test Ban extension (always available)
+        {
+            storage.ban_peer(&peer_id, now + one_min).unwrap();
+            assert!(storage.is_banned(&peer_id));
+
+            let result = storage.ban_peer(&peer_id, now + two_mins);
+            assert!(result.is_ok());
+            assert!(storage.is_banned(&peer_id));
+        }
+
+        // Test Gossipsub mute extension
+        #[cfg(feature = "gossipsub")]
+        {
+            storage.mute_peer_gossip(&peer_id, now + one_min).unwrap();
+            assert!(storage.is_gossip_muted(&peer_id));
+
+            let result = storage.mute_peer_gossip(&peer_id, now + two_mins);
+            assert!(result.is_ok());
+            assert!(storage.is_gossip_muted(&peer_id));
+        }
+
+        // Test Request-Response mute extension
+        #[cfg(feature = "request-response")]
+        {
+            storage.mute_peer_req_resp(&peer_id, now + one_min).unwrap();
+            assert!(storage.is_req_resp_muted(&peer_id));
+
+            let result = storage.mute_peer_req_resp(&peer_id, now + two_mins);
+            assert!(result.is_ok());
+            assert!(storage.is_req_resp_muted(&peer_id));
         }
     }
 }
