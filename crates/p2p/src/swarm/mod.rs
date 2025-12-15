@@ -893,13 +893,14 @@ impl P2P {
                         warn!(?peer_id, %error, "outgoing connection error");
                     }
                     SwarmEvent::IncomingConnectionError {
+                        peer_id,
                         connection_id,
                         local_addr,
                         send_back_addr,
                         error,
                     } => {
                         warn!(
-                            "Incoming connection error: {connection_id} {local_addr} {send_back_addr} {error}"
+                            ?peer_id, %connection_id, %local_addr, %send_back_addr, %error, "Incoming connection error."
                         );
                     }
                     _ => {}
@@ -1245,12 +1246,13 @@ impl P2P {
                 Ok(())
             }
             SwarmEvent::IncomingConnectionError {
+                peer_id,
                 connection_id,
                 local_addr,
                 send_back_addr,
                 error,
             } => {
-                warn!(%connection_id, %local_addr, %send_back_addr, %error, "Incoming connection error.");
+                warn!(?peer_id, %connection_id, %local_addr, %send_back_addr, %error, "Incoming connection error.");
                 Ok(())
             }
             SwarmEvent::ConnectionClosed {
@@ -1956,8 +1958,8 @@ impl P2P {
                 PublishError::SigningError(signing_error) => {
                     error!(%signing_error, "Failed to sign message");
                 }
-                PublishError::InsufficientPeers => {
-                    error!("Insufficient peers to publish message");
+                PublishError::NoPeersSubscribedToTopic => {
+                    error!("No peers subscribed to topic");
                 }
                 PublishError::MessageTooLarge => {
                     error!("Message too large to publish");

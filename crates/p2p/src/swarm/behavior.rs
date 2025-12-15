@@ -147,7 +147,6 @@ fn create_gossipsub(
             .idontwant_on_publish(true)
             .build()
             .expect("gossipsub config at this stage must be valid"),
-        None,
         WhitelistSubscriptionFilter(filter),
     );
 
