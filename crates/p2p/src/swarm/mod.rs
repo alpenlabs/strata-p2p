@@ -354,6 +354,27 @@ pub struct P2PConfig {
     #[cfg(feature = "gossipsub")]
     pub gossipsub_score_thresholds: Option<PeerScoreThresholds>,
 
+    /// Target number of peers in the gossipsub mesh.
+    ///
+    /// If [`None`], defaults to libp2p's default of 6.
+    /// This is the ideal number of peers the node will try to maintain in its mesh.
+    #[cfg(feature = "gossipsub")]
+    pub gossipsub_mesh_n: Option<usize>,
+
+    /// Minimum number of peers in the gossipsub mesh.
+    ///
+    /// If [`None`], defaults to libp2p's default of 5.
+    /// If the mesh falls below this number, the node will attempt to graft more peers.
+    #[cfg(feature = "gossipsub")]
+    pub gossipsub_mesh_n_low: Option<usize>,
+
+    /// Maximum number of peers in the gossipsub mesh.
+    ///
+    /// If [`None`], defaults to libp2p's default of 12.
+    /// If the mesh exceeds this number, the node will prune excess peers.
+    #[cfg(feature = "gossipsub")]
+    pub gossipsub_mesh_n_high: Option<usize>,
+
     /// Buffer size for gossip event broadcast channels.
     ///
     /// If [`None`], the default buffer size will be used.
@@ -3042,6 +3063,12 @@ macro_rules! finish_swarm {
                     #[cfg(feature = "gossipsub")]
                     $cfg.gossipsub_max_transmit_size
                         .unwrap_or(MAX_TRANSMIT_SIZE),
+                    #[cfg(feature = "gossipsub")]
+                    $cfg.gossipsub_mesh_n,
+                    #[cfg(feature = "gossipsub")]
+                    $cfg.gossipsub_mesh_n_low,
+                    #[cfg(feature = "gossipsub")]
+                    $cfg.gossipsub_mesh_n_high,
                     #[cfg(feature = "byos")]
                     $signer.clone(),
                     #[cfg(feature = "byos")]
@@ -3148,6 +3175,12 @@ pub fn with_default_transport(
                 config
                     .gossipsub_max_transmit_size
                     .unwrap_or(MAX_TRANSMIT_SIZE),
+                #[cfg(feature = "gossipsub")]
+                config.gossipsub_mesh_n,
+                #[cfg(feature = "gossipsub")]
+                config.gossipsub_mesh_n_low,
+                #[cfg(feature = "gossipsub")]
+                config.gossipsub_mesh_n_high,
                 #[cfg(feature = "byos")]
                 signer.clone(),
                 #[cfg(feature = "byos")]
