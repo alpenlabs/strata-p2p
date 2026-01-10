@@ -115,12 +115,16 @@ pub struct Behaviour {
 ///
 /// Returns a configured [`Gossipsub`] instance or an error string if configuration fails.
 #[cfg(feature = "gossipsub")]
+#[expect(clippy::too_many_arguments, reason = "We need these")]
 fn create_gossipsub(
     keypair: &Keypair,
     topic: &Sha256Topic,
     gossipsub_score_params: &Option<PeerScoreParams>,
     gossipsub_score_thresholds: &Option<PeerScoreThresholds>,
     max_transmit_size: usize,
+    mesh_n: Option<usize>,
+    mesh_n_low: Option<usize>,
+    mesh_n_high: Option<usize>,
 ) -> Result<Gossipsub<IdentityTransform, WhitelistSubscriptionFilter>, &'static str> {
     let mut filter = HashSet::new();
     filter.insert(topic.hash()); // Target topic for subscription.
@@ -138,13 +142,26 @@ fn create_gossipsub(
 
     let peer_score_thresholds = gossipsub_score_thresholds.clone().unwrap_or_default();
 
+    let mut config_builder = gossipsub::ConfigBuilder::default();
+    config_builder
+        .validation_mode(ValidationMode::Permissive)
+        .validate_messages()
+        .max_transmit_size(max_transmit_size)
+        .idontwant_on_publish(true);
+
+    if let Some(n) = mesh_n {
+        config_builder.mesh_n(n);
+    }
+    if let Some(n_low) = mesh_n_low {
+        config_builder.mesh_n_low(n_low);
+    }
+    if let Some(n_high) = mesh_n_high {
+        config_builder.mesh_n_high(n_high);
+    }
+
     let gossipsub = Gossipsub::new_with_subscription_filter(
         MessageAuthenticity::Author(PeerId::from_public_key(&keypair.public().clone())),
-        gossipsub::ConfigBuilder::default()
-            .validation_mode(ValidationMode::Permissive)
-            .validate_messages()
-            .max_transmit_size(max_transmit_size)
-            .idontwant_on_publish(true)
+        config_builder
             .build()
             .expect("gossipsub config at this stage must be valid"),
         WhitelistSubscriptionFilter(filter),
@@ -237,6 +254,9 @@ impl Behaviour {
         #[cfg(feature = "gossipsub")] gossipsub_score_params: &Option<PeerScoreParams>,
         #[cfg(feature = "gossipsub")] gossipsub_score_thresholds: &Option<PeerScoreThresholds>,
         #[cfg(feature = "gossipsub")] gossipsub_max_transmit_size: usize,
+        #[cfg(feature = "gossipsub")] gossipsub_mesh_n: Option<usize>,
+        #[cfg(feature = "gossipsub")] gossipsub_mesh_n_low: Option<usize>,
+        #[cfg(feature = "gossipsub")] gossipsub_mesh_n_high: Option<usize>,
         #[cfg(feature = "byos")] signer: Arc<dyn ApplicationSigner>,
         #[cfg(feature = "byos")] envelope_max_age: std::time::Duration,
         #[cfg(feature = "byos")] max_clock_skew: std::time::Duration,
@@ -253,6 +273,9 @@ impl Behaviour {
             gossipsub_score_params,
             gossipsub_score_thresholds,
             gossipsub_max_transmit_size,
+            gossipsub_mesh_n,
+            gossipsub_mesh_n_low,
+            gossipsub_mesh_n_high,
         )?;
 
         #[cfg(feature = "kad")]

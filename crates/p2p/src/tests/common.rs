@@ -203,6 +203,12 @@ impl User {
             #[cfg(feature = "gossipsub")]
             gossipsub_score_thresholds: None,
             #[cfg(feature = "gossipsub")]
+            gossipsub_mesh_n: None,
+            #[cfg(feature = "gossipsub")]
+            gossipsub_mesh_n_low: None,
+            #[cfg(feature = "gossipsub")]
+            gossipsub_mesh_n_high: None,
+            #[cfg(feature = "gossipsub")]
             gossip_event_buffer_size: None,
             command_buffer_size: None,
             commands_event_buffer_size: None,
