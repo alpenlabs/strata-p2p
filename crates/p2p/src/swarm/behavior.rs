@@ -125,6 +125,7 @@ fn create_gossipsub(
     mesh_n: Option<usize>,
     mesh_n_low: Option<usize>,
     mesh_n_high: Option<usize>,
+    heartbeat_initial_delay: Option<std::time::Duration>,
 ) -> Result<Gossipsub<IdentityTransform, WhitelistSubscriptionFilter>, &'static str> {
     let mut filter = HashSet::new();
     filter.insert(topic.hash()); // Target topic for subscription.
@@ -157,6 +158,10 @@ fn create_gossipsub(
     }
     if let Some(n_high) = mesh_n_high {
         config_builder.mesh_n_high(n_high);
+    }
+
+    if let Some(delay) = heartbeat_initial_delay {
+        config_builder.heartbeat_initial_delay(delay);
     }
 
     let gossipsub = Gossipsub::new_with_subscription_filter(
@@ -257,6 +262,7 @@ impl Behaviour {
         #[cfg(feature = "gossipsub")] gossipsub_mesh_n: Option<usize>,
         #[cfg(feature = "gossipsub")] gossipsub_mesh_n_low: Option<usize>,
         #[cfg(feature = "gossipsub")] gossipsub_mesh_n_high: Option<usize>,
+        #[cfg(feature = "gossipsub")] heratbeat_initial_delay: Option<std::time::Duration>,
         #[cfg(feature = "byos")] signer: Arc<dyn ApplicationSigner>,
         #[cfg(feature = "byos")] envelope_max_age: std::time::Duration,
         #[cfg(feature = "byos")] max_clock_skew: std::time::Duration,
@@ -276,6 +282,7 @@ impl Behaviour {
             gossipsub_mesh_n,
             gossipsub_mesh_n_low,
             gossipsub_mesh_n_high,
+            heratbeat_initial_delay,
         )?;
 
         #[cfg(feature = "kad")]
