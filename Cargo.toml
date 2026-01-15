@@ -6,7 +6,7 @@ default-members = ["crates/p2p"]
 resolver = "3"
 
 package.edition = "2024"
-package.version = "0.3.3"
+package.version = "0.3.4"
 
 [workspace.lints]
 rust.missing_debug_implementations = "warn"
