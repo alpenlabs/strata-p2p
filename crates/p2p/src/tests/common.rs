@@ -212,6 +212,10 @@ impl User {
             gossip_event_buffer_size: None,
             #[cfg(feature = "gossipsub")]
             gossipsub_heartbeat_initial_delay: None,
+            #[cfg(feature = "gossipsub")]
+            gossipsub_publish_queue_duration: None,
+            #[cfg(feature = "gossipsub")]
+            gossipsub_forward_queue_duration: None,
             command_buffer_size: None,
             commands_event_buffer_size: None,
             handle_default_timeout: None,

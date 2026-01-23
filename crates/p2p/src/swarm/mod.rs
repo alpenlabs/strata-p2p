@@ -386,6 +386,18 @@ pub struct P2PConfig {
     #[cfg(feature = "gossipsub")]
     pub gossipsub_heartbeat_initial_delay: Option<Duration>,
 
+    /// The duration a message to be published can wait to be sent before it is abandoned.
+    ///
+    /// If [`None`], defaults to libp2p's default of 5 seconds.
+    #[cfg(feature = "gossipsub")]
+    pub gossipsub_publish_queue_duration: Option<Duration>,
+
+    /// The duration a message to be forwarded can wait to be sent before it is abandoned.
+    ///
+    /// If [`None`], defaults to libp2p's default of 1 second.
+    #[cfg(feature = "gossipsub")]
+    pub gossipsub_forward_queue_duration: Option<Duration>,
+
     /// Buffer size for command's event broadcast channels.
     ///
     /// If [`None`], the default buffer size will be used.
@@ -3075,6 +3087,10 @@ macro_rules! finish_swarm {
                     $cfg.gossipsub_mesh_n_high,
                     #[cfg(feature = "gossipsub")]
                     $cfg.gossipsub_heartbeat_initial_delay,
+                    #[cfg(feature = "gossipsub")]
+                    $cfg.gossipsub_publish_queue_duration,
+                    #[cfg(feature = "gossipsub")]
+                    $cfg.gossipsub_forward_queue_duration,
                     #[cfg(feature = "byos")]
                     $signer.clone(),
                     #[cfg(feature = "byos")]
@@ -3189,6 +3205,10 @@ pub fn with_default_transport(
                 config.gossipsub_mesh_n_high,
                 #[cfg(feature = "gossipsub")]
                 config.gossipsub_heartbeat_initial_delay,
+                #[cfg(feature = "gossipsub")]
+                config.gossipsub_publish_queue_duration,
+                #[cfg(feature = "gossipsub")]
+                config.gossipsub_forward_queue_duration,
                 #[cfg(feature = "byos")]
                 signer.clone(),
                 #[cfg(feature = "byos")]
