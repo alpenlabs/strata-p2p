@@ -149,8 +149,8 @@ async fn test_do_not_find_invalid_record() -> anyhow::Result<()> {
                     addresses: _,
                     bucket_range: _,
                     old_peer: _,
-                })) => {
-                    if !flag {
+                }))
+                    if !flag => {
                         info!("PUTTING RECORD");
 
                         let mut pk_record_key = vec![];
@@ -169,7 +169,6 @@ async fn test_do_not_find_invalid_record() -> anyhow::Result<()> {
 
                         flag = true;
                     }
-                }
                 _ => {}
             }
         }
@@ -336,8 +335,8 @@ async fn test_do_not_find_empty_record() -> anyhow::Result<()> {
                     addresses: _,
                     bucket_range: _,
                     old_peer: _,
-                })) => {
-                    if !flag {
+                }))
+                    if !flag => {
                         info!("PUTTING RECORD");
                         let mut pk_record_key = vec![];
                         pk_record_key.put_slice(swarm.local_peer_id().to_bytes().as_slice());
@@ -357,7 +356,6 @@ async fn test_do_not_find_empty_record() -> anyhow::Result<()> {
 
                         flag = true;
                     }
-                }
                 _ => {}
             }
         }
@@ -525,8 +523,8 @@ async fn test_do_not_find_record_with_not_corresponding_key() -> anyhow::Result<
                     addresses: _,
                     bucket_range: _,
                     old_peer: _,
-                })) => {
-                    if !flag {
+                }))
+                    if !flag => {
                         info!("PUTTING RECORD");
 
                         let mut pk_record_key = vec![];
@@ -559,7 +557,6 @@ async fn test_do_not_find_record_with_not_corresponding_key() -> anyhow::Result<
 
                         flag = true;
                     }
-                }
                 _ => {}
             }
         }

@@ -1644,7 +1644,7 @@ impl P2P {
                         !addr.protocol_stack().any(|proto| proto.contains("quic"))
                     });
 
-                    let mut queue = Queue::from_iter(addresses.into_iter());
+                    let mut queue = Queue::from_iter(addresses);
 
                     let first_addr = queue.pop_front().unwrap(); // can use unwrap() here thus we have at least one element
 
