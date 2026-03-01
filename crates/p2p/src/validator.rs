@@ -133,14 +133,16 @@ impl Validator for DefaultP2PValidator {
         match msg {
             #[cfg(feature = "gossipsub")]
             Message::Gossipsub(_)
-                if peer_score.app_score.gossipsub_app_score < DEFAULT_MUTE_THRESHOLD => {
-                    return Some(PenaltyType::MuteGossip(DEFAULT_MUTE_DURATION));
-                }
+                if peer_score.app_score.gossipsub_app_score < DEFAULT_MUTE_THRESHOLD =>
+            {
+                return Some(PenaltyType::MuteGossip(DEFAULT_MUTE_DURATION));
+            }
             #[cfg(feature = "request-response")]
             Message::Request(_) | Message::Response(_)
-                if peer_score.app_score.req_resp_app_score < DEFAULT_MUTE_THRESHOLD => {
-                    return Some(PenaltyType::MuteReqresp(DEFAULT_MUTE_DURATION));
-                }
+                if peer_score.app_score.req_resp_app_score < DEFAULT_MUTE_THRESHOLD =>
+            {
+                return Some(PenaltyType::MuteReqresp(DEFAULT_MUTE_DURATION));
+            }
             #[allow(unreachable_patterns)]
             _ => {}
         }
