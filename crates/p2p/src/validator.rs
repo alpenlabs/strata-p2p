@@ -132,16 +132,16 @@ impl Validator for DefaultP2PValidator {
     fn get_penalty(&self, msg: &Message, peer_score: &PeerScore) -> Option<PenaltyType> {
         match msg {
             #[cfg(feature = "gossipsub")]
-            Message::Gossipsub(_) => {
-                if peer_score.app_score.gossipsub_app_score < DEFAULT_MUTE_THRESHOLD {
-                    return Some(PenaltyType::MuteGossip(DEFAULT_MUTE_DURATION));
-                }
+            Message::Gossipsub(_)
+                if peer_score.app_score.gossipsub_app_score < DEFAULT_MUTE_THRESHOLD =>
+            {
+                return Some(PenaltyType::MuteGossip(DEFAULT_MUTE_DURATION));
             }
             #[cfg(feature = "request-response")]
-            Message::Request(_) | Message::Response(_) => {
-                if peer_score.app_score.req_resp_app_score < DEFAULT_MUTE_THRESHOLD {
-                    return Some(PenaltyType::MuteReqresp(DEFAULT_MUTE_DURATION));
-                }
+            Message::Request(_) | Message::Response(_)
+                if peer_score.app_score.req_resp_app_score < DEFAULT_MUTE_THRESHOLD =>
+            {
+                return Some(PenaltyType::MuteReqresp(DEFAULT_MUTE_DURATION));
             }
             #[allow(unreachable_patterns)]
             _ => {}

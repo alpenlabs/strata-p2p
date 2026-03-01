@@ -149,26 +149,23 @@ async fn test_do_not_find_invalid_record() -> anyhow::Result<()> {
                     addresses: _,
                     bucket_range: _,
                     old_peer: _,
-                })) => {
-                    if !flag {
-                        info!("PUTTING RECORD");
+                })) if !flag => {
+                    info!("PUTTING RECORD");
 
-                        let mut pk_record_key = vec![];
-                        pk_record_key.put_slice(swarm.local_peer_id().to_bytes().as_slice());
+                    let mut pk_record_key = vec![];
+                    pk_record_key.put_slice(swarm.local_peer_id().to_bytes().as_slice());
 
-                        let mut pk_record =
-                            kad::Record::new(pk_record_key, "\0".as_bytes().to_vec());
-                        pk_record.publisher = Some(*swarm.local_peer_id());
-                        pk_record.expires = Some(Instant::now() + Duration::from_secs(60));
+                    let mut pk_record = kad::Record::new(pk_record_key, "\0".as_bytes().to_vec());
+                    pk_record.publisher = Some(*swarm.local_peer_id());
+                    pk_record.expires = Some(Instant::now() + Duration::from_secs(60));
 
-                        swarm
-                            .behaviour_mut()
-                            .kademlia
-                            .put_record(pk_record, kad::Quorum::N(NonZeroUsize::new(3).unwrap()))
-                            .unwrap();
+                    swarm
+                        .behaviour_mut()
+                        .kademlia
+                        .put_record(pk_record, kad::Quorum::N(NonZeroUsize::new(3).unwrap()))
+                        .unwrap();
 
-                        flag = true;
-                    }
+                    flag = true;
                 }
                 _ => {}
             }
@@ -336,27 +333,23 @@ async fn test_do_not_find_empty_record() -> anyhow::Result<()> {
                     addresses: _,
                     bucket_range: _,
                     old_peer: _,
-                })) => {
-                    if !flag {
-                        info!("PUTTING RECORD");
-                        let mut pk_record_key = vec![];
-                        pk_record_key.put_slice(swarm.local_peer_id().to_bytes().as_slice());
+                })) if !flag => {
+                    info!("PUTTING RECORD");
+                    let mut pk_record_key = vec![];
+                    pk_record_key.put_slice(swarm.local_peer_id().to_bytes().as_slice());
 
-                        let mut pk_record = kad::Record::new(
-                            pk_record_key,
-                            copy_local_key.public().encode_protobuf(),
-                        );
-                        pk_record.publisher = Some(*swarm.local_peer_id());
-                        pk_record.expires = Some(Instant::now() + Duration::from_secs(60));
+                    let mut pk_record =
+                        kad::Record::new(pk_record_key, copy_local_key.public().encode_protobuf());
+                    pk_record.publisher = Some(*swarm.local_peer_id());
+                    pk_record.expires = Some(Instant::now() + Duration::from_secs(60));
 
-                        swarm
-                            .behaviour_mut()
-                            .kademlia
-                            .put_record(pk_record, kad::Quorum::N(NonZeroUsize::new(3).unwrap()))
-                            .unwrap();
+                    swarm
+                        .behaviour_mut()
+                        .kademlia
+                        .put_record(pk_record, kad::Quorum::N(NonZeroUsize::new(3).unwrap()))
+                        .unwrap();
 
-                        flag = true;
-                    }
+                    flag = true;
                 }
                 _ => {}
             }
@@ -525,40 +518,38 @@ async fn test_do_not_find_record_with_not_corresponding_key() -> anyhow::Result<
                     addresses: _,
                     bucket_range: _,
                     old_peer: _,
-                })) => {
-                    if !flag {
-                        info!("PUTTING RECORD");
+                })) if !flag => {
+                    info!("PUTTING RECORD");
 
-                        let mut pk_record_key = vec![];
-                        pk_record_key
-                            .put_slice(another_keypair.public().to_peer_id().to_bytes().as_slice());
+                    let mut pk_record_key = vec![];
+                    pk_record_key
+                        .put_slice(another_keypair.public().to_peer_id().to_bytes().as_slice());
 
-                        let mut pk_record = kad::Record::new(
-                            pk_record_key,
-                            flexbuffers::to_vec(
-                                SignedRecord::new(
-                                    RecordData::new(
-                                        local_key.public(),
-                                        swarm.listeners().cloned().collect::<Vec<_>>(),
-                                    ),
-                                    &TransportKeypairSigner::new(local_key.clone()),
-                                )
-                                .await
-                                .unwrap(),
+                    let mut pk_record = kad::Record::new(
+                        pk_record_key,
+                        flexbuffers::to_vec(
+                            SignedRecord::new(
+                                RecordData::new(
+                                    local_key.public(),
+                                    swarm.listeners().cloned().collect::<Vec<_>>(),
+                                ),
+                                &TransportKeypairSigner::new(local_key.clone()),
                             )
+                            .await
                             .unwrap(),
-                        );
-                        pk_record.publisher = Some(*swarm.local_peer_id());
-                        pk_record.expires = Some(Instant::now() + Duration::from_secs(60));
+                        )
+                        .unwrap(),
+                    );
+                    pk_record.publisher = Some(*swarm.local_peer_id());
+                    pk_record.expires = Some(Instant::now() + Duration::from_secs(60));
 
-                        swarm
-                            .behaviour_mut()
-                            .kademlia
-                            .put_record(pk_record, kad::Quorum::N(NonZeroUsize::new(3).unwrap()))
-                            .unwrap();
+                    swarm
+                        .behaviour_mut()
+                        .kademlia
+                        .put_record(pk_record, kad::Quorum::N(NonZeroUsize::new(3).unwrap()))
+                        .unwrap();
 
-                        flag = true;
-                    }
+                    flag = true;
                 }
                 _ => {}
             }

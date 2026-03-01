@@ -39,6 +39,10 @@ ensure-cargo-nextest:
 clippy-matrix: ensure-cargo-hack
 	RUSTFLAGS="-D warnings" cargo hack --feature-powerset clippy --workspace --lib --locked --examples --tests --benches --all-targets 
 
+[group('lint')]
+clippy-matrix-fix: ensure-cargo-hack
+	RUSTFLAGS="-D warnings" cargo hack --feature-powerset clippy --workspace --lib --locked --examples --tests --benches --all-targets --fix --allow-dirty
+
 # Format check / fix
 [group('lint')]
 fmt-check:
