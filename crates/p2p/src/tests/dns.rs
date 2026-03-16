@@ -2,7 +2,7 @@
 
 #[cfg(feature = "byos")]
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use libp2p::{Multiaddr, connection_limits::ConnectionLimits, identity::Keypair};
 use tokio::{join, spawn, sync::oneshot, time};
@@ -171,6 +171,160 @@ async fn test_dns4_localhost_resolution() {
     );
 
     info!("DNS resolution test passed: connected via /dns4/localhost");
+
+    cancel.cancel();
+    let _ = join!(task_a, task_b);
+}
+
+/// Sanity check that `establish_connections` correctly tracks DNS addresses.
+///
+/// `establish_connections` uses a `HashSet<&Multiaddr>` to track pending connections.
+/// This test verifies that when dialing a DNS address, the `ConnectionEstablished`
+/// event reports an address that matches the original, so the tracking set empties
+/// and `establish_connections` returns promptly instead of timing out.
+#[tokio::test]
+async fn test_dns4_establish_connections_tracking() {
+    init_tracing();
+
+    let tcp_addr: Multiaddr = "/ip4/127.0.0.1/tcp/0".parse().unwrap();
+
+    let keypair_a = Keypair::generate_ed25519();
+    let keypair_b = Keypair::generate_ed25519();
+
+    let cancel = CancellationToken::new();
+
+    // Node A: listener (no connect_to, establish_connections returns immediately)
+    let mut user_a = User::new(
+        #[cfg(feature = "byos")]
+        keypair_a.clone(),
+        keypair_a.clone(),
+        vec![],
+        #[cfg(feature = "byos")]
+        vec![keypair_b.public()],
+        vec![tcp_addr],
+        cancel.clone(),
+        #[cfg(feature = "byos")]
+        Arc::new(MockApplicationSigner::new(keypair_a.clone())),
+        #[cfg(all(
+            any(feature = "gossipsub", feature = "request-response"),
+            not(feature = "byos")
+        ))]
+        Box::new(DefaultP2PValidator),
+        ConnectionLimits::default().with_max_established(Some(u32::MAX)),
+        #[cfg(feature = "mem-conn-limits-abs")]
+        SIXTEEN_GIBIBYTES,
+        #[cfg(feature = "mem-conn-limits-rel")]
+        1.0,
+        #[cfg(feature = "kad")]
+        None,
+        #[cfg(feature = "kad")]
+        None,
+    )
+    .expect("Failed to create listening node A");
+
+    let command_a = user_a.command.clone();
+
+    // A has no connect_to, so establish_connections returns once the first swarm event fires
+    user_a.p2p.establish_connections().await;
+    let task_a = spawn(async move { user_a.p2p.listen().await });
+
+    time::sleep(Duration::from_millis(500)).await;
+
+    // Get A's actual listening port
+    let (tx, rx) = oneshot::channel();
+    command_a
+        .send_command(Command::QueryP2PState(
+            QueryP2PStateCommand::GetMyListeningAddresses {
+                response_sender: tx,
+            },
+        ))
+        .await;
+    let listening_addresses = rx.await.expect("Failed to get listening addresses");
+
+    let actual_tcp_addr = listening_addresses
+        .iter()
+        .find(|addr| {
+            let s = addr.to_string();
+            s.contains("/ip4/") && s.contains("/tcp/")
+        })
+        .expect("Should have a TCP address");
+
+    let port = actual_tcp_addr
+        .iter()
+        .find_map(|proto| {
+            if let libp2p::multiaddr::Protocol::Tcp(port) = proto {
+                Some(port)
+            } else {
+                None
+            }
+        })
+        .expect("TCP address should have a port");
+
+    let dns_addr: Multiaddr = format!("/dns4/localhost/tcp/{port}").parse().unwrap();
+    info!(%dns_addr, "Creating node B with DNS connect_to");
+
+    // Node B: connect_to uses a DNS address. establish_connections must track it correctly.
+    let mut user_b = User::new(
+        #[cfg(feature = "byos")]
+        keypair_b.clone(),
+        keypair_b.clone(),
+        vec![dns_addr.clone()],
+        #[cfg(feature = "byos")]
+        vec![keypair_a.public()],
+        vec![],
+        cancel.clone(),
+        #[cfg(feature = "byos")]
+        Arc::new(MockApplicationSigner::new(keypair_b.clone())),
+        #[cfg(all(
+            any(feature = "gossipsub", feature = "request-response"),
+            not(feature = "byos")
+        ))]
+        Box::new(DefaultP2PValidator),
+        ConnectionLimits::default().with_max_established(Some(u32::MAX)),
+        #[cfg(feature = "mem-conn-limits-abs")]
+        SIXTEEN_GIBIBYTES,
+        #[cfg(feature = "mem-conn-limits-rel")]
+        1.0,
+        #[cfg(feature = "kad")]
+        None,
+        #[cfg(feature = "kad")]
+        None,
+    )
+    .expect("Failed to create connecting node B");
+
+    let command_b = user_b.command.clone();
+
+    // establish_connections with a DNS address in connect_to.
+    // DEFAULT_GENERAL_TIMEOUT is 250ms. A localhost DNS+TCP connection takes <50ms.
+    // If address tracking is broken (DNS addr != resolved addr), this will timeout.
+    let start = Instant::now();
+    user_b.p2p.establish_connections().await;
+    let elapsed = start.elapsed();
+    let task_b = spawn(async move { user_b.p2p.listen().await });
+
+    info!(?elapsed, "establish_connections completed");
+
+    // If tracking is correct, establish_connections returns well before the 250ms timeout.
+    // If broken, it waits the full timeout because is_not_connected never becomes empty.
+    assert!(
+        elapsed < Duration::from_millis(200),
+        "establish_connections took {elapsed:?}, likely timed out due to DNS address tracking bug"
+    );
+
+    // Also verify actual connectivity
+    time::sleep(Duration::from_millis(100)).await;
+    let (tx, rx) = oneshot::channel();
+    command_b
+        .send_command(Command::QueryP2PState(QueryP2PStateCommand::IsConnected {
+            #[cfg(feature = "byos")]
+            app_public_key: keypair_a.public(),
+            #[cfg(not(feature = "byos"))]
+            transport_id: keypair_a.public().to_peer_id(),
+            response_sender: tx,
+        }))
+        .await;
+    let is_connected = rx.await.expect("Failed to check connection status");
+    assert!(is_connected, "Not connected after establish_connections");
 
     cancel.cancel();
     let _ = join!(task_a, task_b);
