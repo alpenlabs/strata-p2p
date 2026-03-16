@@ -26,6 +26,8 @@ pub(crate) mod new_op;
 ))]
 pub(crate) mod validator_integration;
 
+pub(crate) mod dns;
+
 #[cfg(feature = "quic")]
 pub(crate) mod quic;
 
