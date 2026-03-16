@@ -3138,8 +3138,11 @@ pub fn with_inmemory_transport(
     Ok(swarm)
 }
 
-/// Constructs a `Swarm<Behaviour>` from `P2PConfig` using QUIC with TCP fallback when available, or
-/// TCP only otherwise.
+/// Constructs a `Swarm<Behaviour>` from `P2PConfig` with DNS resolution.
+///
+/// Uses QUIC with TCP fallback when available, or TCP only otherwise. Supports
+/// `/ip4/{addr}/tcp/{port}`, `/dns4/{domain}/tcp/{port}`, and `/dns6/{domain}/tcp/{port}`
+/// addresses.
 pub fn with_default_transport(
     config: &P2PConfig,
     #[cfg(feature = "byos")] signer: Arc<dyn ApplicationSigner>,
@@ -3154,6 +3157,8 @@ pub fn with_default_transport(
         )
         .unwrap()
         .with_quic()
+        .with_dns()
+        .map_err(|e| ProtocolError::TransportInitialization(e.into()))?
         .with_behaviour(|_| {
             #[cfg(feature = "gossipsub")]
             let topic = {
@@ -3231,15 +3236,20 @@ pub fn with_default_transport(
         .with_swarm_config(|c| c.with_idle_connection_timeout(config.idle_connection_timeout))
         .build();
     #[cfg(not(feature = "quic"))]
-    let swarm = finish_swarm!(
-        builder.with_tcp(
-            tcp::Config::default(),
-            noise::Config::new,
-            yamux::Config::default,
-        ),
-        config,
-        #[cfg(feature = "byos")]
-        signer
-    );
+    let swarm = {
+        let tcp_builder = builder
+            .with_tcp(
+                tcp::Config::default(),
+                noise::Config::new,
+                yamux::Config::default,
+            )
+            .map_err(|e| ProtocolError::TransportInitialization(e.into()))?;
+        finish_swarm!(
+            tcp_builder.with_dns(),
+            config,
+            #[cfg(feature = "byos")]
+            signer
+        )
+    };
     Ok(swarm)
 }
