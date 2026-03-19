@@ -3,7 +3,10 @@ use std::time::Duration;
 use anyhow::bail;
 use futures::SinkExt;
 use libp2p::{Multiaddr, identity::Keypair};
-use tokio::{sync::oneshot::channel, time::sleep};
+use tokio::{
+    sync::oneshot::channel,
+    time::{Instant, sleep, timeout},
+};
 use tokio_stream::{StreamExt, wrappers::BroadcastStream};
 use tracing::{debug, info};
 
@@ -11,8 +14,43 @@ use super::common::Setup;
 use crate::{
     commands::{Command, QueryP2PStateCommand},
     events::CommandEvent,
+    swarm::handle::CommandHandle,
     tests::common::init_tracing,
 };
+
+async fn wait_for_find_multiaddr<F>(
+    command: &mut CommandHandle,
+    expected_addr: &Multiaddr,
+    mut issue_query: F,
+) -> anyhow::Result<()>
+where
+    F: FnMut() -> Command,
+{
+    let retry_interval = Duration::from_secs(2);
+    let deadline = Instant::now() + Duration::from_secs(20);
+
+    loop {
+        command.send_command(issue_query()).await;
+
+        match timeout(retry_interval, command.next_event()).await {
+            Ok(Ok(CommandEvent::ResultFindMultiaddress(Some(addrs)))) => {
+                if addrs.iter().any(|addr| addr == expected_addr) {
+                    return Ok(());
+                }
+            }
+            Ok(Ok(CommandEvent::ResultFindMultiaddress(None))) | Err(_) => {}
+            Ok(Err(e)) => {
+                bail!("Error while waiting for event from command handler: {e}");
+            }
+        }
+
+        if Instant::now() >= deadline {
+            bail!("Timed out waiting for find_multiaddr to return address {expected_addr}");
+        }
+
+        sleep(Duration::from_millis(200)).await;
+    }
+}
 
 // Test in which we test command [`Command::FindMultiaddr`].
 #[tokio::test(flavor = "multi_thread", worker_threads = 22)]
@@ -31,8 +69,6 @@ async fn test_find_multiaddr() -> anyhow::Result<()> {
         tasks,
     } = Setup::all_to_all(USERS_NUM).await?;
 
-    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-
     // Get connection addresses of first old user for the new user to connect to.
     info!("Getting listening addresses for new user");
     let (tx, rx) = channel::<Vec<Multiaddr>>();
@@ -48,33 +84,24 @@ async fn test_find_multiaddr() -> anyhow::Result<()> {
     debug!(addresses = ?result, "Retrieved listening addresses");
     let connect_addr = &result[0];
 
-    info!("Sending command Command::FindMultiaddr to last old user");
+    #[cfg(feature = "byos")]
+    let target = user_handles[0].app_keypair.public();
+    #[cfg(not(feature = "byos"))]
+    let target = user_handles[0].peer_id;
 
-    user_handles[USERS_NUM - 1]
-        .command
-        .send_command(Command::FindMultiaddr {
+    info!("Polling Command::FindMultiaddr until the peer record is visible");
+
+    wait_for_find_multiaddr(
+        &mut user_handles[USERS_NUM - 1].command,
+        connect_addr,
+        || Command::FindMultiaddr {
             #[cfg(feature = "byos")]
-            app_public_key: user_handles[0].app_keypair.public(),
+            app_public_key: target.clone(),
             #[cfg(not(feature = "byos"))]
-            transport_id: user_handles[0].peer_id,
-        })
-        .await;
-
-    info!("Waiting for result from command Command::FindMultiaddr");
-
-    match user_handles[USERS_NUM - 1].command.next_event().await {
-        Ok(CommandEvent::ResultFindMultiaddress(opt)) => match opt {
-            Some(vec_addrs) => {
-                assert!(vec_addrs.iter().any(|x| x == connect_addr));
-            }
-            None => {
-                bail!("Unfortunately, no address for such peer has been found.");
-            }
+            transport_id: target,
         },
-        Err(e) => {
-            bail!("Error while waiting for event from command handler: {}", e);
-        }
-    };
+    )
+    .await?;
 
     assert!(user_handles[USERS_NUM - 1].command.events_is_empty());
 
