@@ -45,6 +45,8 @@ async fn test_dns4_localhost_resolution() {
         keypair_a.clone(),
         keypair_a.clone(),
         vec![],
+        #[cfg(not(feature = "byos"))]
+        None,
         #[cfg(feature = "byos")]
         vec![keypair_b.public()],
         vec![tcp_addr],
@@ -74,6 +76,8 @@ async fn test_dns4_localhost_resolution() {
         keypair_b.clone(),
         keypair_b.clone(),
         vec![],
+        #[cfg(not(feature = "byos"))]
+        None,
         #[cfg(feature = "byos")]
         vec![keypair_a.public()],
         vec![],
@@ -199,6 +203,8 @@ async fn test_dns4_establish_connections_tracking() {
         keypair_a.clone(),
         keypair_a.clone(),
         vec![],
+        #[cfg(not(feature = "byos"))]
+        None,
         #[cfg(feature = "byos")]
         vec![keypair_b.public()],
         vec![tcp_addr],
@@ -269,6 +275,8 @@ async fn test_dns4_establish_connections_tracking() {
         keypair_b.clone(),
         keypair_b.clone(),
         vec![dns_addr.clone()],
+        #[cfg(not(feature = "byos"))]
+        None,
         #[cfg(feature = "byos")]
         vec![keypair_a.public()],
         vec![],

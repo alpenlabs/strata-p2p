@@ -91,6 +91,8 @@ async fn dht_new_user() -> anyhow::Result<()> {
         new_user_app_keypair.clone(),
         new_user_transport_keypair.clone(),
         vec![connect_addr.clone()], // Connect directly to existing user
+        #[cfg(not(feature = "byos"))]
+        None,
         #[cfg(feature = "byos")]
         new_user_allowlist, // Allow all existing users
         vec![local_addr.clone()],

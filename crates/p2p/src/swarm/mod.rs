@@ -317,6 +317,14 @@ pub struct P2PConfig {
     /// Initial list of nodes to connect to at startup.
     pub connect_to: Vec<Multiaddr>,
 
+    /// Optional allowlist of transport peers in non-BYOS mode.
+    ///
+    /// `None` disables transport-level allowlist enforcement.
+    /// `Some(peers)` enables enforcement and only permits the listed [`PeerId`] values.
+    /// `Some(vec![])` therefore denies all peers.
+    #[cfg(not(feature = "byos"))]
+    pub transport_allowlist: Option<Vec<PeerId>>,
+
     /// Protocol name used for identify and request-response.
     ///
     /// If [`None`], defaults to [`PROTOCOL_NAME`].
@@ -534,9 +542,9 @@ pub struct P2P {
     /// Underlying configuration.
     config: P2PConfig,
 
-    /// Allow list. Only used when BYOS feature is enabled.
+    /// Allow list of application keys. Only used when BYOS feature is enabled.
     #[cfg(feature = "byos")]
-    allowlist: HashSet<PublicKey>,
+    app_allowlist: HashSet<PublicKey>,
 
     /// Application signer for signing setup messages.
     #[cfg(any(feature = "gossipsub", feature = "request-response", feature = "kad"))]
@@ -599,7 +607,7 @@ impl P2P {
         cfg: P2PConfig,
         cancel: CancellationToken,
         mut swarm: Swarm<Behaviour>,
-        #[cfg(feature = "byos")] allowlist: Vec<PublicKey>,
+        #[cfg(feature = "byos")] app_allowlist: Vec<PublicKey>,
         #[cfg(feature = "gossipsub")] channel_size: Option<usize>,
         #[cfg(all(
             feature = "byos",
@@ -728,7 +736,7 @@ impl P2P {
             commands_events: commands_events_tx,
             cancellation_token: cancel,
             #[cfg(feature = "byos")]
-            allowlist: HashSet::from_iter(allowlist),
+            app_allowlist: HashSet::from_iter(app_allowlist),
             #[cfg(any(feature = "gossipsub", feature = "request-response", feature = "kad"))]
             signer,
             #[cfg(feature = "byos")]
@@ -910,7 +918,7 @@ impl P2P {
                     )) => {
                         subscriptions += 1;
                         #[cfg(feature = "byos")]
-                        let total = self.allowlist.len();
+                        let total = self.app_allowlist.len();
                         #[cfg(not(feature = "byos"))]
                         let total = 0; // No allowlist in non-BYOS mode
                         info!(%peer_id, %subscriptions, %total, "got subscription");
@@ -1486,7 +1494,7 @@ impl P2P {
         #[cfg(feature = "byos")]
         {
             if !self
-                .allowlist
+                .app_allowlist
                 .contains(&signed_gossipsub_message.message.public_key)
             {
                 warn!(%propagation_source, "Gossipsub message from peer not in allowlist");
@@ -2228,7 +2236,7 @@ impl P2P {
                 #[cfg(feature = "byos")]
                 {
                     // Check if the public key is in the allowlist
-                    if !self.allowlist.contains(&request.public_key) {
+                    if !self.app_allowlist.contains(&request.public_key) {
                         warn!(%peer_id, "Request from peer not in allowlist");
                         return Ok(());
                     }
@@ -2430,7 +2438,7 @@ impl P2P {
                 {
                     // Check if the public key is in the allowlist
                     if !self
-                        .allowlist
+                        .app_allowlist
                         .contains(&signed_response_message.message.app_public_key)
                     {
                         warn!(%peer_id, "Response from peer not in allowlist");
@@ -2555,7 +2563,7 @@ impl P2P {
                 app_public_key,
                 conn_id,
             } => {
-                if self.allowlist.contains(&app_public_key) {
+                if self.app_allowlist.contains(&app_public_key) {
                     info!(%peer_id, "Received app public key from peer");
                     trace!(%peer_id, ?app_public_key, %conn_id, "App public key details");
                 } else {
@@ -3068,6 +3076,8 @@ macro_rules! finish_swarm {
                 Behaviour::new(
                     protocol_name,
                     &$cfg.transport_keypair,
+                    #[cfg(not(feature = "byos"))]
+                    &$cfg.transport_allowlist,
                     #[cfg(feature = "byos")]
                     &$cfg.app_public_key,
                     #[cfg(feature = "gossipsub")]
@@ -3190,6 +3200,8 @@ pub fn with_default_transport(
             Behaviour::new(
                 protocol_name,
                 &config.transport_keypair,
+                #[cfg(not(feature = "byos"))]
+                &config.transport_allowlist,
                 #[cfg(feature = "byos")]
                 &config.app_public_key,
                 #[cfg(feature = "gossipsub")]

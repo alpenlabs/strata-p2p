@@ -43,6 +43,8 @@ async fn conn_limits() -> anyhow::Result<()> {
             build_multiaddr!(Memory(5000u64 + 2u64)),
             build_multiaddr!(Memory(5000u64 + 3u64)),
         ], // Connect directly to existing users
+        #[cfg(not(feature = "byos"))]
+        None,
         #[cfg(feature = "byos")]
         vec![user_app_keypair2.public(), user_app_keypair3.public()], // Allow all existing users
         vec![build_multiaddr!(Memory(5000u64 + 1u64))],
@@ -73,6 +75,8 @@ async fn conn_limits() -> anyhow::Result<()> {
             build_multiaddr!(Memory(5000u64 + 1u64)),
             build_multiaddr!(Memory(5000u64 + 3u64)),
         ], // Connect directly to existing users
+        #[cfg(not(feature = "byos"))]
+        None,
         #[cfg(feature = "byos")]
         vec![user_app_keypair1.public(), user_app_keypair3.public()], // Allow all existing users
         vec![build_multiaddr!(Memory(5000u64 + 2u64))],
@@ -103,6 +107,8 @@ async fn conn_limits() -> anyhow::Result<()> {
             build_multiaddr!(Memory(5000u64 + 1u64)),
             build_multiaddr!(Memory(5000u64 + 2u64)),
         ], // Connect directly to existing users
+        #[cfg(not(feature = "byos"))]
+        None,
         #[cfg(feature = "byos")]
         vec![user_app_keypair1.public(), user_app_keypair2.public()], // Allow all existing users
         vec![build_multiaddr!(Memory(5000u64 + 3u64))],

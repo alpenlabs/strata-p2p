@@ -89,6 +89,8 @@ async fn gossip_new_user() -> anyhow::Result<()> {
         new_user_app_keypair.clone(),
         new_user_transport_keypair.clone(),
         connect_addrs.clone(), // Connect directly to existing users
+        #[cfg(not(feature = "byos"))]
+        None,
         #[cfg(feature = "byos")]
         new_user_allowlist, // Allow all existing users
         vec![local_addr.clone()],

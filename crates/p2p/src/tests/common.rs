@@ -106,6 +106,7 @@ impl User {
         #[cfg(feature = "byos")] app_keypair: Keypair,
         transport_keypair: Keypair,
         connect_to: Vec<Multiaddr>,
+        #[cfg(not(feature = "byos"))] transport_allowlist: Option<Vec<PeerId>>,
         #[cfg(feature = "byos")] allowlist: Vec<PublicKey>,
         listening_addrs: Vec<Multiaddr>,
         cancel: CancellationToken,
@@ -126,6 +127,8 @@ impl User {
             app_keypair,
             transport_keypair,
             connect_to,
+            #[cfg(not(feature = "byos"))]
+            transport_allowlist,
             #[cfg(feature = "byos")]
             allowlist,
             listening_addrs,
@@ -156,6 +159,7 @@ impl User {
         #[cfg(feature = "byos")] app_keypair: Keypair,
         transport_keypair: Keypair,
         connect_to: Vec<Multiaddr>,
+        #[cfg(not(feature = "byos"))] transport_allowlist: Option<Vec<PeerId>>,
         #[cfg(feature = "byos")] allowlist: Vec<PublicKey>,
         listening_addrs: Vec<Multiaddr>,
         cancel: CancellationToken,
@@ -189,6 +193,8 @@ impl User {
             connection_check_interval: None,
             listening_addrs,
             connect_to,
+            #[cfg(not(feature = "byos"))]
+            transport_allowlist,
             protocol_name: None,
             #[cfg(feature = "gossipsub")]
             gossipsub_topic: None,
@@ -417,6 +423,7 @@ impl Setup {
             let user = User::new_with_timeouts(
                 transport_keypair.clone(),
                 other_addrs,
+                Some(other_peerids),
                 vec![addr.clone()],
                 cancel.child_token(),
                 #[cfg(any(feature = "gossipsub", feature = "request-response"))]
@@ -551,6 +558,7 @@ impl Setup {
             let user = User::new(
                 transport_keypair.clone(),
                 other_addrs,
+                Some(other_peerids),
                 vec![addr.clone()],
                 cancel.child_token(),
                 Box::new(validator.clone()),
@@ -647,6 +655,7 @@ impl Setup {
             let user = User::new(
                 transport_keypair.clone(),
                 other_addrs,
+                Some(other_peerids),
                 vec![addr.clone()],
                 cancel.child_token(),
                 #[cfg(any(feature = "gossipsub", feature = "request-response"))]

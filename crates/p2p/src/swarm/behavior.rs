@@ -14,22 +14,20 @@ use std::time::Duration;
 
 #[cfg(feature = "request-response")]
 use libp2p::StreamProtocol;
+#[cfg(feature = "gossipsub")]
+use libp2p::gossipsub::{
+    self, Behaviour as Gossipsub, IdentityTransform, MessageAuthenticity, PeerScoreParams,
+    PeerScoreThresholds, Sha256Topic, TopicScoreParams, ValidationMode,
+    WhitelistSubscriptionFilter,
+};
 #[cfg(any(feature = "mem-conn-limits-abs", feature = "mem-conn-limits-rel"))]
 use libp2p::memory_connection_limits::Behaviour as MemConnLimitsBehavior;
 #[cfg(feature = "request-response")]
 use libp2p::request_response::{
     Behaviour as RequestResponse, Config as RequestResponseConfig, ProtocolSupport,
 };
-#[cfg(feature = "gossipsub")]
 use libp2p::{
     PeerId,
-    gossipsub::{
-        self, Behaviour as Gossipsub, IdentityTransform, MessageAuthenticity, PeerScoreParams,
-        PeerScoreThresholds, Sha256Topic, TopicScoreParams, ValidationMode,
-        WhitelistSubscriptionFilter,
-    },
-};
-use libp2p::{
     connection_limits::{Behaviour as ConnectionLimitsBehaviour, ConnectionLimits},
     identify::{Behaviour as Identify, Config},
     swarm::NetworkBehaviour,
@@ -264,6 +262,7 @@ impl Behaviour {
     pub fn new(
         protocol_name: &'static str,
         transport_keypair: &Keypair,
+        #[cfg(not(feature = "byos"))] _transport_allowlist: &Option<Vec<PeerId>>,
         #[cfg(feature = "byos")] app_public_key: &PublicKey,
         #[cfg(feature = "gossipsub")] topic: &Sha256Topic,
         #[cfg(feature = "gossipsub")] gossipsub_score_params: &Option<PeerScoreParams>,
