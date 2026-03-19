@@ -26,6 +26,12 @@ pub(crate) mod new_op;
 ))]
 pub(crate) mod validator_integration;
 
+#[cfg(all(
+    any(feature = "gossipsub", feature = "request-response"),
+    not(feature = "byos")
+))]
+pub(crate) mod transport_allowlist;
+
 pub(crate) mod dns;
 
 #[cfg(feature = "quic")]
