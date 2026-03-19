@@ -202,7 +202,9 @@ async fn test_gossip_future_time() -> anyhow::Result<()> {
                 break;
             }
             event = victim.gossip.next_event() => {
-                if let Ok(GossipEvent::ReceivedMessage(data)) = event && data == b"message from future" {
+                if let Ok(GossipEvent::ReceivedMessage(message)) = event
+                    && message.data == b"message from future"
+                {
                     panic!("Victim received future message! Test Failed.");
                 }
             }
@@ -253,7 +255,9 @@ async fn test_gossip_future_time() -> anyhow::Result<()> {
                 break;
             }
             event = victim.gossip.next_event() => {
-                if let Ok(GossipEvent::ReceivedMessage(data)) = event && data == valid_msg_content {
+                if let Ok(GossipEvent::ReceivedMessage(message)) = event
+                    && message.data == valid_msg_content
+                {
                     info!("Victim received valid message (Confirmed)");
                     received = true;
                     break;

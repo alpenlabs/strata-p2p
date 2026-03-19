@@ -189,11 +189,11 @@ async fn gossip_new_user() -> anyhow::Result<()> {
             debug!(?event, "Received event");
 
             match event {
-                GossipEvent::ReceivedMessage(msg) => {
-                    if msg == message_from_inside {
+                GossipEvent::ReceivedMessage(message) => {
+                    if message.data == message_from_inside {
                         info!("User received message from regular user");
                         counter_messages_from_regular_user += 1;
-                    } else if msg == message_from_outsider {
+                    } else if message.data == message_from_outsider {
                         info!("User received message from new user");
                         counter_messages_from_outsider += 1;
                     }
@@ -206,11 +206,11 @@ async fn gossip_new_user() -> anyhow::Result<()> {
         debug!(?event, "New user received event");
 
         match event {
-            GossipEvent::ReceivedMessage(msg) => {
-                if msg == message_from_inside {
+            GossipEvent::ReceivedMessage(message) => {
+                if message.data == message_from_inside {
                     info!("New user received message from regular user");
                     counter_messages_from_regular_user += 1;
-                } else if msg == message_from_outsider {
+                } else if message.data == message_from_outsider {
                     info!("New user received message from new user");
                     counter_messages_from_outsider += 1;
                 }

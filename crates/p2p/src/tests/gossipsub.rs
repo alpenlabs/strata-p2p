@@ -34,8 +34,8 @@ async fn gossip_basic() -> anyhow::Result<()> {
 
     match user_handles[1].gossip.next_event().await {
         Ok(event) => match event {
-            GossipEvent::ReceivedMessage(data) => {
-                assert_eq!(data, Vec::<u8>::from("hello"));
+            GossipEvent::ReceivedMessage(message) => {
+                assert_eq!(message.data, Vec::<u8>::from("hello"));
             }
         },
         Err(e) => bail!("Something is wrong: {e}"),
@@ -77,8 +77,8 @@ async fn gossip_broadcast_stream() -> anyhow::Result<()> {
 
     // Receive the message using BroadcastStream
     match broadcast_stream.next().await {
-        Some(Ok(GossipEvent::ReceivedMessage(data))) => {
-            assert_eq!(data, Vec::<u8>::from("hello from broadcast"));
+        Some(Ok(GossipEvent::ReceivedMessage(message))) => {
+            assert_eq!(message.data, Vec::<u8>::from("hello from broadcast"));
         }
         Some(Err(e)) => bail!("Error receiving from BroadcastStream: {e}"),
         None => bail!("BroadcastStream ended unexpectedly"),

@@ -66,7 +66,7 @@ use tracing::{debug, error, info, trace, warn};
 use {
     crate::{
         commands::GossipCommand,
-        events::GossipEvent,
+        events::{GossipEvent, ReceivedGossipMessage},
         swarm::message::gossipsub::{GossipMessage, SignedGossipsubMessage},
     },
     handle::GossipHandle,
@@ -1607,9 +1607,10 @@ impl P2P {
 
         // Send event to gossip_events channel with the actual message data
         self.gossip_events
-            .send(GossipEvent::ReceivedMessage(
-                signed_gossipsub_message.message.message.clone(),
-            ))
+            .send(GossipEvent::ReceivedMessage(ReceivedGossipMessage {
+                sender: signed_gossipsub_message.message.public_key.clone(),
+                data: signed_gossipsub_message.message.message.clone(),
+            }))
             .map_err(|e| ProtocolError::GossipEventsChannelClosed(e.into()))?;
 
         Ok(())

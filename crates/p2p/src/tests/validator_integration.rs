@@ -95,7 +95,8 @@ async fn test_gossipsub_mute_penalty() -> anyhow::Result<()> {
         })
         .await?;
 
-    let GossipEvent::ReceivedMessage(data) = user_handles[1].gossip.next_event().await?;
+    let GossipEvent::ReceivedMessage(message) = user_handles[1].gossip.next_event().await?;
+    let data = message.data;
     assert_eq!(data, b"normal message");
     info!("Normal message received before mute");
     user_handles[0]
@@ -118,7 +119,8 @@ async fn test_gossipsub_mute_penalty() -> anyhow::Result<()> {
     match result {
         Err(_) => info!("Timeout occurred - peer is correctly muted for gossip"),
         Ok(Ok(event)) => {
-            let GossipEvent::ReceivedMessage(data) = event;
+            let GossipEvent::ReceivedMessage(message) = event;
+            let data = message.data;
             if data == b"this should be muted" {
                 panic!("Received muted message - muting failed!");
             }
@@ -136,7 +138,8 @@ async fn test_gossipsub_mute_penalty() -> anyhow::Result<()> {
         })
         .await?;
 
-    let GossipEvent::ReceivedMessage(data) = user_handles[1].gossip.next_event().await?;
+    let GossipEvent::ReceivedMessage(message) = user_handles[1].gossip.next_event().await?;
+    let data = message.data;
     assert_eq!(data, b"after mute expired");
     info!("Message sent successfully after mute expired");
 
@@ -702,7 +705,8 @@ async fn test_gossipsub_mute_both_penalty() -> anyhow::Result<()> {
         })
         .await?;
 
-    let GossipEvent::ReceivedMessage(data) = user_handles[1].gossip.next_event().await?;
+    let GossipEvent::ReceivedMessage(message) = user_handles[1].gossip.next_event().await?;
+    let data = message.data;
     assert_eq!(data, b"normal message");
     info!("Normal message received before mute");
 
@@ -726,7 +730,8 @@ async fn test_gossipsub_mute_both_penalty() -> anyhow::Result<()> {
     match result {
         Err(_) => info!("Timeout occurred - peer is correctly muted for gossip"),
         Ok(Ok(event)) => {
-            let GossipEvent::ReceivedMessage(data) = event;
+            let GossipEvent::ReceivedMessage(message) = event;
+            let data = message.data;
             if data == b"this should be muted gossip" {
                 panic!("Received muted gossip message - muting failed!");
             }
@@ -744,7 +749,8 @@ async fn test_gossipsub_mute_both_penalty() -> anyhow::Result<()> {
         })
         .await?;
 
-    let GossipEvent::ReceivedMessage(data) = user_handles[1].gossip.next_event().await?;
+    let GossipEvent::ReceivedMessage(message) = user_handles[1].gossip.next_event().await?;
+    let data = message.data;
     assert_eq!(data, b"after mute expired");
     info!("Message sent successfully after mute expired");
 
