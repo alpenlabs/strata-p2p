@@ -68,7 +68,8 @@ async fn test_kad_replay_attack_protection() -> anyhow::Result<()> {
     #[cfg(feature = "byos")]
     let setup_res = Setup::all_to_all_with_new_user_allowlist(1, &alice_key.public()).await?;
     #[cfg(not(feature = "byos"))]
-    let setup_res = Setup::all_to_all(1).await?;
+    let setup_res =
+        Setup::all_to_all_with_new_user_allowlist(1, &alice_key.public().to_peer_id()).await?;
 
     let Setup {
         user_handles,
