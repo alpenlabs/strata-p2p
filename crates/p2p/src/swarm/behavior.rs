@@ -12,23 +12,26 @@ use std::sync::Arc;
 #[cfg(feature = "kad")]
 use std::time::Duration;
 
+#[cfg(not(feature = "byos"))]
+use libp2p::PeerId;
 #[cfg(feature = "request-response")]
 use libp2p::StreamProtocol;
+#[cfg(not(feature = "byos"))]
+use libp2p::allow_block_list;
+#[cfg(feature = "gossipsub")]
+use libp2p::gossipsub::{
+    self, Behaviour as Gossipsub, IdentityTransform, MessageAuthenticity, PeerScoreParams,
+    PeerScoreThresholds, Sha256Topic, TopicScoreParams, ValidationMode,
+    WhitelistSubscriptionFilter,
+};
 #[cfg(any(feature = "mem-conn-limits-abs", feature = "mem-conn-limits-rel"))]
 use libp2p::memory_connection_limits::Behaviour as MemConnLimitsBehavior;
 #[cfg(feature = "request-response")]
 use libp2p::request_response::{
     Behaviour as RequestResponse, Config as RequestResponseConfig, ProtocolSupport,
 };
-#[cfg(feature = "gossipsub")]
-use libp2p::{
-    PeerId,
-    gossipsub::{
-        self, Behaviour as Gossipsub, IdentityTransform, MessageAuthenticity, PeerScoreParams,
-        PeerScoreThresholds, Sha256Topic, TopicScoreParams, ValidationMode,
-        WhitelistSubscriptionFilter,
-    },
-};
+#[cfg(not(feature = "byos"))]
+use libp2p::swarm::behaviour::toggle::Toggle;
 use libp2p::{
     connection_limits::{Behaviour as ConnectionLimitsBehaviour, ConnectionLimits},
     identify::{Behaviour as Identify, Config},
@@ -65,6 +68,10 @@ pub struct Behaviour {
     /// Identification of peers, address to connect to, public keys, etc.
     pub identify: Identify,
 
+    /// Optional allowlist of transport peers for non-BYOS deployments.
+    #[cfg(not(feature = "byos"))]
+    pub transport_allowlist: Toggle<allow_block_list::Behaviour<allow_block_list::AllowedPeers>>,
+
     /// Request-response model for recursive discovery of lost or skipped info.
     #[cfg(feature = "request-response")]
     pub request_response: RequestResponseRawBehaviour,
@@ -87,6 +94,23 @@ pub struct Behaviour {
     /// Denies new connection when used RAM by the process is above a specified percentage of RAM.
     #[cfg(feature = "mem-conn-limits-rel")]
     pub mem_conn_limits_rel: MemConnLimitsBehavior,
+}
+
+#[cfg(not(feature = "byos"))]
+fn create_transport_allowlist(
+    transport_allowlist: &Option<Vec<PeerId>>,
+) -> Toggle<allow_block_list::Behaviour<allow_block_list::AllowedPeers>> {
+    transport_allowlist
+        .as_ref()
+        .map(|peers| {
+            let mut behaviour =
+                allow_block_list::Behaviour::<allow_block_list::AllowedPeers>::default();
+            for peer in peers {
+                behaviour.allow_peer(*peer);
+            }
+            behaviour
+        })
+        .into()
 }
 
 /// Creates a new [`Gossipsub`] given a [`Keypair`] and scoring parameters.
@@ -175,7 +199,7 @@ fn create_gossipsub(
     }
 
     let gossipsub = Gossipsub::new_with_subscription_filter(
-        MessageAuthenticity::Author(PeerId::from_public_key(&keypair.public().clone())),
+        MessageAuthenticity::Author(libp2p::PeerId::from_public_key(&keypair.public().clone())),
         config_builder
             .build()
             .expect("gossipsub config at this stage must be valid"),
@@ -264,6 +288,7 @@ impl Behaviour {
     pub fn new(
         protocol_name: &'static str,
         transport_keypair: &Keypair,
+        #[cfg(not(feature = "byos"))] transport_allowlist: &Option<Vec<PeerId>>,
         #[cfg(feature = "byos")] app_public_key: &PublicKey,
         #[cfg(feature = "gossipsub")] topic: &Sha256Topic,
         #[cfg(feature = "gossipsub")] gossipsub_score_params: &Option<PeerScoreParams>,
@@ -308,6 +333,8 @@ impl Behaviour {
                 protocol_name.to_string(),
                 transport_keypair.public(),
             )),
+            #[cfg(not(feature = "byos"))]
+            transport_allowlist: create_transport_allowlist(transport_allowlist),
             #[cfg(feature = "gossipsub")]
             gossipsub,
             #[cfg(feature = "request-response")]

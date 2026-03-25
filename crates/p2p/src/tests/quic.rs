@@ -42,6 +42,8 @@ async fn test_quic_and_tcp_connectivity_ipv4_ipv6() {
         keypair_a.clone(),
         keypair_a.clone(),
         vec![],
+        #[cfg(not(feature = "byos"))]
+        None,
         #[cfg(feature = "byos")]
         vec![keypair_b.public()],
         vec![
@@ -75,6 +77,8 @@ async fn test_quic_and_tcp_connectivity_ipv4_ipv6() {
         keypair_b.clone(),
         keypair_b.clone(),
         vec![],
+        #[cfg(not(feature = "byos"))]
+        None,
         #[cfg(feature = "byos")]
         vec![keypair_a.public()],
         vec![],
@@ -202,6 +206,8 @@ async fn test_tcp_fallback_on_quic_failure() {
         keypair_a.clone(),
         keypair_a.clone(),
         vec![],
+        #[cfg(not(feature = "byos"))]
+        None,
         #[cfg(feature = "byos")]
         vec![keypair_b.public()],
         vec![tcp4_addr.clone(), quic4_addr.clone()],
@@ -230,6 +236,8 @@ async fn test_tcp_fallback_on_quic_failure() {
         keypair_b.clone(),
         keypair_b.clone(),
         vec![],
+        #[cfg(not(feature = "byos"))]
+        None,
         #[cfg(feature = "byos")]
         vec![keypair_a.public()],
         vec![],

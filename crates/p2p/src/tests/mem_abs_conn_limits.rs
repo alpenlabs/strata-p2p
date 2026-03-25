@@ -36,6 +36,8 @@ async fn mem_conn_limits_abs() -> anyhow::Result<()> {
         user_app_keypair1.clone(),
         user_transport_keypair1.clone(),
         vec![build_multiaddr!(Memory(6000u64 + 2u64))], // Connect directly to existing users
+        #[cfg(not(feature = "byos"))]
+        None,
         #[cfg(feature = "byos")]
         vec![user_app_keypair2.public()], // Allow all existing users
         vec![build_multiaddr!(Memory(6000u64 + 1u64))],
@@ -63,6 +65,8 @@ async fn mem_conn_limits_abs() -> anyhow::Result<()> {
         user_app_keypair2.clone(),
         user_transport_keypair2.clone(),
         vec![build_multiaddr!(Memory(6000u64 + 1u64))], // Connect directly to existing users
+        #[cfg(not(feature = "byos"))]
+        None,
         #[cfg(feature = "byos")]
         vec![user_app_keypair1.public()], // Allow all existing users
         vec![build_multiaddr!(Memory(6000u64 + 2u64))],

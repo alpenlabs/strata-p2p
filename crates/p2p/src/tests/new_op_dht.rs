@@ -33,6 +33,7 @@ async fn dht_new_user() -> anyhow::Result<()> {
     const USERS_NUM: usize = 9;
 
     // Generate a keypair for the new user
+    let new_user_transport_keypair = Keypair::generate_ed25519();
     #[cfg(feature = "byos")]
     let new_user_app_keypair = Keypair::generate_ed25519();
 
@@ -55,7 +56,11 @@ async fn dht_new_user() -> anyhow::Result<()> {
         user_handles,
         cancel,
         tasks,
-    } = Setup::all_to_all(USERS_NUM).await?;
+    } = Setup::all_to_all_with_new_user_allowlist(
+        USERS_NUM,
+        &new_user_transport_keypair.public().to_peer_id(),
+    )
+    .await?;
 
     // Get connection addresses of first old user for the new user to connect to.
     info!("Getting listening addresses for new user");
@@ -77,13 +82,16 @@ async fn dht_new_user() -> anyhow::Result<()> {
 
     // Create new user with allowlist of all existing users
     info!(%local_addr, "Creating new user to listen");
-    let new_user_transport_keypair = Keypair::generate_ed25519();
-
     // Create allowlist for new user (all existing users)
     #[cfg(feature = "byos")]
     let new_user_allowlist = user_handles
         .iter()
         .map(|handle| handle.app_keypair.public())
+        .collect::<Vec<_>>();
+    #[cfg(not(feature = "byos"))]
+    let new_user_allowlist = user_handles
+        .iter()
+        .map(|handle| handle.peer_id)
         .collect::<Vec<_>>();
 
     let mut new_user = User::new(
@@ -91,6 +99,8 @@ async fn dht_new_user() -> anyhow::Result<()> {
         new_user_app_keypair.clone(),
         new_user_transport_keypair.clone(),
         vec![connect_addr.clone()], // Connect directly to existing user
+        #[cfg(not(feature = "byos"))]
+        Some(new_user_allowlist),
         #[cfg(feature = "byos")]
         new_user_allowlist, // Allow all existing users
         vec![local_addr.clone()],
@@ -140,7 +150,7 @@ async fn dht_new_user() -> anyhow::Result<()> {
             #[cfg(feature = "byos")]
             app_public_key,
             #[cfg(not(feature = "byos"))]
-            transport_id: user_handles[0].peer_id,
+            transport_id: new_user.transport_keypair.public().to_peer_id(),
             addresses: vec![local_addr.clone()],
         })
         .await;

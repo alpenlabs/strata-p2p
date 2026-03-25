@@ -106,6 +106,7 @@ impl User {
         #[cfg(feature = "byos")] app_keypair: Keypair,
         transport_keypair: Keypair,
         connect_to: Vec<Multiaddr>,
+        #[cfg(not(feature = "byos"))] transport_allowlist: Option<Vec<PeerId>>,
         #[cfg(feature = "byos")] allowlist: Vec<PublicKey>,
         listening_addrs: Vec<Multiaddr>,
         cancel: CancellationToken,
@@ -126,6 +127,8 @@ impl User {
             app_keypair,
             transport_keypair,
             connect_to,
+            #[cfg(not(feature = "byos"))]
+            transport_allowlist,
             #[cfg(feature = "byos")]
             allowlist,
             listening_addrs,
@@ -156,6 +159,7 @@ impl User {
         #[cfg(feature = "byos")] app_keypair: Keypair,
         transport_keypair: Keypair,
         connect_to: Vec<Multiaddr>,
+        #[cfg(not(feature = "byos"))] transport_allowlist: Option<Vec<PeerId>>,
         #[cfg(feature = "byos")] allowlist: Vec<PublicKey>,
         listening_addrs: Vec<Multiaddr>,
         cancel: CancellationToken,
@@ -189,6 +193,8 @@ impl User {
             connection_check_interval: None,
             listening_addrs,
             connect_to,
+            #[cfg(not(feature = "byos"))]
+            transport_allowlist,
             protocol_name: None,
             #[cfg(feature = "gossipsub")]
             gossipsub_topic: None,
@@ -333,6 +339,7 @@ pub(crate) struct SetupInitialData {
     #[cfg(feature = "byos")]
     pub(crate) app_keypairs: Vec<Keypair>,
     pub(crate) transport_keypairs: Vec<Keypair>,
+    #[cfg(any(not(feature = "byos"), feature = "kad"))]
     pub(crate) peer_ids: Vec<PeerId>,
     pub(crate) multiaddresses: Vec<libp2p::Multiaddr>,
 }
@@ -354,8 +361,10 @@ impl Setup {
             #[cfg(feature = "byos")]
             app_keypairs,
             transport_keypairs,
+            #[cfg(not(feature = "byos"))]
             peer_ids,
             multiaddresses,
+            ..
         } = Self::setup_keys_ids_addrs_of_n_users(n);
 
         let cancel = CancellationToken::new();
@@ -370,8 +379,6 @@ impl Setup {
         {
             let mut other_addrs = multiaddresses.clone();
             other_addrs.remove(idx);
-            let mut other_peerids = peer_ids.clone();
-            other_peerids.remove(idx);
             let mut other_app_pk = app_keypairs
                 .iter()
                 .map(|kp| kp.public())
@@ -417,6 +424,7 @@ impl Setup {
             let user = User::new_with_timeouts(
                 transport_keypair.clone(),
                 other_addrs,
+                Some(other_peerids),
                 vec![addr.clone()],
                 cancel.child_token(),
                 #[cfg(any(feature = "gossipsub", feature = "request-response"))]
@@ -446,23 +454,28 @@ impl Setup {
         })
     }
 
-    /// Spawn `n` users that are connected "all-to-all" with a new user's public key
+    /// Spawn `n` users that are connected "all-to-all" with a new user's identity
     /// pre-included in their allowlist.
-    #[cfg(all(feature = "byos", any(feature = "gossipsub", feature = "kad")))]
+    #[cfg(any(feature = "gossipsub", feature = "kad"))]
     pub(crate) async fn all_to_all_with_new_user_allowlist(
         n: usize,
-        new_user_app_public_key: &PublicKey,
+        #[cfg(feature = "byos")] new_user_app_public_key: &PublicKey,
+        #[cfg(not(feature = "byos"))] new_user_transport_peer_id: &PeerId,
     ) -> anyhow::Result<Self> {
         let SetupInitialData {
+            #[cfg(feature = "byos")]
             app_keypairs,
             transport_keypairs,
+            #[cfg(not(feature = "byos"))]
             peer_ids,
             multiaddresses,
+            ..
         } = Self::setup_keys_ids_addrs_of_n_users(n);
 
         let cancel = CancellationToken::new();
         let mut users = Vec::new();
 
+        #[cfg(feature = "byos")]
         for (idx, ((app_keypair, transport_keypair), addr)) in app_keypairs
             .iter()
             .zip(&transport_keypairs)
@@ -471,32 +484,54 @@ impl Setup {
         {
             let mut other_addrs = multiaddresses.clone();
             other_addrs.remove(idx);
-            let mut other_peerids = peer_ids.clone();
-            other_peerids.remove(idx);
-
-            #[cfg(feature = "byos")]
             let mut allowlist = app_keypairs
                 .iter()
                 .map(|kp| kp.public())
                 .collect::<Vec<_>>();
-            #[cfg(feature = "byos")]
             allowlist.remove(idx);
-            #[cfg(feature = "byos")]
             allowlist.push(new_user_app_public_key.clone());
 
             let user = User::new(
                 app_keypair.clone(),
                 transport_keypair.clone(),
                 other_addrs,
-                #[cfg(feature = "byos")]
                 allowlist,
                 vec![addr.clone()],
                 cancel.child_token(),
-                #[cfg(feature = "byos")]
                 Arc::new(MockApplicationSigner {
                     app_keypair: app_keypair.clone(),
                 }),
-                #[cfg(not(feature = "byos"))]
+                ConnectionLimits::default().with_max_established(Some(u32::MAX)),
+                #[cfg(feature = "mem-conn-limits-abs")]
+                SIXTEEN_GIBIBYTES,
+                #[cfg(feature = "mem-conn-limits-rel")]
+                1.0, // 100 %
+                #[cfg(feature = "kad")]
+                None,
+                #[cfg(feature = "kad")]
+                None,
+            )?;
+
+            users.push(user);
+        }
+
+        #[cfg(not(feature = "byos"))]
+        for (idx, (transport_keypair, addr)) in
+            transport_keypairs.iter().zip(&multiaddresses).enumerate()
+        {
+            let mut other_addrs = multiaddresses.clone();
+            other_addrs.remove(idx);
+            let mut other_peerids = peer_ids.clone();
+            other_peerids.remove(idx);
+            other_peerids.push(*new_user_transport_peer_id);
+
+            let user = User::new(
+                transport_keypair.clone(),
+                other_addrs,
+                Some(other_peerids),
+                vec![addr.clone()],
+                cancel.child_token(),
+                #[cfg(any(feature = "gossipsub", feature = "request-response"))]
                 Box::new(DefaultP2PValidator),
                 ConnectionLimits::default().with_max_established(Some(u32::MAX)),
                 #[cfg(feature = "mem-conn-limits-abs")]
@@ -551,6 +586,7 @@ impl Setup {
             let user = User::new(
                 transport_keypair.clone(),
                 other_addrs,
+                Some(other_peerids),
                 vec![addr.clone()],
                 cancel.child_token(),
                 Box::new(validator.clone()),
@@ -647,6 +683,7 @@ impl Setup {
             let user = User::new(
                 transport_keypair.clone(),
                 other_addrs,
+                Some(other_peerids),
                 vec![addr.clone()],
                 cancel.child_token(),
                 #[cfg(any(feature = "gossipsub", feature = "request-response"))]
@@ -693,6 +730,7 @@ impl Setup {
             len_transport_keypairs= %transport_keypairs.len()
         );
 
+        #[cfg(any(not(feature = "byos"), feature = "kad"))]
         let peer_ids = transport_keypairs
             .iter()
             .map(|key| PeerId::from_public_key(&key.clone().public()))
@@ -719,6 +757,7 @@ impl Setup {
             #[cfg(feature = "byos")]
             app_keypairs,
             transport_keypairs,
+            #[cfg(any(not(feature = "byos"), feature = "kad"))]
             peer_ids,
             multiaddresses,
         }

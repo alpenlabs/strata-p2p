@@ -48,6 +48,7 @@ struct Behaviour {
 async fn test_do_not_find_invalid_record() -> anyhow::Result<()> {
     init_tracing();
     const USERS_NUM: usize = 9;
+    let local_key = identity::Keypair::generate_ed25519();
 
     info!(users = USERS_NUM, "Setting up users in all-to-all topology");
 
@@ -55,7 +56,8 @@ async fn test_do_not_find_invalid_record() -> anyhow::Result<()> {
         mut user_handles,
         cancel,
         tasks,
-    } = Setup::all_to_all(USERS_NUM).await?;
+    } = Setup::all_to_all_with_new_user_allowlist(USERS_NUM, &local_key.public().to_peer_id())
+        .await?;
 
     // Get connection addresses of old users for the new user to connect to.
     info!("Getting listening addresses for new user");
@@ -81,8 +83,6 @@ async fn test_do_not_find_invalid_record() -> anyhow::Result<()> {
     }
 
     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-
-    let local_key = identity::Keypair::generate_ed25519();
 
     let mut swarm = libp2p::SwarmBuilder::with_existing_identity(local_key.clone())
         .with_tokio()
@@ -230,6 +230,7 @@ async fn test_do_not_find_invalid_record() -> anyhow::Result<()> {
 async fn test_do_not_find_empty_record() -> anyhow::Result<()> {
     init_tracing();
     const USERS_NUM: usize = 9;
+    let local_key = identity::Keypair::generate_ed25519();
 
     info!(users = USERS_NUM, "Setting up users in all-to-all topology");
 
@@ -237,7 +238,8 @@ async fn test_do_not_find_empty_record() -> anyhow::Result<()> {
         mut user_handles,
         cancel,
         tasks,
-    } = Setup::all_to_all(USERS_NUM).await?;
+    } = Setup::all_to_all_with_new_user_allowlist(USERS_NUM, &local_key.public().to_peer_id())
+        .await?;
 
     // Get connection addresses of old users for the new user to connect to.
     info!("Getting listening addresses for new user");
@@ -263,8 +265,6 @@ async fn test_do_not_find_empty_record() -> anyhow::Result<()> {
     }
 
     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-
-    let local_key = identity::Keypair::generate_ed25519();
 
     let mut swarm = libp2p::SwarmBuilder::with_existing_identity(local_key.clone())
         .with_tokio()
@@ -414,6 +414,7 @@ async fn test_do_not_find_empty_record() -> anyhow::Result<()> {
 async fn test_do_not_find_record_with_not_corresponding_key() -> anyhow::Result<()> {
     init_tracing();
     const USERS_NUM: usize = 9;
+    let local_key = identity::Keypair::generate_ed25519();
 
     info!(users = USERS_NUM, "Setting up users in all-to-all topology");
 
@@ -421,7 +422,8 @@ async fn test_do_not_find_record_with_not_corresponding_key() -> anyhow::Result<
         mut user_handles,
         cancel,
         tasks,
-    } = Setup::all_to_all(USERS_NUM).await?;
+    } = Setup::all_to_all_with_new_user_allowlist(USERS_NUM, &local_key.public().to_peer_id())
+        .await?;
 
     // Get connection addresses of old users for the new user to connect to.
     info!("Getting listening addresses for new user");
@@ -447,8 +449,6 @@ async fn test_do_not_find_record_with_not_corresponding_key() -> anyhow::Result<
     }
 
     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-
-    let local_key = identity::Keypair::generate_ed25519();
 
     let mut swarm = libp2p::SwarmBuilder::with_existing_identity(local_key.clone())
         .with_tokio()

@@ -34,8 +34,8 @@ async fn test_gossip_future_time() -> anyhow::Result<()> {
     let SetupInitialData {
         app_keypairs,
         transport_keypairs,
-        peer_ids: _peer_ids,
         multiaddresses,
+        ..
     } = Setup::setup_keys_ids_addrs_of_n_users(2);
 
     let victim_idx = 0;
