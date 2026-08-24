@@ -26,4 +26,6 @@ jobs:
         uses: rustsec/audit-check@dd51754d4e59da7395a4cd9b593f0ff2d61a9b95 # v1.4.1
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-        continue-on-error: true # don't fail the build if there are vulnerabilities.
+          # RUSTSEC-2026-0118 has no fixed release. RUSTSEC-2026-0119 requires
+          # hickory-proto 0.26.1, while libp2p 0.56.0 still depends on 0.25.
+          ignore: RUSTSEC-2026-0118,RUSTSEC-2026-0119
