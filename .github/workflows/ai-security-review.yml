@@ -96,6 +96,7 @@ jobs:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           anthropic_api_key: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN == '' && secrets.ANTHROPIC_API_KEY || '' }}
           github_token: ${{ github.token }}
+          allowed_bots: github-actions
           use_sticky_comment: true
           prompt: |
             Perform a security review of pull request #${{ github.event.pull_request.number || inputs.pr_number }} in ${{ github.repository }}.

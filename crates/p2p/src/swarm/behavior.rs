@@ -4,6 +4,10 @@
     missing_docs,
     reason = "avoid 'missing documentation for a variant' error from deriving `NetworkBehaviour`"
 )]
+#![allow(
+    unreachable_code,
+    reason = "the NetworkBehaviour derive emits unreachable conversions for uninhabited event types"
+)]
 
 #[cfg(feature = "gossipsub")]
 use std::collections::HashSet;
