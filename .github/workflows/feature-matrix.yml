@@ -35,7 +35,7 @@ jobs:
           persist-credentials: false
       - name: extract-rust-version
         id: extract-version
-        uses: ./.github/actions/extract-rust-version
+        uses: $/.github/actions/extract-rust-version # zizmor: ignore[unpinned-uses]
 
   test:
     name: test (feature matrix)
