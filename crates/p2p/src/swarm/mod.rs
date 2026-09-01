@@ -3044,7 +3044,13 @@ macro_rules! init_swarm {
 macro_rules! finish_swarm {
     ($builder:expr, $cfg:expr, $signer:expr) => {
         $builder
-            .map_err(|e| ProtocolError::TransportInitialization(e.into()))?
+            .map_err(|e| {
+                #[allow(
+                    unreachable_code,
+                    reason = "with_other_transport uses an uninhabited error type"
+                )]
+                ProtocolError::TransportInitialization(e.into())
+            })?
             .with_behaviour(|_| {
                 #[cfg(feature = "gossipsub")]
                 let topic = {
