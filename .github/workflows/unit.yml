@@ -38,7 +38,7 @@ jobs:
 
       - name: Extract Rust version
         id: extract-version
-        uses: ./.github/actions/extract-rust-version
+        uses: $/.github/actions/extract-rust-version # zizmor: ignore[unpinned-uses]
 
   test:
     name: Run unit tests and generate report
