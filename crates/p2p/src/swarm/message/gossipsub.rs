@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::swarm::message::{
     ProtocolId, get_timestamp,
-    serde::pubkey_serializer,
+    serde::{bytes_serializer, pubkey_serializer},
     signed::{HasPublicKey, SignedMessage},
 };
 
@@ -30,6 +30,7 @@ pub struct GossipMessage {
     /// Protocol identifier (gossipsub).
     pub protocol: ProtocolId,
     /// Gossipsub message data
+    #[serde(with = "bytes_serializer")]
     pub message: Vec<u8>,
     /// The public key (Ed25519). Application public key if `byos` feature is enabled, otherwise
     /// transport
