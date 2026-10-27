@@ -20,7 +20,7 @@ use crate::tests::common::SIXTEEN_GIBIBYTES;
 use crate::validator::DefaultP2PValidator;
 use crate::{
     commands::{Command, QueryP2PStateCommand},
-    tests::common::{User, init_tracing},
+    tests::common::{User, init_tracing, wait_for_connection_state},
 };
 
 /// Test QUIC and TCP connectivity on IPv4 and IPv6.
@@ -136,22 +136,10 @@ async fn test_quic_and_tcp_connectivity_ipv4_ipv6() {
         };
         command_b.send_command(connect_cmd).await;
 
-        time::sleep(Duration::from_millis(200)).await;
-
-        let (tx, rx) = oneshot::channel();
-        let is_connected_query = QueryP2PStateCommand::IsConnected {
-            #[cfg(feature = "byos")]
-            app_public_key: keypair_a.public(),
-            #[cfg(not(feature = "byos"))]
-            transport_id: keypair_a.public().to_peer_id(),
-            response_sender: tx,
-        };
-        command_b
-            .send_command(Command::QueryP2PState(is_connected_query))
-            .await;
-        let is_connected = rx.await.expect("Failed to check connection status");
-
-        assert!(is_connected, "Failed to establish {addr} connection");
+        assert!(
+            wait_for_connection_state(&command_b, &keypair_a, true).await,
+            "Failed to establish {addr} connection"
+        );
 
         command_b
             .send_command(Command::DisconnectFromPeer {
@@ -163,23 +151,10 @@ async fn test_quic_and_tcp_connectivity_ipv4_ipv6() {
             .await;
         info!(%addr, "Disconnect requested");
 
-        time::sleep(Duration::from_millis(200)).await;
-        let (tx, rx) = oneshot::channel();
-        let is_connected_query = QueryP2PStateCommand::IsConnected {
-            #[cfg(feature = "byos")]
-            app_public_key: keypair_a.public(),
-            #[cfg(not(feature = "byos"))]
-            transport_id: keypair_a.public().to_peer_id(),
-            response_sender: tx,
-        };
-        command_b
-            .send_command(Command::QueryP2PState(is_connected_query))
-            .await;
-        let is_connected = rx
-            .await
-            .expect("Failed to check connection status after disconnect");
+        // Poll instead of checking once after a fixed delay: Kademlia's automatic bootstrap
+        // may legitimately redial the peer shortly after we disconnect from it.
         assert!(
-            !is_connected,
+            wait_for_connection_state(&command_b, &keypair_a, false).await,
             "{addr} connection was not properly disconnected"
         );
     }

@@ -6,7 +6,6 @@ use anyhow::bail;
 use futures::StreamExt;
 use libp2p::{
     Multiaddr, StreamProtocol, Transport, build_multiaddr,
-    bytes::BufMut,
     core::{muxing::StreamMuxerBox, transport::MemoryTransport},
     identify::{Behaviour as Identify, Config},
     identity,
@@ -164,10 +163,11 @@ async fn test_kad_replay_attack_protection() -> anyhow::Result<()> {
     let mut r1_record: Option<kad::Record> = None;
     let mut r2_record: Option<kad::Record> = None;
 
-    // Key for the record
-    let mut pk_record_key = vec![];
-    pk_record_key.put_slice(alice_peer_id.to_bytes().as_slice());
-    let record_key = RecordKey::new(&pk_record_key);
+    // Key for the record, encoded the same way the swarm encodes its own DHT record key.
+    #[cfg(feature = "byos")]
+    let record_key = RecordKey::new(&alice_key.public().encode_protobuf());
+    #[cfg(not(feature = "byos"))]
+    let record_key = RecordKey::new(&alice_peer_id.to_bytes());
 
     loop {
         tokio::select! {

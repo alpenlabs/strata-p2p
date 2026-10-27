@@ -21,12 +21,15 @@ use crate::signer::ApplicationSigner;
 use crate::swarm::handle::GossipHandle;
 #[cfg(feature = "request-response")]
 use crate::swarm::handle::ReqRespHandle;
-use crate::swarm::{self, P2P, P2PConfig, handle::CommandHandle};
 #[cfg(all(
     any(feature = "gossipsub", feature = "request-response"),
     not(feature = "byos")
 ))]
 use crate::validator::{DefaultP2PValidator, Validator};
+use crate::{
+    commands::{Command, QueryP2PStateCommand},
+    swarm::{self, P2P, P2PConfig, handle::CommandHandle},
+};
 
 #[cfg(feature = "mem-conn-limits-abs")]
 pub(crate) const SIXTEEN_GIBIBYTES: usize = 16 * 1024 * 1024 * 1024; // https://en.wikipedia.org/wiki/Byte#Multiple-byte_units
@@ -43,6 +46,42 @@ pub(crate) fn init_tracing() {
             .with(fmt::layer().with_file(true).with_line_number(true))
             .init();
     });
+}
+
+/// How long to wait for a connection state change to be observed.
+const CONNECTION_STATE_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Interval between connection state queries.
+const CONNECTION_STATE_POLL_INTERVAL: Duration = Duration::from_millis(10);
+
+/// Polls `command` until its connection state towards `peer` equals `expected`.
+///
+/// Returns `false` if the state was not observed within [`CONNECTION_STATE_TIMEOUT`].
+pub(crate) async fn wait_for_connection_state(
+    command: &CommandHandle,
+    peer: &Keypair,
+    expected: bool,
+) -> bool {
+    tokio::time::timeout(CONNECTION_STATE_TIMEOUT, async {
+        loop {
+            let (tx, rx) = tokio::sync::oneshot::channel();
+            command
+                .send_command(Command::QueryP2PState(QueryP2PStateCommand::IsConnected {
+                    #[cfg(feature = "byos")]
+                    app_public_key: peer.public(),
+                    #[cfg(not(feature = "byos"))]
+                    transport_id: peer.public().to_peer_id(),
+                    response_sender: tx,
+                }))
+                .await;
+            if rx.await.expect("Failed to check connection status") == expected {
+                return;
+            }
+            tokio::time::sleep(CONNECTION_STATE_POLL_INTERVAL).await;
+        }
+    })
+    .await
+    .is_ok()
 }
 
 /// Mock ApplicationSigner for testing that stores the actual keypair

@@ -37,7 +37,7 @@ use libp2p::identity::PublicKey;
 #[cfg(feature = "kad")]
 use libp2p::kad::{
     Event as KademliaEvent,
-    GetRecordError::{NotFound, QuorumFailed, Timeout},
+    GetRecordError::{NotFound, Timeout},
     GetRecordOk::FinishedWithNoAdditionalRecord,
     GetRecordOk::FoundRecord,
     InboundRequest, PutRecordError, PutRecordOk, QueryId, QueryResult, Quorum, Record, RecordKey,
@@ -2949,8 +2949,7 @@ impl P2P {
                 }
                 QueryResult::GetRecord(Ok(FinishedWithNoAdditionalRecord { .. }))
                 | QueryResult::GetRecord(Err(Timeout { .. }))
-                | QueryResult::GetRecord(Err(NotFound { .. }))
-                | QueryResult::GetRecord(Err(QuorumFailed { .. })) => {
+                | QueryResult::GetRecord(Err(NotFound { .. })) => {
                     debug!(
                         %id, ?stats, ?step, "Finished query of finding a record."
                     );
