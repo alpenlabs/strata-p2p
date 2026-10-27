@@ -20,7 +20,7 @@ use crate::tests::common::SIXTEEN_GIBIBYTES;
 use crate::validator::DefaultP2PValidator;
 use crate::{
     commands::{Command, QueryP2PStateCommand},
-    tests::common::{User, init_tracing},
+    tests::common::{User, init_tracing, wait_for_connection_state},
 };
 
 /// Test that a peer can connect to another peer using a `/dns4/localhost/...` address.
@@ -320,19 +320,10 @@ async fn test_dns4_establish_connections_tracking() {
     );
 
     // Also verify actual connectivity
-    time::sleep(Duration::from_millis(100)).await;
-    let (tx, rx) = oneshot::channel();
-    command_b
-        .send_command(Command::QueryP2PState(QueryP2PStateCommand::IsConnected {
-            #[cfg(feature = "byos")]
-            app_public_key: keypair_a.public(),
-            #[cfg(not(feature = "byos"))]
-            transport_id: keypair_a.public().to_peer_id(),
-            response_sender: tx,
-        }))
-        .await;
-    let is_connected = rx.await.expect("Failed to check connection status");
-    assert!(is_connected, "Not connected after establish_connections");
+    assert!(
+        wait_for_connection_state(&command_b, &keypair_a, true).await,
+        "Not connected after establish_connections"
+    );
 
     cancel.cancel();
     let _ = join!(task_a, task_b);
