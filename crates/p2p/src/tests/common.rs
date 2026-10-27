@@ -10,7 +10,7 @@ use libp2p::identity::PublicKey;
 use libp2p::{
     Multiaddr, PeerId, build_multiaddr, connection_limits::ConnectionLimits, identity::Keypair,
 };
-use rand::Rng;
+use rand::RngExt;
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use tracing::debug;
 use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, util::SubscriberInitExt};

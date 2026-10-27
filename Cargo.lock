@@ -2856,7 +2856,7 @@ dependencies = [
  "flexbuffers",
  "futures",
  "libp2p",
- "rand 0.9.5",
+ "rand 0.10.2",
  "serde",
  "thiserror 2.0.21",
  "tokio",

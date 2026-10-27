@@ -49,7 +49,7 @@ tracing.workspace = true
 
 [dev-dependencies]
 anyhow = "1.0.95"
-rand = "0.9.1"
+rand = "0.10.2"
 tokio = { workspace = true, features = ["rt", "rt-multi-thread"] }
 tokio-stream.workspace = true
 tokio-util.workspace = true
