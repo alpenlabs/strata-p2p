@@ -28,6 +28,3 @@ jobs:
         uses: rustsec/audit-check@69366f33c96575abad1ee0dba8212993eecbe998 # v2.0.0
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          # RUSTSEC-2026-0118 has no fixed release. RUSTSEC-2026-0119 requires
-          # hickory-proto 0.26.1, while libp2p 0.56.0 still depends on 0.25.
-          ignore: RUSTSEC-2026-0118,RUSTSEC-2026-0119
