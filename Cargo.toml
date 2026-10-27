@@ -52,5 +52,5 @@ tokio-util = { version = "0.7.13", default-features = false, features = ["rt"] }
 tracing = { version = "0.1.41", default-features = false }
 tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
 
-[profile.test.package.rand_chacha]
+[profile.test.package.chacha20]
 opt-level = 3
