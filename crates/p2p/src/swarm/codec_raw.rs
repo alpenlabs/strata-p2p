@@ -11,7 +11,6 @@
 use std::{
     io,
     marker::PhantomData,
-    pin::Pin,
     sync::atomic::{AtomicU64, Ordering},
 };
 
@@ -59,105 +58,67 @@ impl Clone for Codec {
     }
 }
 
-// Note: the next code looks ugly because libp2p uses crate `async_trait` which is an old
-// workaround of declaring `async fn` in a trait, and we moved away from using the crate
-// since, technically speaking, from Rust 1.75.0 it's possible to write `async fn`. But
-// because the old workaround and new way are not strictly compatible, we had to desugar it
-// in a spectacular way because Rust has some problems with implicit lifetimes in
-// such contexts.
 #[cfg(feature = "request-response")]
 impl request_response::Codec for Codec {
     type Protocol = StreamProtocol;
     type Request = Vec<u8>;
     type Response = Vec<u8>;
 
-    fn read_request<'life0, 'life1, 'life2, 'async_trait, T>(
-        &'life0 mut self,
-        _: &'life1 Self::Protocol,
-        io: &'life2 mut T,
-    ) -> Pin<Box<dyn Future<Output = io::Result<Self::Request>> + Send + 'async_trait>>
+    async fn read_request<T>(&mut self, _: &Self::Protocol, io: &mut T) -> io::Result<Self::Request>
     where
         T: AsyncRead + Unpin + Send,
-        T: 'async_trait,
-        'life0: 'async_trait,
-        'life1: 'async_trait,
-        'life2: 'async_trait,
-        Self: 'async_trait,
     {
-        Box::pin(async move {
-            let mut vec = Vec::new();
+        let mut vec = Vec::new();
 
-            io.take(REQUEST_SIZE_MAXIMUM.load(Ordering::Relaxed))
-                .read_to_end(&mut vec)
-                .await?;
+        io.take(REQUEST_SIZE_MAXIMUM.load(Ordering::Relaxed))
+            .read_to_end(&mut vec)
+            .await?;
 
-            Ok(vec)
-        })
+        Ok(vec)
     }
 
-    fn read_response<'life0, 'life1, 'life2, 'async_trait, T>(
-        &'life0 mut self,
-        _: &'life1 Self::Protocol,
-        io: &'life2 mut T,
-    ) -> Pin<Box<dyn Future<Output = io::Result<Self::Response>> + Send + 'async_trait>>
+    async fn read_response<T>(
+        &mut self,
+        _: &Self::Protocol,
+        io: &mut T,
+    ) -> io::Result<Self::Response>
     where
         T: AsyncRead + Unpin + Send,
-        T: 'async_trait,
-        'life0: 'async_trait,
-        'life1: 'async_trait,
-        'life2: 'async_trait,
-        Self: 'async_trait,
     {
-        Box::pin(async move {
-            let mut vec = Vec::new();
+        let mut vec = Vec::new();
 
-            io.take(RESPONSE_SIZE_MAXIMUM.load(Ordering::Relaxed))
-                .read_to_end(&mut vec)
-                .await?;
+        io.take(RESPONSE_SIZE_MAXIMUM.load(Ordering::Relaxed))
+            .read_to_end(&mut vec)
+            .await?;
 
-            Ok(vec)
-        })
+        Ok(vec)
     }
 
-    fn write_request<'life0, 'life1, 'life2, 'async_trait, T>(
-        &'life0 mut self,
-        _: &'life1 Self::Protocol,
-        io: &'life2 mut T,
+    async fn write_request<T>(
+        &mut self,
+        _: &Self::Protocol,
+        io: &mut T,
         req: Self::Request,
-    ) -> Pin<Box<dyn Future<Output = io::Result<()>> + Send + 'async_trait>>
+    ) -> io::Result<()>
     where
         T: AsyncWrite + Unpin + Send,
-        T: 'async_trait,
-        'life0: 'async_trait,
-        'life1: 'async_trait,
-        'life2: 'async_trait,
-        Self: 'async_trait,
     {
-        Box::pin(async move {
-            io.write_all(&req).await?;
+        io.write_all(&req).await?;
 
-            Ok(())
-        })
+        Ok(())
     }
 
-    fn write_response<'life0, 'life1, 'life2, 'async_trait, T>(
-        &'life0 mut self,
-        _: &'life1 Self::Protocol,
-        io: &'life2 mut T,
+    async fn write_response<T>(
+        &mut self,
+        _: &Self::Protocol,
+        io: &mut T,
         resp: Self::Response,
-    ) -> Pin<Box<dyn Future<Output = io::Result<()>> + Send + 'async_trait>>
+    ) -> io::Result<()>
     where
         T: AsyncWrite + Unpin + Send,
-        T: 'async_trait,
-        'life0: 'async_trait,
-        'life1: 'async_trait,
-        'life2: 'async_trait,
-        Self: 'async_trait,
     {
-        Box::pin(async move {
-            io.write_all(&resp).await?;
+        io.write_all(&resp).await?;
 
-            Ok(())
-        })
+        Ok(())
     }
 }
