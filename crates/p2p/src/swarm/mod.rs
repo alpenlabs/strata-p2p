@@ -3040,6 +3040,11 @@ macro_rules! init_swarm {
 ///
 /// Macro is used as there is no way to specify this behaviour in function, because `with_tcp` and
 /// `with_other_transport` return completely different types that can't be generalized.
+///
+/// `$signer` is only expanded in `byos`-gated positions, so without the `byos` feature it is
+/// stripped before name resolution and callers can pass a `signer` binding that does not exist.
+/// Do not put `#[cfg]` on the argument at the call site: it would be pasted onto the
+/// `$signer.clone()` receiver, which rustc rejects.
 macro_rules! finish_swarm {
     ($builder:expr, $cfg:expr, $signer:expr) => {
         $builder
@@ -3146,7 +3151,6 @@ pub fn with_inmemory_transport(
                 .map(|(p, c), _| (p, StreamMuxerBox::new(c)))
         }),
         config,
-        #[cfg(feature = "byos")]
         signer
     );
 
@@ -3261,12 +3265,7 @@ pub fn with_default_transport(
                 yamux::Config::default,
             )
             .map_err(|e| ProtocolError::TransportInitialization(e.into()))?;
-        finish_swarm!(
-            tcp_builder.with_dns(),
-            config,
-            #[cfg(feature = "byos")]
-            signer
-        )
+        finish_swarm!(tcp_builder.with_dns(), config, signer)
     };
     Ok(swarm)
 }
